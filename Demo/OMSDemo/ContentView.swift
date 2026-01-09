@@ -10,6 +10,7 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject var viewModel = ContentViewModel()
+    private let canvasSize = CGSize(width: 600, height: 400)
 
     var body: some View {
         VStack {
@@ -154,7 +155,7 @@ struct ContentView: View {
             
             Canvas { context, size in
                 let layout = makeKeyLayout(
-                    size: size,
+                    size: canvasSize,
                     keyWidth: 18,
                     keyHeight: 17,
                     columns: 6,
@@ -167,11 +168,11 @@ struct ContentView: View {
                 drawThumbGrid(context: &context, thumbRects: layout.thumbRects)
                 drawGridLabels(context: &context, keyRects: layout.keyRects)
                 viewModel.touchData.forEach { touch in
-                    let path = makeEllipse(touch: touch, size: size)
+                    let path = makeEllipse(touch: touch, size: canvasSize)
                     context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
                 }
             }
-            .frame(width: 600, height: 400)
+            .frame(width: canvasSize.width, height: canvasSize.height)
             .border(Color.primary)
         }
         .fixedSize()
@@ -181,6 +182,24 @@ struct ContentView: View {
         }
         .onDisappear {
             viewModel.onDisappear()
+        }
+        .onReceive(viewModel.$touchData) { touchData in
+            let layout = makeKeyLayout(
+                size: canvasSize,
+                keyWidth: 18,
+                keyHeight: 17,
+                columns: 6,
+                rows: 3,
+                trackpadWidth: 160,
+                trackpadHeight: 115,
+                columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3]
+            )
+            viewModel.processTouches(
+                touchData,
+                keyRects: layout.keyRects,
+                thumbRects: layout.thumbRects,
+                canvasSize: canvasSize
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)) { _ in
             viewModel.ensureHapticsSafe()
@@ -322,19 +341,15 @@ struct ContentView: View {
         context: inout GraphicsContext,
         keyRects: [[CGRect]]
     ) {
-        let labels: [[String]] = [
-            ["Y", "U", "I", "O", "P", "["],
-            ["H", "J", "K", "L", ";", "'"],
-            ["N", "M", ",", ".", "/", "?"]
-        ]
         let textStyle = Font.system(size: 10, weight: .semibold, design: .monospaced)
 
         for row in 0..<keyRects.count {
             for col in 0..<keyRects[row].count {
-                guard row < labels.count, col < labels[row].count else { continue }
+                guard row < ContentViewModel.gridLabels.count,
+                      col < ContentViewModel.gridLabels[row].count else { continue }
                 let rect = keyRects[row][col]
                 let center = CGPoint(x: rect.midX, y: rect.midY)
-                let text = Text(labels[row][col])
+                let text = Text(ContentViewModel.gridLabels[row][col])
                     .font(textStyle)
                     .foregroundColor(.secondary)
                 context.draw(text, at: center)
