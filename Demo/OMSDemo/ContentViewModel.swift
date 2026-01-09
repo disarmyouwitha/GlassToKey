@@ -6,6 +6,7 @@
 //
 
 import Carbon
+import CoreGraphics
 import OpenMultitouchSupport
 import SwiftUI
 
@@ -28,6 +29,7 @@ final class ContentViewModel: ObservableObject {
     @Published var availableDevices = [OMSDeviceInfo]()
     @Published var selectedDevice: OMSDeviceInfo?
     @Published var isHapticEnabled: Bool = false
+    @Published var isTypingMode: Bool = false
 
     private let manager = OMSManager.shared
     private var task: Task<Void, Never>?
@@ -35,6 +37,9 @@ final class ContentViewModel: ObservableObject {
     private var isCurrentlyHovering: Bool = false
     private var safetyTimer: Timer?
     private var activeTouches: [Int32: ActiveTouch] = [:]
+    private var activeHotCornerTouches: Set<Int32> = []
+    private var isCursorDecoupled: Bool = false
+    private var typingModeCursorPosition: CGPoint?
     private let tapMaxDuration: TimeInterval = 0.25
 
     init() {
@@ -63,6 +68,7 @@ final class ContentViewModel: ObservableObject {
         safetyTimer?.invalidate()
         safetyTimer = nil
         stop()
+        restoreCursorAssociation()
         
         // Safety: Ensure haptics are restored when view disappears
         ensureHapticsSafe()
@@ -73,6 +79,9 @@ final class ContentViewModel: ObservableObject {
         if !manager.isHapticEnabled {
             print("⚠️ Restoring haptics during ViewModel cleanup")
             manager.setHapticEnabled(true)
+        }
+        Task { @MainActor [weak self] in
+            self?.restoreCursorAssociation()
         }
     }
 
@@ -86,6 +95,11 @@ final class ContentViewModel: ObservableObject {
         if manager.stopListening() {
             isListening = false
         }
+    }
+
+    func disableTypingMode() {
+        isTypingMode = false
+        updateCursorAssociation()
     }
     
     func loadDevices() {
@@ -209,10 +223,17 @@ final class ContentViewModel: ObservableObject {
         _ touches: [OMSTouchData],
         keyRects: [[CGRect]],
         thumbRects: [CGRect],
-        canvasSize: CGSize
+        canvasSize: CGSize,
+        trackpadSize: CGSize,
+        hotCornerSize: CGSize
     ) {
         guard isListening else { return }
         let bindings = makeBindings(keyRects: keyRects, thumbRects: thumbRects)
+        let hotCornerRect = makeHotCornerRect(
+            canvasSize: canvasSize,
+            trackpadSize: trackpadSize,
+            hotCornerSize: hotCornerSize
+        )
 
         for touch in touches {
             let point = CGPoint(
@@ -221,6 +242,12 @@ final class ContentViewModel: ObservableObject {
             )
             switch touch.state {
             case .starting, .making, .touching:
+                if hotCornerRect.contains(point) {
+                    if !activeHotCornerTouches.contains(touch.id) {
+                        activeHotCornerTouches.insert(touch.id)
+                        toggleTypingMode()
+                    }
+                }
                 if activeTouches[touch.id] == nil,
                    let binding = binding(at: point, bindings: bindings) {
                     activeTouches[touch.id] = ActiveTouch(binding: binding, startTime: Date())
@@ -230,12 +257,30 @@ final class ContentViewModel: ObservableObject {
                    Date().timeIntervalSince(active.startTime) <= tapMaxDuration {
                     sendKey(binding: active.binding)
                 }
+                activeHotCornerTouches.remove(touch.id)
             case .notTouching:
                 activeTouches.removeValue(forKey: touch.id)
+                activeHotCornerTouches.remove(touch.id)
             case .hovering, .lingering:
                 break
             }
         }
+        updateCursorAssociation()
+    }
+
+    private func makeHotCornerRect(
+        canvasSize: CGSize,
+        trackpadSize: CGSize,
+        hotCornerSize: CGSize
+    ) -> CGRect {
+        let scaleX = canvasSize.width / trackpadSize.width
+        let scaleY = canvasSize.height / trackpadSize.height
+        return CGRect(
+            x: 0,
+            y: 0,
+            width: hotCornerSize.width * scaleX,
+            height: hotCornerSize.height * scaleY
+        )
     }
 
     private func makeBindings(keyRects: [[CGRect]], thumbRects: [CGRect]) -> [KeyBinding] {
@@ -302,5 +347,43 @@ final class ContentViewModel: ObservableObject {
         keyUp.flags = binding.flags
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
+    }
+
+    private func updateCursorAssociation() {
+        if isTypingMode && !isCursorDecoupled {
+            if typingModeCursorPosition == nil {
+                typingModeCursorPosition = currentCursorPosition()
+            }
+            CGAssociateMouseAndMouseCursorPosition(0)
+            if let position = typingModeCursorPosition {
+                CGWarpMouseCursorPosition(position)
+            }
+            isCursorDecoupled = true
+        } else if !isTypingMode && isCursorDecoupled {
+            restoreCursorAssociation()
+        }
+    }
+
+    private func restoreCursorAssociation() {
+        CGAssociateMouseAndMouseCursorPosition(1)
+        if let position = typingModeCursorPosition {
+            CGWarpMouseCursorPosition(position)
+        }
+        typingModeCursorPosition = nil
+        isCursorDecoupled = false
+    }
+
+    private func toggleTypingMode() {
+        if isTypingMode {
+            isTypingMode = false
+        } else {
+            typingModeCursorPosition = currentCursorPosition()
+            isTypingMode = true
+        }
+        updateCursorAssociation()
+    }
+
+    private func currentCursorPosition() -> CGPoint {
+        CGEvent(source: nil)?.location ?? .zero
     }
 }

@@ -11,6 +11,8 @@ import SwiftUI
 struct ContentView: View {
     @StateObject var viewModel = ContentViewModel()
     private let canvasSize = CGSize(width: 600, height: 400)
+    private let trackpadSizeMM = CGSize(width: 160, height: 115)
+    private let hotCornerSizeMM = CGSize(width: 20, height: 20)
 
     var body: some View {
         VStack {
@@ -96,6 +98,20 @@ struct ContentView: View {
                     }
                 }
             }
+
+            HStack(spacing: 8) {
+                Text("Typing Mode:")
+                    .font(.subheadline)
+                Text(viewModel.isTypingMode ? "On" : "Off")
+                    .font(.subheadline)
+                    .foregroundColor(viewModel.isTypingMode ? .green : .secondary)
+                if viewModel.isTypingMode {
+                    Button("Disable") {
+                        viewModel.disableTypingMode()
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
             
             // Raw Haptic Testing Section
             if viewModel.isHapticEnabled {
@@ -160,13 +176,19 @@ struct ContentView: View {
                     keyHeight: 17,
                     columns: 6,
                     rows: 3,
-                    trackpadWidth: 160,
-                    trackpadHeight: 115,
+                    trackpadWidth: trackpadSizeMM.width,
+                    trackpadHeight: trackpadSizeMM.height,
                     columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3]
+                )
+                let hotCornerRect = makeHotCornerRect(
+                    canvasSize: canvasSize,
+                    trackpadSize: trackpadSizeMM,
+                    hotCornerSize: hotCornerSizeMM
                 )
                 drawKeyGrid(context: &context, keyRects: layout.keyRects)
                 drawThumbGrid(context: &context, thumbRects: layout.thumbRects)
                 drawGridLabels(context: &context, keyRects: layout.keyRects)
+                drawHotCorner(context: &context, rect: hotCornerRect)
                 viewModel.touchData.forEach { touch in
                     let path = makeEllipse(touch: touch, size: canvasSize)
                     context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
@@ -190,15 +212,17 @@ struct ContentView: View {
                 keyHeight: 17,
                 columns: 6,
                 rows: 3,
-                trackpadWidth: 160,
-                trackpadHeight: 115,
+                trackpadWidth: trackpadSizeMM.width,
+                trackpadHeight: trackpadSizeMM.height,
                 columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3]
             )
             viewModel.processTouches(
                 touchData,
                 keyRects: layout.keyRects,
                 thumbRects: layout.thumbRects,
-                canvasSize: canvasSize
+                canvasSize: canvasSize,
+                trackpadSize: trackpadSizeMM,
+                hotCornerSize: hotCornerSizeMM
             )
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)) { _ in
@@ -355,6 +379,25 @@ struct ContentView: View {
                 context.draw(text, at: center)
             }
         }
+    }
+
+    private func makeHotCornerRect(
+        canvasSize: CGSize,
+        trackpadSize: CGSize,
+        hotCornerSize: CGSize
+    ) -> CGRect {
+        let scaleX = canvasSize.width / trackpadSize.width
+        let scaleY = canvasSize.height / trackpadSize.height
+        return CGRect(
+            x: 0,
+            y: 0,
+            width: hotCornerSize.width * scaleX,
+            height: hotCornerSize.height * scaleY
+        )
+    }
+
+    private func drawHotCorner(context: inout GraphicsContext, rect: CGRect) {
+        context.stroke(Path(rect), with: .color(.orange.opacity(0.7)), lineWidth: 2)
     }
 }
 
