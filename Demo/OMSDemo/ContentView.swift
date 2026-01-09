@@ -153,6 +153,18 @@ struct ContentView: View {
             }
             
             Canvas { context, size in
+                let keyRects = makeKeyRects(
+                    size: size,
+                    keyWidth: 18,
+                    keyHeight: 17,
+                    columns: 6,
+                    rows: 3,
+                    trackpadWidth: 160,
+                    trackpadHeight: 115,
+                    columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3]
+                )
+                drawKeyGrid(context: &context, keyRects: keyRects)
+                drawGridLabels(context: &context, keyRects: keyRects)
                 viewModel.touchData.forEach { touch in
                     let path = makeEllipse(touch: touch, size: size)
                     context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
@@ -190,6 +202,75 @@ struct ContentView: View {
             .rotation(.radians(Double(-touch.angle)), anchor: .topLeading)
             .offset(x: x, y: y)
             .path(in: CGRect(origin: .zero, size: size))
+    }
+
+    private func makeKeyRects(
+        size: CGSize,
+        keyWidth: CGFloat,
+        keyHeight: CGFloat,
+        columns: Int,
+        rows: Int,
+        trackpadWidth: CGFloat,
+        trackpadHeight: CGFloat,
+        columnStagger: [CGFloat]
+    ) -> [[CGRect]] {
+        let scaleX = size.width / trackpadWidth
+        let scaleY = size.height / trackpadHeight
+        let keySize = CGSize(width: keyWidth * scaleX, height: keyHeight * scaleY)
+        let minStagger = columnStagger.min() ?? 0
+        let maxStagger = columnStagger.max() ?? 0
+        let layoutWidth = keySize.width * CGFloat(columns)
+        let layoutHeight = keySize.height * (CGFloat(rows) + (maxStagger - minStagger))
+
+        let origin = CGPoint(
+            x: (size.width - layoutWidth) * 0.5,
+            y: (size.height - layoutHeight) * 0.5
+        )
+        var rects: [[CGRect]] = Array(
+            repeating: Array(repeating: .zero, count: columns),
+            count: rows
+        )
+        for row in 0..<rows {
+            for col in 0..<columns {
+                let stagger = (col < columnStagger.count ? columnStagger[col] : 0) - minStagger
+                let x = origin.x + CGFloat(col) * keySize.width
+                let y = origin.y + (CGFloat(row) + stagger) * keySize.height
+                rects[row][col] = CGRect(origin: CGPoint(x: x, y: y), size: keySize)
+            }
+        }
+        return rects
+    }
+
+    private func drawKeyGrid(context: inout GraphicsContext, keyRects: [[CGRect]]) {
+        for row in keyRects {
+            for rect in row {
+                context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
+            }
+        }
+    }
+
+    private func drawGridLabels(
+        context: inout GraphicsContext,
+        keyRects: [[CGRect]]
+    ) {
+        let labels: [[String]] = [
+            ["Y", "U", "I", "O", "P", "["],
+            ["H", "J", "K", "L", ";", "'"],
+            ["N", "M", ",", ".", "/", "?"]
+        ]
+        let textStyle = Font.system(size: 10, weight: .semibold, design: .monospaced)
+
+        for row in 0..<keyRects.count {
+            for col in 0..<keyRects[row].count {
+                guard row < labels.count, col < labels[row].count else { continue }
+                let rect = keyRects[row][col]
+                let center = CGPoint(x: rect.midX, y: rect.midY)
+                let text = Text(labels[row][col])
+                    .font(textStyle)
+                    .foregroundColor(.secondary)
+                context.draw(text, at: center)
+            }
+        }
     }
 }
 
