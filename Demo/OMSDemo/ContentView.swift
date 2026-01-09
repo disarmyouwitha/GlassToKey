@@ -153,7 +153,7 @@ struct ContentView: View {
             }
             
             Canvas { context, size in
-                let keyRects = makeKeyRects(
+                let layout = makeKeyLayout(
                     size: size,
                     keyWidth: 18,
                     keyHeight: 17,
@@ -163,8 +163,9 @@ struct ContentView: View {
                     trackpadHeight: 115,
                     columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3]
                 )
-                drawKeyGrid(context: &context, keyRects: keyRects)
-                drawGridLabels(context: &context, keyRects: keyRects)
+                drawKeyGrid(context: &context, keyRects: layout.keyRects)
+                drawThumbGrid(context: &context, thumbRects: layout.thumbRects)
+                drawGridLabels(context: &context, keyRects: layout.keyRects)
                 viewModel.touchData.forEach { touch in
                     let path = makeEllipse(touch: touch, size: size)
                     context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
@@ -204,7 +205,7 @@ struct ContentView: View {
             .path(in: CGRect(origin: .zero, size: size))
     }
 
-    private func makeKeyRects(
+    private func makeKeyLayout(
         size: CGSize,
         keyWidth: CGFloat,
         keyHeight: CGFloat,
@@ -213,32 +214,94 @@ struct ContentView: View {
         trackpadWidth: CGFloat,
         trackpadHeight: CGFloat,
         columnStagger: [CGFloat]
-    ) -> [[CGRect]] {
+    ) -> (keyRects: [[CGRect]], thumbRects: [CGRect]) {
         let scaleX = size.width / trackpadWidth
         let scaleY = size.height / trackpadHeight
         let keySize = CGSize(width: keyWidth * scaleX, height: keyHeight * scaleY)
         let minStagger = columnStagger.min() ?? 0
-        let maxStagger = columnStagger.max() ?? 0
-        let layoutWidth = keySize.width * CGFloat(columns)
-        let layoutHeight = keySize.height * (CGFloat(rows) + (maxStagger - minStagger))
+        let thumbKeysQMK: [(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat)] = [
+            (x: 7, y: 3.2, w: 1, h: 1.5),
+            (x: 8, y: 3.7, w: 1, h: 1),
+            (x: 9, y: 3.7, w: 1, h: 1)
+        ]
+        let rightHalfStartX: CGFloat = 9
+        let thumbXOffset: CGFloat = 1
 
+        var unitKeyRects: [[CGRect]] = Array(
+            repeating: Array(repeating: .zero, count: columns),
+            count: rows
+        )
+        var unitThumbRects: [CGRect] = []
+
+        var minX = CGFloat.greatestFiniteMagnitude
+        var minY = CGFloat.greatestFiniteMagnitude
+        var maxX = -CGFloat.greatestFiniteMagnitude
+        var maxY = -CGFloat.greatestFiniteMagnitude
+
+        for row in 0..<rows {
+            for col in 0..<columns {
+                let stagger = (col < columnStagger.count ? columnStagger[col] : 0) - minStagger
+                let unitRect = CGRect(
+                    x: CGFloat(col),
+                    y: CGFloat(row) + stagger,
+                    width: 1,
+                    height: 1
+                )
+                unitKeyRects[row][col] = unitRect
+                minX = min(minX, unitRect.minX)
+                minY = min(minY, unitRect.minY)
+                maxX = max(maxX, unitRect.maxX)
+                maxY = max(maxY, unitRect.maxY)
+            }
+        }
+
+        for key in thumbKeysQMK {
+            let unitRect = CGRect(
+                x: key.x - rightHalfStartX + thumbXOffset,
+                y: key.y - minStagger,
+                width: key.w,
+                height: key.h
+            )
+            unitThumbRects.append(unitRect)
+            minX = min(minX, unitRect.minX)
+            minY = min(minY, unitRect.minY)
+            maxX = max(maxX, unitRect.maxX)
+            maxY = max(maxY, unitRect.maxY)
+        }
+
+        let layoutWidth = (maxX - minX) * keySize.width
+        let layoutHeight = (maxY - minY) * keySize.height
         let origin = CGPoint(
             x: (size.width - layoutWidth) * 0.5,
             y: (size.height - layoutHeight) * 0.5
         )
-        var rects: [[CGRect]] = Array(
+
+        var keyRects: [[CGRect]] = Array(
             repeating: Array(repeating: .zero, count: columns),
             count: rows
         )
         for row in 0..<rows {
             for col in 0..<columns {
-                let stagger = (col < columnStagger.count ? columnStagger[col] : 0) - minStagger
-                let x = origin.x + CGFloat(col) * keySize.width
-                let y = origin.y + (CGFloat(row) + stagger) * keySize.height
-                rects[row][col] = CGRect(origin: CGPoint(x: x, y: y), size: keySize)
+                let unitRect = unitKeyRects[row][col]
+                keyRects[row][col] = CGRect(
+                    x: origin.x + (unitRect.minX - minX) * keySize.width,
+                    y: origin.y + (unitRect.minY - minY) * keySize.height,
+                    width: unitRect.width * keySize.width,
+                    height: unitRect.height * keySize.height
+                )
             }
         }
-        return rects
+
+        let thumbRects = unitThumbRects.map { unitRect in
+            CGRect(
+                x: origin.x + (unitRect.minX - minX) * keySize.width,
+                y: origin.y + (unitRect.minY - minY) * keySize.height,
+                width: unitRect.width * keySize.width,
+                height: unitRect.height * keySize.height
+            )
+        }
+
+        return (keyRects, thumbRects)
     }
 
     private func drawKeyGrid(context: inout GraphicsContext, keyRects: [[CGRect]]) {
@@ -246,6 +309,12 @@ struct ContentView: View {
             for rect in row {
                 context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
             }
+        }
+    }
+
+    private func drawThumbGrid(context: inout GraphicsContext, thumbRects: [CGRect]) {
+        for rect in thumbRects {
+            context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
         }
     }
 
