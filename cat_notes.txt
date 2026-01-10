@@ -1,2 +1,0 @@
-known gap:
-  - Hold actions are “single‑shot” at the hold threshold. For LCTRL (B hold), this currently sends a Control key press/release, not a true held modifier.
