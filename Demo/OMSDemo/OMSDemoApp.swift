@@ -15,7 +15,8 @@ struct OMSDemoApp: App {
         WindowGroup {
             ContentView()
         }
-        .windowResizability(.contentSize)
+        .windowResizability(.automatic)
+        .defaultSize(width: 984, height: 560)
     }
 }
 

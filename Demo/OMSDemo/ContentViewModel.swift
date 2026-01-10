@@ -19,8 +19,8 @@ final class ContentViewModel: ObservableObject {
 
     static let leftGridLabels: [[String]] = [
         ["Tab", "Q", "W", "E", "R", "T"],
-        ["Shift", "A", "S", "D", "F", "G"],
-        ["Ctrl", "Z", "X", "C", "V", "B"]
+        ["Option", "A", "S", "D", "F", "G"],
+        ["Shift", "Z", "X", "C", "V", "B"]
     ]
     static let rightGridLabels: [[String]] = [
         ["Y", "U", "I", "O", "P", "Back"],
@@ -39,6 +39,16 @@ final class ContentViewModel: ObservableObject {
         let deviceID: String
         let id: Int32
     }
+    private let leftThumbKeys: [(CGKeyCode, CGEventFlags)] = [
+        (CGKeyCode(kVK_Delete), []),
+        (CGKeyCode(kVK_Delete), []),
+        (CGKeyCode(kVK_Delete), [])
+    ]
+    private let rightThumbKeys: [(CGKeyCode, CGEventFlags)] = [
+        (CGKeyCode(kVK_Space), []),
+        (CGKeyCode(kVK_Space), []),
+        (CGKeyCode(kVK_Space), [])
+    ]
 
     private var activeTouches: [TouchKey: ActiveTouch] = [:]
     private let tapMaxDuration: TimeInterval = 0.25
@@ -124,13 +134,15 @@ final class ContentViewModel: ObservableObject {
         keyRects: [[CGRect]],
         thumbRects: [CGRect],
         canvasSize: CGSize,
-        labels: [[String]]
+        labels: [[String]],
+        isLeftSide: Bool
     ) {
         guard isListening else { return }
         let bindings = makeBindings(
             keyRects: keyRects,
             thumbRects: thumbRects,
-            labels: labels
+            labels: labels,
+            thumbKeys: isLeftSide ? leftThumbKeys : rightThumbKeys
         )
 
         for touch in touches {
@@ -161,7 +173,8 @@ final class ContentViewModel: ObservableObject {
     private func makeBindings(
         keyRects: [[CGRect]],
         thumbRects: [CGRect],
-        labels: [[String]]
+        labels: [[String]],
+        thumbKeys: [(CGKeyCode, CGEventFlags)]
     ) -> [KeyBinding] {
         var bindings: [KeyBinding] = []
         for row in 0..<keyRects.count {
@@ -174,11 +187,6 @@ final class ContentViewModel: ObservableObject {
             }
         }
 
-        let thumbKeys: [(CGKeyCode, CGEventFlags)] = [
-            (CGKeyCode(kVK_Space), []),
-            (CGKeyCode(kVK_Return), []),
-            (CGKeyCode(kVK_Delete), [])
-        ]
         for (index, rect) in thumbRects.enumerated() {
             guard index < thumbKeys.count else { continue }
             let (code, flags) = thumbKeys[index]
@@ -196,6 +204,7 @@ final class ContentViewModel: ObservableObject {
             "E": (CGKeyCode(kVK_ANSI_E), []),
             "R": (CGKeyCode(kVK_ANSI_R), []),
             "T": (CGKeyCode(kVK_ANSI_T), []),
+            "Option": (CGKeyCode(kVK_Option), []),
             "Shift": (CGKeyCode(kVK_Shift), []),
             "A": (CGKeyCode(kVK_ANSI_A), []),
             "S": (CGKeyCode(kVK_ANSI_S), []),

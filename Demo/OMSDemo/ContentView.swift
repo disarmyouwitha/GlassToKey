@@ -10,7 +10,13 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject var viewModel = ContentViewModel()
-    private let trackpadSize = CGSize(width: 280, height: 200)
+    @State private var testText = ""
+    private let trackpadWidthMM: CGFloat = 160.0
+    private let trackpadHeightMM: CGFloat = 114.9
+    private let displayScale: CGFloat = 2.7
+    private var trackpadSize: CGSize {
+        CGSize(width: trackpadWidthMM * displayScale, height: trackpadHeightMM * displayScale)
+    }
 
     var body: some View {
         VStack {
@@ -73,6 +79,19 @@ struct ContentView: View {
                     }
                 }
             }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Typing Test")
+                    .font(.subheadline)
+                TextEditor(text: $testText)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(height: 60)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
+                    )
+            }
+            .padding(.vertical, 8)
             
             HStack(alignment: .top, spacing: 16) {
                 trackpadCanvas(
@@ -89,8 +108,8 @@ struct ContentView: View {
                 )
             }
         }
-        .fixedSize()
         .padding()
+        .frame(minWidth: trackpadSize.width * 2 + 120, minHeight: trackpadSize.height + 180)
         .onAppear {
             viewModel.onAppear()
         }
@@ -104,8 +123,8 @@ struct ContentView: View {
                 keyHeight: 17,
                 columns: 6,
                 rows: 3,
-                trackpadWidth: 160,
-                trackpadHeight: 115,
+                trackpadWidth: trackpadWidthMM,
+                trackpadHeight: trackpadHeightMM,
                 columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3],
                 mirrored: true
             )
@@ -115,8 +134,8 @@ struct ContentView: View {
                 keyHeight: 17,
                 columns: 6,
                 rows: 3,
-                trackpadWidth: 160,
-                trackpadHeight: 115,
+                trackpadWidth: trackpadWidthMM,
+                trackpadHeight: trackpadHeightMM,
                 columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3]
             )
             viewModel.processTouches(
@@ -124,14 +143,16 @@ struct ContentView: View {
                 keyRects: leftLayout.keyRects,
                 thumbRects: leftLayout.thumbRects,
                 canvasSize: trackpadSize,
-                labels: mirroredLabels(ContentViewModel.leftGridLabels)
+                labels: mirroredLabels(ContentViewModel.leftGridLabels),
+                isLeftSide: true
             )
             viewModel.processTouches(
                 viewModel.rightTouches,
                 keyRects: rightLayout.keyRects,
                 thumbRects: rightLayout.thumbRects,
                 canvasSize: trackpadSize,
-                labels: ContentViewModel.rightGridLabels
+                labels: ContentViewModel.rightGridLabels,
+                isLeftSide: false
             )
         }
     }
@@ -152,8 +173,8 @@ struct ContentView: View {
                     keyHeight: 17,
                     columns: 6,
                     rows: 3,
-                    trackpadWidth: 160,
-                    trackpadHeight: 115,
+                    trackpadWidth: trackpadWidthMM,
+                    trackpadHeight: trackpadHeightMM,
                     columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3],
                     mirrored: mirrored
                 )
