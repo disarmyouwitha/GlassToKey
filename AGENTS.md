@@ -57,9 +57,24 @@
 - Ensure App Sandbox is disabled in the demo target.
 
 ## Important notes for next instance of Codex
+  Branch: drag-detection
 
-## TODO
+  - Adds drag‑cancel gating so touches that move >10pt before qualifying do not trigger keys.
+  - Key activation waits ~50ms of steady contact before modifiers/space/backspace engage.
+  - File: Demo/OMSDemo/ContentViewModel.swift
+
+  Branch: typing-toggle
+
+  - Adds a typing mode toggle hotspot: bottom‑left on left pad, bottom‑right on right pad.
+  - Toggle region is drawn (green = typing on, red = typing off). Tapping it flips typing and releases held keys.
+  - Files: Demo/OMSDemo/ContentView.swift, Demo/OMSDemo/ContentViewModel.swift
+
+## TODO, first
+- Merge typing-toggle into main.
 - Expand area of big thumb button to cover the entire corners
+- Re-create drag-detection functionality built as a toggle on top of typing-toggle
+
+## TODO, future
 - Add scale to 1.5x 2x the keysize (should be configurable/saved in a config)
 - Layers I need to add 2 more layers and have a key I can use to switch on the thumb clusters
 - can we devise a keymap layout config we can save and let ppl edit & the program uses that to map keys?
