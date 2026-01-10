@@ -61,6 +61,8 @@ final class ContentViewModel: ObservableObject {
     private let holdMinDuration: TimeInterval = 0.2
     private let repeatInitialDelay: UInt64 = 350_000_000
     private let repeatInterval: UInt64 = 50_000_000
+    private let dragCancelDistance: CGFloat = 6.0
+    private let dragQualificationDelay: TimeInterval = 0.05
     private let holdBindingsByLabel: [String: (CGKeyCode, CGEventFlags)] = [
         "Esc": (CGKeyCode(kVK_Escape), []),
         "Q": (CGKeyCode(kVK_ANSI_LeftBracket), []),
@@ -174,10 +176,15 @@ final class ContentViewModel: ObservableObject {
     private struct ActiveTouch {
         let binding: KeyBinding
         let startTime: Date
+        let startPoint: CGPoint
         let modifierKey: ModifierKey?
         let isContinuousKey: Bool
         let holdBinding: KeyBinding?
         var didHold: Bool
+        var didMove: Bool
+        var qualifiedForKeys: Bool
+        var didRepeat: Bool
+        var didMultiTouch: Bool
     }
 
     func processTouches(
@@ -227,46 +234,97 @@ final class ContentViewModel: ObservableObject {
                     let modifierKey = modifierKey(for: binding)
                     let isContinuousKey = isContinuousKey(binding)
                     let holdBinding = holdBinding(for: binding)
+                    let overlappingTouches = activeTouches.keys.filter {
+                        $0.deviceID == touch.deviceID
+                    }
+                    let didMultiTouch = !overlappingTouches.isEmpty
+                    if didMultiTouch {
+                        for key in overlappingTouches {
+                            if var existing = activeTouches[key] {
+                                existing.didMultiTouch = true
+                                activeTouches[key] = existing
+                            }
+                        }
+                    }
                     activeTouches[touchKey] = ActiveTouch(
                         binding: binding,
                         startTime: Date(),
+                        startPoint: point,
                         modifierKey: modifierKey,
                         isContinuousKey: isContinuousKey,
                         holdBinding: holdBinding,
-                        didHold: false
+                        didHold: false,
+                        didMove: false,
+                        qualifiedForKeys: false,
+                        didRepeat: false,
+                        didMultiTouch: didMultiTouch
                     )
-                    if let modifierKey {
-                        handleModifierDown(modifierKey, binding: binding)
-                    } else if isContinuousKey {
-                        sendKey(binding: binding)
-                        startRepeat(for: touchKey, binding: binding)
+                }
+
+                if var active = activeTouches[touchKey] {
+                    let distance = hypot(point.x - active.startPoint.x, point.y - active.startPoint.y)
+                    if distance > dragCancelDistance, !active.didMove {
+                        active.didMove = true
+                        if let modifierKey = active.modifierKey, active.qualifiedForKeys {
+                            handleModifierUp(modifierKey, binding: active.binding)
+                        }
+                        if active.isContinuousKey, active.didRepeat {
+                            stopRepeat(for: touchKey)
+                        }
                     }
-                } else if var active = activeTouches[touchKey],
-                          active.modifierKey == nil,
-                          !active.isContinuousKey,
-                          !active.didHold,
-                          let holdBinding = active.holdBinding,
-                          Date().timeIntervalSince(active.startTime) >= holdMinDuration {
-                    sendKey(binding: holdBinding)
-                    active.didHold = true
+
+                    let elapsed = Date().timeIntervalSince(active.startTime)
+                    if !active.didMove, !active.qualifiedForKeys, elapsed >= dragQualificationDelay {
+                        active.qualifiedForKeys = true
+                        if let modifierKey = active.modifierKey {
+                            handleModifierDown(modifierKey, binding: active.binding)
+                        } else if active.isContinuousKey {
+                            sendKey(binding: active.binding)
+                            startRepeat(for: touchKey, binding: active.binding)
+                            active.didRepeat = true
+                        }
+                    }
+
+                    if !active.didMove,
+                       active.modifierKey == nil,
+                       !active.isContinuousKey,
+                       !active.didHold,
+                       !active.didMultiTouch,
+                       let holdBinding = active.holdBinding,
+                       elapsed >= holdMinDuration {
+                        sendKey(binding: holdBinding)
+                        active.didHold = true
+                    }
                     activeTouches[touchKey] = active
                 }
             case .breaking, .leaving:
                 if let active = activeTouches.removeValue(forKey: touchKey) {
-                    if let modifierKey = active.modifierKey {
+                    if let modifierKey = active.modifierKey, active.qualifiedForKeys {
                         handleModifierUp(modifierKey, binding: active.binding)
-                    } else if active.isContinuousKey {
+                    }
+                    if active.isContinuousKey, active.didRepeat {
                         stopRepeat(for: touchKey)
-                    } else if !active.didHold,
+                    }
+                    if !active.didMove,
+                       active.modifierKey == nil,
+                       !active.isContinuousKey,
+                       !active.didHold,
+                       !active.didMultiTouch,
+                       Date().timeIntervalSince(active.startTime) <= tapMaxDuration {
+                        sendKey(binding: active.binding)
+                    } else if !active.didMove,
+                              active.isContinuousKey,
+                              !active.didRepeat,
+                              !active.didMultiTouch,
                               Date().timeIntervalSince(active.startTime) <= tapMaxDuration {
                         sendKey(binding: active.binding)
                     }
                 }
             case .notTouching:
                 if let active = activeTouches.removeValue(forKey: touchKey) {
-                    if let modifierKey = active.modifierKey {
+                    if let modifierKey = active.modifierKey, active.qualifiedForKeys {
                         handleModifierUp(modifierKey, binding: active.binding)
-                    } else if active.isContinuousKey {
+                    } else if active.isContinuousKey, active.didRepeat {
                         stopRepeat(for: touchKey)
                     }
                 }
