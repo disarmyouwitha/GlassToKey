@@ -28,7 +28,9 @@ struct ContentView: View {
         CGRect(x: 0, y: 75, width: 40, height: 40),
         CGRect(x: 40, y: 85, width: 40, height: 30),
         CGRect(x: 80, y: 85, width: 40, height: 30),
+        CGRect(x: 120, y: 85, width: 40, height: 30)
     ]
+    private let typingToggleRectMM = CGRect(x: 130, y: 0, width: 30, height: 75)
 
     private var trackpadSize: CGSize {
         CGSize(width: trackpadWidthMM * displayScale, height: trackpadHeightMM * displayScale)
@@ -304,15 +306,16 @@ struct ContentView: View {
         return (keyRects, thumbRects)
     }
 
-    private var typingToggleSize: CGSize {
-        CGSize(width: trackpadSize.width * 0.27, height: trackpadSize.height * 0.27)
-    }
-
     private func typingToggleRect(isLeft: Bool) -> CGRect {
-        let size = typingToggleSize
-        let originX = isLeft ? 0 : trackpadSize.width - size.width
-        let originY = trackpadSize.height - size.height
-        return CGRect(x: originX, y: originY, width: size.width, height: size.height)
+        let scaleX = trackpadSize.width / trackpadWidthMM
+        let scaleY = trackpadSize.height / trackpadHeightMM
+        let originXMM = isLeft ? typingToggleRectMM.origin.x : trackpadWidthMM - typingToggleRectMM.maxX
+        return CGRect(
+            x: originXMM * scaleX,
+            y: typingToggleRectMM.origin.y * scaleY,
+            width: typingToggleRectMM.width * scaleX,
+            height: typingToggleRectMM.height * scaleY
+        )
     }
 
     private func drawSensorGrid(
