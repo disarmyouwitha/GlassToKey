@@ -357,7 +357,7 @@ final class ContentViewModel: ObservableObject {
         bindings.first { $0.rect.contains(point) }
     }
 
-    private func handleTypingToggleTouch(touchKey: TouchKey, state: OMSTouchState) {
+    private func handleTypingToggleTouch(touchKey: TouchKey, state: OMSState) {
         switch state {
         case .starting, .making, .touching:
             if toggleTouchStarts[touchKey] == nil {
