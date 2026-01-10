@@ -21,16 +21,14 @@ struct ContentView: View {
                         .font(.headline)
                     HStack(alignment: .top, spacing: 16) {
                         VStack(alignment: .leading) {
-                            Text("Left Trackpad (\(ContentViewModel.leftDeviceKey))")
-                                .font(.subheadline)
                             Picker("Left Trackpad", selection: Binding(
                                 get: { viewModel.leftDevice },
                                 set: { device in
-                                    if let device = device {
-                                        viewModel.selectLeftDevice(device)
-                                    }
+                                    viewModel.selectLeftDevice(device)
                                 }
                             )) {
+                                Text("None")
+                                    .tag(nil as OMSDeviceInfo?)
                                 ForEach(viewModel.availableDevices, id: \.self) { device in
                                     Text("\(device.deviceName) (ID: \(device.deviceID))")
                                         .tag(device as OMSDeviceInfo?)
@@ -40,16 +38,14 @@ struct ContentView: View {
                         }
 
                         VStack(alignment: .leading) {
-                            Text("Right Trackpad (\(ContentViewModel.rightDeviceKey))")
-                                .font(.subheadline)
                             Picker("Right Trackpad", selection: Binding(
                                 get: { viewModel.rightDevice },
                                 set: { device in
-                                    if let device = device {
-                                        viewModel.selectRightDevice(device)
-                                    }
+                                    viewModel.selectRightDevice(device)
                                 }
                             )) {
+                                Text("None")
+                                    .tag(nil as OMSDeviceInfo?)
                                 ForEach(viewModel.availableDevices, id: \.self) { device in
                                     Text("\(device.deviceName) (ID: \(device.deviceID))")
                                         .tag(device as OMSDeviceInfo?)
@@ -69,123 +65,27 @@ struct ContentView: View {
                     } label: {
                         Text("Stop")
                     }
-                    .onHover { isHovering in
-                        if isHovering {
-                            viewModel.onButtonHover()
-                        } else {
-                            viewModel.onButtonExitHover()
-                        }
-                    }
                 } else {
                     Button {
                         viewModel.start()
                     } label: {
                         Text("Start")
                     }
-                    .onHover { isHovering in
-                        if isHovering {
-                            viewModel.onButtonHover()
-                        } else {
-                            viewModel.onButtonExitHover()
-                        }
-                    }
                 }
-                
-                if viewModel.isHapticEnabled {
-                    Button {
-                        viewModel.stopHaptics()
-                    } label: {
-                        Text("Stop Haptics")
-                            .foregroundColor(.red)
-                    }
-                    .onHover { isHovering in
-                        if isHovering {
-                            viewModel.onButtonHover()
-                        } else {
-                            viewModel.onButtonExitHover()
-                        }
-                    }
-                } else {
-                    Button {
-                        viewModel.startHaptics()
-                    } label: {
-                        Text("Start Haptics")
-                            .foregroundColor(.green)
-                    }
-                    .onHover { isHovering in
-                        if isHovering {
-                            viewModel.onButtonHover()
-                        } else {
-                            viewModel.onButtonExitHover()
-                        }
-                    }
-                }
-            }
-            
-            // Raw Haptic Testing Section
-            if viewModel.isHapticEnabled {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Raw Haptic Testing:")
-                        .font(.headline)
-                    
-                    Text("Known Working IDs: 1, 2, 3, 4, 5, 6, 15, 16")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Actuation ID:")
-                                .font(.caption)
-                            TextField("ID", text: $viewModel.customActuationID)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 80)
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Unknown1 (UInt32):")
-                                .font(.caption)
-                            TextField("0", text: $viewModel.customUnknown1)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 80)
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Unknown2 (Float):")
-                                .font(.caption)
-                            TextField("1.0", text: $viewModel.customUnknown2)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 80)
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Unknown3 (Float):")
-                                .font(.caption)
-                            TextField("2.0", text: $viewModel.customUnknown3)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 80)
-                        }
-                        
-                        Button("Trigger") {
-                            viewModel.triggerRawHaptic()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .keyboardShortcut(.return, modifiers: [])
-                    }
-                    .onSubmit {
-                        viewModel.triggerRawHaptic()
-                    }
-                }
-                .padding(.bottom)
             }
             
             HStack(alignment: .top, spacing: 16) {
                 trackpadCanvas(
                     title: "Left Trackpad",
-                    touches: viewModel.leftTouches
+                    touches: viewModel.leftTouches,
+                    mirrored: true,
+                    labels: mirroredLabels(ContentViewModel.leftGridLabels)
                 )
                 trackpadCanvas(
                     title: "Right Trackpad",
-                    touches: viewModel.rightTouches
+                    touches: viewModel.rightTouches,
+                    mirrored: false,
+                    labels: ContentViewModel.rightGridLabels
                 )
             }
         }
@@ -198,7 +98,18 @@ struct ContentView: View {
             viewModel.onDisappear()
         }
         .onReceive(viewModel.$touchData) { _ in
-            let layout = makeKeyLayout(
+            let leftLayout = makeKeyLayout(
+                size: trackpadSize,
+                keyWidth: 18,
+                keyHeight: 17,
+                columns: 6,
+                rows: 3,
+                trackpadWidth: 160,
+                trackpadHeight: 115,
+                columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3],
+                mirrored: true
+            )
+            let rightLayout = makeKeyLayout(
                 size: trackpadSize,
                 keyWidth: 18,
                 keyHeight: 17,
@@ -210,29 +121,27 @@ struct ContentView: View {
             )
             viewModel.processTouches(
                 viewModel.leftTouches,
-                keyRects: layout.keyRects,
-                thumbRects: layout.thumbRects,
-                canvasSize: trackpadSize
+                keyRects: leftLayout.keyRects,
+                thumbRects: leftLayout.thumbRects,
+                canvasSize: trackpadSize,
+                labels: mirroredLabels(ContentViewModel.leftGridLabels)
             )
             viewModel.processTouches(
                 viewModel.rightTouches,
-                keyRects: layout.keyRects,
-                thumbRects: layout.thumbRects,
-                canvasSize: trackpadSize
+                keyRects: rightLayout.keyRects,
+                thumbRects: rightLayout.thumbRects,
+                canvasSize: trackpadSize,
+                labels: ContentViewModel.rightGridLabels
             )
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)) { _ in
-            viewModel.ensureHapticsSafe()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willHideNotification)) { _ in
-            viewModel.ensureHapticsSafe()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-            viewModel.ensureHapticsSafe()
         }
     }
 
-    private func trackpadCanvas(title: String, touches: [OMSTouchData]) -> some View {
+    private func trackpadCanvas(
+        title: String,
+        touches: [OMSTouchData],
+        mirrored: Bool,
+        labels: [[String]]
+    ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.subheadline)
@@ -245,11 +154,13 @@ struct ContentView: View {
                     rows: 3,
                     trackpadWidth: 160,
                     trackpadHeight: 115,
-                    columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3]
+                    columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3],
+                    mirrored: mirrored
                 )
+                drawSensorGrid(context: &context, size: trackpadSize, columns: 30, rows: 22)
                 drawKeyGrid(context: &context, keyRects: layout.keyRects)
                 drawThumbGrid(context: &context, thumbRects: layout.thumbRects)
-                drawGridLabels(context: &context, keyRects: layout.keyRects)
+                drawGridLabels(context: &context, keyRects: layout.keyRects, labels: labels)
                 touches.forEach { touch in
                     let path = makeEllipse(touch: touch, size: trackpadSize)
                     context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
@@ -280,7 +191,8 @@ struct ContentView: View {
         rows: Int,
         trackpadWidth: CGFloat,
         trackpadHeight: CGFloat,
-        columnStagger: [CGFloat]
+        columnStagger: [CGFloat],
+        mirrored: Bool = false
     ) -> (keyRects: [[CGRect]], thumbRects: [CGRect]) {
         let scaleX = size.width / trackpadWidth
         let scaleY = size.height / trackpadHeight
@@ -368,7 +280,60 @@ struct ContentView: View {
             )
         }
 
+        if mirrored {
+            let mirroredKeyRects = keyRects.map { row in
+                row.map { rect in
+                    CGRect(
+                        x: size.width - rect.maxX,
+                        y: rect.minY,
+                        width: rect.width,
+                        height: rect.height
+                    )
+                }
+            }
+            let mirroredThumbRects = thumbRects.map { rect in
+                CGRect(
+                    x: size.width - rect.maxX,
+                    y: rect.minY,
+                    width: rect.width,
+                    height: rect.height
+                )
+            }
+            return (mirroredKeyRects, mirroredThumbRects)
+        }
+
         return (keyRects, thumbRects)
+    }
+
+    private func drawSensorGrid(
+        context: inout GraphicsContext,
+        size: CGSize,
+        columns: Int,
+        rows: Int
+    ) {
+        let strokeColor = Color.secondary.opacity(0.2)
+        let lineWidth = CGFloat(0.5)
+
+        let columnWidth = size.width / CGFloat(columns)
+        let rowHeight = size.height / CGFloat(rows)
+
+        for col in 0...columns {
+            let x = CGFloat(col) * columnWidth
+            let path = Path { path in
+                path.move(to: CGPoint(x: x, y: 0))
+                path.addLine(to: CGPoint(x: x, y: size.height))
+            }
+            context.stroke(path, with: .color(strokeColor), lineWidth: lineWidth)
+        }
+
+        for row in 0...rows {
+            let y = CGFloat(row) * rowHeight
+            let path = Path { path in
+                path.move(to: CGPoint(x: 0, y: y))
+                path.addLine(to: CGPoint(x: size.width, y: y))
+            }
+            context.stroke(path, with: .color(strokeColor), lineWidth: lineWidth)
+        }
     }
 
     private func drawKeyGrid(context: inout GraphicsContext, keyRects: [[CGRect]]) {
@@ -387,22 +352,27 @@ struct ContentView: View {
 
     private func drawGridLabels(
         context: inout GraphicsContext,
-        keyRects: [[CGRect]]
+        keyRects: [[CGRect]],
+        labels: [[String]]
     ) {
         let textStyle = Font.system(size: 10, weight: .semibold, design: .monospaced)
 
         for row in 0..<keyRects.count {
             for col in 0..<keyRects[row].count {
-                guard row < ContentViewModel.gridLabels.count,
-                      col < ContentViewModel.gridLabels[row].count else { continue }
+                guard row < labels.count,
+                      col < labels[row].count else { continue }
                 let rect = keyRects[row][col]
                 let center = CGPoint(x: rect.midX, y: rect.midY)
-                let text = Text(ContentViewModel.gridLabels[row][col])
+                let text = Text(labels[row][col])
                     .font(textStyle)
                     .foregroundColor(.secondary)
                 context.draw(text, at: center)
             }
         }
+    }
+
+    private func mirroredLabels(_ labels: [[String]]) -> [[String]] {
+        labels.map { Array($0.reversed()) }
     }
 }
 

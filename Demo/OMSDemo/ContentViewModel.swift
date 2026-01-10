@@ -17,26 +17,24 @@ final class ContentViewModel: ObservableObject {
         let flags: CGEventFlags
     }
 
-    static let gridLabels: [[String]] = [
-        ["Y", "U", "I", "O", "P", "["],
-        ["H", "J", "K", "L", ";", "'"],
+    static let leftGridLabels: [[String]] = [
+        ["Tab", "Q", "W", "E", "R", "T"],
+        ["Shift", "A", "S", "D", "F", "G"],
+        ["Ctrl", "Z", "X", "C", "V", "B"]
+    ]
+    static let rightGridLabels: [[String]] = [
+        ["Y", "U", "I", "O", "P", "Back"],
+        ["H", "J", "K", "L", ";", "Ret"],
         ["N", "M", ",", ".", "/", "?"]
     ]
-    static let leftDeviceKey = "LEFT_DEVICE_ID"
-    static let rightDeviceKey = "RIGHT_DEVICE_ID"
-
     @Published var touchData = [OMSTouchData]()
     @Published var isListening: Bool = false
     @Published var availableDevices = [OMSDeviceInfo]()
     @Published var leftDevice: OMSDeviceInfo?
     @Published var rightDevice: OMSDeviceInfo?
-    @Published var isHapticEnabled: Bool = false
 
     private let manager = OMSManager.shared
     private var task: Task<Void, Never>?
-    private var hapticStateBeforeHover: Bool = true
-    private var isCurrentlyHovering: Bool = false
-    private var safetyTimer: Timer?
     private struct TouchKey: Hashable {
         let deviceID: String
         let id: Int32
@@ -67,31 +65,11 @@ final class ContentViewModel: ObservableObject {
                 }
             }
         }
-        
-        // Start safety timer to periodically check haptic state
-        safetyTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.updateHapticStatus()
-            }
-        }
     }
 
     func onDisappear() {
         task?.cancel()
-        safetyTimer?.invalidate()
-        safetyTimer = nil
         stop()
-        
-        // Safety: Ensure haptics are restored when view disappears
-        ensureHapticsSafe()
-    }
-    
-    deinit {
-        // Final safety check: Ensure haptics are enabled during cleanup
-        if !manager.isHapticEnabled {
-            print("⚠️ Restoring haptics during ViewModel cleanup")
-            manager.setHapticEnabled(true)
-        }
     }
 
     func start() {
@@ -115,16 +93,14 @@ final class ContentViewModel: ObservableObject {
             rightDevice = nil
         }
         updateActiveDevices()
-        updateHapticStatus()
     }
     
-    func selectLeftDevice(_ device: OMSDeviceInfo) {
+    func selectLeftDevice(_ device: OMSDeviceInfo?) {
         leftDevice = device
         updateActiveDevices()
-        updateHapticStatus()
     }
 
-    func selectRightDevice(_ device: OMSDeviceInfo) {
+    func selectRightDevice(_ device: OMSDeviceInfo?) {
         rightDevice = device
         updateActiveDevices()
     }
@@ -135,104 +111,6 @@ final class ContentViewModel: ObservableObject {
         if manager.setActiveDevices(devices) {
             activeTouches.removeAll()
         }
-    }
-    
-    func startHaptics() {
-        if manager.setHapticEnabled(true) {
-            isHapticEnabled = true
-            // Update the hover state since user explicitly changed haptics
-            hapticStateBeforeHover = true
-        }
-    }
-    
-    func stopHaptics() {
-        if manager.setHapticEnabled(false) {
-            isHapticEnabled = false
-            // Update the hover state since user explicitly changed haptics
-            hapticStateBeforeHover = false
-        }
-    }
-    
-    func updateHapticStatus() {
-        isHapticEnabled = manager.isHapticEnabled
-    }
-    
-    func onButtonHover() {
-        // Only save the state when we first start hovering
-        if !isCurrentlyHovering {
-            hapticStateBeforeHover = manager.isHapticEnabled
-            isCurrentlyHovering = true
-            print("🎯 Starting hover - saving haptic state: \(hapticStateBeforeHover)")
-        }
-        
-        if !manager.isHapticEnabled {
-            print("🎯 Temporarily enabling haptics for button hover")
-            manager.setHapticEnabled(true)
-        }
-    }
-    
-    func onButtonExitHover() {
-        if isCurrentlyHovering {
-            isCurrentlyHovering = false
-            if !hapticStateBeforeHover {
-                print("🎯 Restoring previous haptic state after hover: \(hapticStateBeforeHover)")
-                manager.setHapticEnabled(false)
-            } else {
-                print("🎯 Keeping haptics enabled after hover")
-            }
-        }
-    }
-    
-    func ensureHapticsSafe() {
-        if !manager.isHapticEnabled {
-            print("⚠️ Safety check: Restoring haptics to prevent trackpad issues")
-            manager.setHapticEnabled(true)
-            updateHapticStatus()
-        }
-    }
-    
-    // MARK: - Haptic Testing Functions
-    
-    private var lastHapticTime: Date = Date.distantPast
-    private let hapticDebounceInterval: TimeInterval = 0.010 // 10 seconds debounce
-    
-    // MARK: - Raw Haptic Testing Properties
-    @Published var customActuationID: String = "6"
-    @Published var customUnknown1: String = "0"
-    @Published var customUnknown2: String = "1.0"
-    @Published var customUnknown3: String = "2.0"
-    
-    private func shouldTriggerHaptic() -> Bool {
-        let now = Date()
-        guard now.timeIntervalSince(lastHapticTime) >= hapticDebounceInterval else {
-            print("🚫 Haptic debounced - too soon since last trigger")
-            return false
-        }
-        lastHapticTime = now
-        return true
-    }
-    
-    func triggerRawHaptic() {
-        guard shouldTriggerHaptic() else { return }
-        
-        guard let actuationID = Int32(customActuationID),
-              let unknown1 = UInt32(customUnknown1),
-              let unknown2 = Float(customUnknown2),
-              let unknown3 = Float(customUnknown3) else {
-            print("❌ Invalid haptic parameters")
-            return
-        }
-        
-        print("🎯 Raw Haptic - ID: \(actuationID), Unknown1: \(unknown1), Unknown2: \(unknown2), Unknown3: \(unknown3)")
-        
-        let result = manager.triggerRawHaptic(
-            actuationID: actuationID,
-            unknown1: unknown1,
-            unknown2: unknown2,
-            unknown3: unknown3
-        )
-        
-        print("🎯 Raw haptic result: \(result)")
     }
 
     // MARK: - Key Tap Handling
@@ -245,10 +123,15 @@ final class ContentViewModel: ObservableObject {
         _ touches: [OMSTouchData],
         keyRects: [[CGRect]],
         thumbRects: [CGRect],
-        canvasSize: CGSize
+        canvasSize: CGSize,
+        labels: [[String]]
     ) {
         guard isListening else { return }
-        let bindings = makeBindings(keyRects: keyRects, thumbRects: thumbRects)
+        let bindings = makeBindings(
+            keyRects: keyRects,
+            thumbRects: thumbRects,
+            labels: labels
+        )
 
         for touch in touches {
             let point = CGPoint(
@@ -275,13 +158,17 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    private func makeBindings(keyRects: [[CGRect]], thumbRects: [CGRect]) -> [KeyBinding] {
+    private func makeBindings(
+        keyRects: [[CGRect]],
+        thumbRects: [CGRect],
+        labels: [[String]]
+    ) -> [KeyBinding] {
         var bindings: [KeyBinding] = []
         for row in 0..<keyRects.count {
             for col in 0..<keyRects[row].count {
-                guard row < Self.gridLabels.count,
-                      col < Self.gridLabels[row].count else { continue }
-                let label = Self.gridLabels[row][col]
+                guard row < labels.count,
+                      col < labels[row].count else { continue }
+                let label = labels[row][col]
                 guard let binding = bindingForLabel(label, rect: keyRects[row][col]) else { continue }
                 bindings.append(binding)
             }
@@ -303,18 +190,36 @@ final class ContentViewModel: ObservableObject {
 
     private func bindingForLabel(_ label: String, rect: CGRect) -> KeyBinding? {
         let map: [String: (CGKeyCode, CGEventFlags)] = [
+            "Tab": (CGKeyCode(kVK_Tab), []),
+            "Q": (CGKeyCode(kVK_ANSI_Q), []),
+            "W": (CGKeyCode(kVK_ANSI_W), []),
+            "E": (CGKeyCode(kVK_ANSI_E), []),
+            "R": (CGKeyCode(kVK_ANSI_R), []),
+            "T": (CGKeyCode(kVK_ANSI_T), []),
+            "Shift": (CGKeyCode(kVK_Shift), []),
+            "A": (CGKeyCode(kVK_ANSI_A), []),
+            "S": (CGKeyCode(kVK_ANSI_S), []),
+            "D": (CGKeyCode(kVK_ANSI_D), []),
+            "F": (CGKeyCode(kVK_ANSI_F), []),
+            "G": (CGKeyCode(kVK_ANSI_G), []),
+            "Ctrl": (CGKeyCode(kVK_Control), []),
+            "Z": (CGKeyCode(kVK_ANSI_Z), []),
+            "X": (CGKeyCode(kVK_ANSI_X), []),
+            "C": (CGKeyCode(kVK_ANSI_C), []),
+            "V": (CGKeyCode(kVK_ANSI_V), []),
+            "B": (CGKeyCode(kVK_ANSI_B), []),
             "Y": (CGKeyCode(kVK_ANSI_Y), []),
             "U": (CGKeyCode(kVK_ANSI_U), []),
             "I": (CGKeyCode(kVK_ANSI_I), []),
             "O": (CGKeyCode(kVK_ANSI_O), []),
             "P": (CGKeyCode(kVK_ANSI_P), []),
-            "[": (CGKeyCode(kVK_ANSI_LeftBracket), []),
+            "Back": (CGKeyCode(kVK_Delete), []),
             "H": (CGKeyCode(kVK_ANSI_H), []),
             "J": (CGKeyCode(kVK_ANSI_J), []),
             "K": (CGKeyCode(kVK_ANSI_K), []),
             "L": (CGKeyCode(kVK_ANSI_L), []),
             ";": (CGKeyCode(kVK_ANSI_Semicolon), []),
-            "'": (CGKeyCode(kVK_ANSI_Quote), []),
+            "Ret": (CGKeyCode(kVK_Return), []),
             "N": (CGKeyCode(kVK_ANSI_N), []),
             "M": (CGKeyCode(kVK_ANSI_M), []),
             ",": (CGKeyCode(kVK_ANSI_Comma), []),
