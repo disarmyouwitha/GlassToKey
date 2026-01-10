@@ -229,6 +229,16 @@ final class ContentViewModel: ObservableObject {
                 continue
             }
 
+            if !isDragDetectionEnabled {
+                processTouchWithoutDrag(
+                    touch: touch,
+                    point: point,
+                    touchKey: touchKey,
+                    bindings: bindings
+                )
+                continue
+            }
+
             switch touch.state {
             case .starting, .making, .touching:
                 if activeTouches[touchKey] == nil,
@@ -357,7 +367,7 @@ final class ContentViewModel: ObservableObject {
                 }
             case .hovering, .lingering:
                 break
-            }
+            }ml@
         }
     }
 
@@ -440,6 +450,99 @@ final class ContentViewModel: ObservableObject {
 
     private func binding(at point: CGPoint, bindings: [KeyBinding]) -> KeyBinding? {
         bindings.first { $0.rect.contains(point) }
+    }
+
+    private func processTouchWithoutDrag(
+        touch: OMSTouchData,
+        point: CGPoint,
+        touchKey: TouchKey,
+        bindings: [KeyBinding]
+    ) {
+        switch touch.state {
+        case .starting, .making, .touching:
+            if activeTouches[touchKey] == nil,
+               let binding = binding(at: point, bindings: bindings) {
+                let modifierKey = modifierKey(for: binding)
+                let isContinuousKey = isContinuousKey(binding)
+                let holdBinding = holdBinding(for: binding)
+                let overlappingTouches = activeTouches.keys.filter {
+                    $0.deviceID == touch.deviceID
+                }
+                let didMultiTouch = !overlappingTouches.isEmpty
+                if didMultiTouch {
+                    for key in overlappingTouches {
+                        if var existing = activeTouches[key] {
+                            existing.didMultiTouch = true
+                            activeTouches[key] = existing
+                        }
+                    }
+                }
+                var active = ActiveTouch(
+                    binding: binding,
+                    startTime: Date(),
+                    startPoint: point,
+                    modifierKey: modifierKey,
+                    isContinuousKey: isContinuousKey,
+                    holdBinding: holdBinding,
+                    didHold: false,
+                    didMove: false,
+                    qualifiedForKeys: true,
+                    didRepeat: false,
+                    didMultiTouch: didMultiTouch
+                )
+                activeTouches[touchKey] = active
+                if let modifierKey {
+                    handleModifierDown(modifierKey, binding: binding)
+                } else if isContinuousKey {
+                    sendKey(binding: binding)
+                    startRepeat(for: touchKey, binding: binding)
+                    active.didRepeat = true
+                    activeTouches[touchKey] = active
+                }
+            }
+
+            if var active = activeTouches[touchKey] {
+                let elapsed = Date().timeIntervalSince(active.startTime)
+                if active.modifierKey == nil,
+                   !active.isContinuousKey,
+                   !active.didHold,
+                   !active.didMultiTouch,
+                   let holdBinding = active.holdBinding,
+                   elapsed >= holdMinDuration {
+                    sendKey(binding: holdBinding)
+                    active.didHold = true
+                    activeTouches[touchKey] = active
+                }
+            }
+        case .breaking, .leaving:
+            if let active = activeTouches.removeValue(forKey: touchKey) {
+                if let modifierKey = active.modifierKey {
+                    handleModifierUp(modifierKey, binding: active.binding)
+                }
+                if active.isContinuousKey {
+                    if active.didRepeat {
+                        stopRepeat(for: touchKey)
+                    } else if !active.didMultiTouch,
+                              Date().timeIntervalSince(active.startTime) <= tapMaxDuration {
+                        sendKey(binding: active.binding)
+                    }
+                } else if !active.didHold,
+                          !active.didMultiTouch,
+                          Date().timeIntervalSince(active.startTime) <= tapMaxDuration {
+                    sendKey(binding: active.binding)
+                }
+            }
+        case .notTouching:
+            if let active = activeTouches.removeValue(forKey: touchKey) {
+                if let modifierKey = active.modifierKey {
+                    handleModifierUp(modifierKey, binding: active.binding)
+                } else if active.isContinuousKey, active.didRepeat {
+                    stopRepeat(for: touchKey)
+                }
+            }
+        case .hovering, .lingering:
+            break
+        }
     }
 
     private func handleTypingToggleTouch(touchKey: TouchKey, state: OMSState) {
