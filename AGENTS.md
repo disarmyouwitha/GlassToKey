@@ -6,12 +6,6 @@
 - Platform: macOS 13+, Xcode 16+, Swift tools 6.0.
 - Sandbox: App Sandbox must be disabled for consumers and the demo app.
 
-## Current focus
-- Multi-touchpad support (2 devices at once) across Objective-C and Swift layers.
-- Device identification: per-event deviceID, per-touch deviceID, and ability to select active devices.
-- Demo UI updated to pick left/right trackpads and render both simultaneously.
-- I will ask Codex to refresh this AGENTS.md at the end of each session.
-
 ## Repository map
 - `Sources/OpenMultitouchSupport/`: Swift wrapper API.
 - `Framework/OpenMultitouchSupportXCF/`: Objective-C framework source.
@@ -65,5 +59,7 @@
 ## Important notes for next instance of Codex
 
 ## TODO
-[ ] Tap vs hold behavior. It seems to already recognize this - can I have a different keymap for holds?
-[ ] Layers I need to add 2 more layers and have a key I can use to switch on the thumb clusters
+- Make Left Shift work
+- Tap vs hold behavior. It seems to already recognize this - can I have a different keymap for holds?
+- Expand area of big thumb button to cover the entire corners
+- Layers I need to add 2 more layers and have a key I can use to switch on the thumb clusters

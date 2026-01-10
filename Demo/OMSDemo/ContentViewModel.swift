@@ -51,6 +51,7 @@ final class ContentViewModel: ObservableObject {
     ]
 
     private var activeTouches: [TouchKey: ActiveTouch] = [:]
+    private var leftShiftTouchCount = 0
     private let tapMaxDuration: TimeInterval = 0.25
 
     init() {
@@ -91,6 +92,12 @@ final class ContentViewModel: ObservableObject {
     func stop() {
         if manager.stopListening() {
             isListening = false
+            if leftShiftTouchCount > 0 {
+                let shiftBinding = KeyBinding(rect: .zero, keyCode: CGKeyCode(kVK_Shift), flags: [])
+                postKey(binding: shiftBinding, keyDown: false)
+                leftShiftTouchCount = 0
+            }
+            activeTouches.removeAll()
         }
     }
     
@@ -119,6 +126,11 @@ final class ContentViewModel: ObservableObject {
         let devices = [leftDevice, rightDevice].compactMap { $0 }
         guard !devices.isEmpty else { return }
         if manager.setActiveDevices(devices) {
+            if leftShiftTouchCount > 0 {
+                let shiftBinding = KeyBinding(rect: .zero, keyCode: CGKeyCode(kVK_Shift), flags: [])
+                postKey(binding: shiftBinding, keyDown: false)
+                leftShiftTouchCount = 0
+            }
             activeTouches.removeAll()
         }
     }
@@ -127,6 +139,7 @@ final class ContentViewModel: ObservableObject {
     private struct ActiveTouch {
         let binding: KeyBinding
         let startTime: Date
+        let isLeftShift: Bool
     }
 
     func processTouches(
@@ -155,15 +168,37 @@ final class ContentViewModel: ObservableObject {
             case .starting, .making, .touching:
                 if activeTouches[touchKey] == nil,
                    let binding = binding(at: point, bindings: bindings) {
-                    activeTouches[touchKey] = ActiveTouch(binding: binding, startTime: Date())
+                    let isLeftShift = binding.keyCode == CGKeyCode(kVK_Shift)
+                    activeTouches[touchKey] = ActiveTouch(
+                        binding: binding,
+                        startTime: Date(),
+                        isLeftShift: isLeftShift
+                    )
+                    if isLeftShift {
+                        if leftShiftTouchCount == 0 {
+                            postKey(binding: binding, keyDown: true)
+                        }
+                        leftShiftTouchCount += 1
+                    }
                 }
             case .breaking, .leaving:
-                if let active = activeTouches.removeValue(forKey: touchKey),
-                   Date().timeIntervalSince(active.startTime) <= tapMaxDuration {
-                    sendKey(binding: active.binding)
+                if let active = activeTouches.removeValue(forKey: touchKey) {
+                    if active.isLeftShift {
+                        leftShiftTouchCount = max(0, leftShiftTouchCount - 1)
+                        if leftShiftTouchCount == 0 {
+                            postKey(binding: active.binding, keyDown: false)
+                        }
+                    } else if Date().timeIntervalSince(active.startTime) <= tapMaxDuration {
+                        sendKey(binding: active.binding)
+                    }
                 }
             case .notTouching:
-                activeTouches.removeValue(forKey: touchKey)
+                if let active = activeTouches.removeValue(forKey: touchKey), active.isLeftShift {
+                    leftShiftTouchCount = max(0, leftShiftTouchCount - 1)
+                    if leftShiftTouchCount == 0 {
+                        postKey(binding: active.binding, keyDown: false)
+                    }
+                }
             case .hovering, .lingering:
                 break
             }
@@ -245,13 +280,27 @@ final class ContentViewModel: ObservableObject {
     }
 
     private func sendKey(binding: KeyBinding) {
+        let shiftFlags: CGEventFlags = leftShiftTouchCount > 0 ? .maskShift : []
         guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: binding.keyCode, keyDown: true),
               let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: binding.keyCode, keyDown: false) else {
             return
         }
-        keyDown.flags = binding.flags
-        keyUp.flags = binding.flags
+        let combinedFlags = binding.flags.union(shiftFlags)
+        keyDown.flags = combinedFlags
+        keyUp.flags = combinedFlags
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
+    }
+
+    private func postKey(binding: KeyBinding, keyDown: Bool) {
+        guard let event = CGEvent(
+            keyboardEventSource: nil,
+            virtualKey: binding.keyCode,
+            keyDown: keyDown
+        ) else {
+            return
+        }
+        event.flags = binding.flags
+        event.post(tap: .cghidEventTap)
     }
 }
