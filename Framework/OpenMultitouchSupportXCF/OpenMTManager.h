@@ -25,8 +25,8 @@
 + (OpenMTManager *)sharedManager;
 
 - (NSArray<OpenMTDeviceInfo *> *)availableDevices;
-- (BOOL)selectDevice:(OpenMTDeviceInfo *)deviceInfo;
-- (OpenMTDeviceInfo *)currentDevice;
+- (BOOL)setActiveDevices:(NSArray<OpenMTDeviceInfo *> *)deviceInfos;
+- (NSArray<OpenMTDeviceInfo *> *)activeDevices;
 
 - (OpenMTListener *)addListenerWithTarget:(id)target selector:(SEL)selector;
 - (void)removeListener:(OpenMTListener *)listener;

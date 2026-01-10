@@ -4,12 +4,12 @@
 
 It adds support for:
 - Listing all available devices
-- Selecting a device
+- Selecting devices
 - Getting device name
 
 ---
 
-This enables you easily to observe global multitouch events on the trackpad (only default device).  
+This enables you easily to observe global multitouch events on the trackpad(s).  
 I created this library to make MultitouchSupport.framework (Private Framework) easy to use.
 
 ## References
@@ -40,9 +40,12 @@ let manager = OMSManager.shared()
 
 Task { [weak self, manager] in
     for await touchData in manager.touchDataStream {
-        // use touchData
+        // use touchData (includes deviceID per touch)
     }
 }
+
+let devices = manager.availableDevices
+_ = manager.setActiveDevices(devices)
 
 manager.startListening()
 manager.stopListening()
@@ -73,6 +76,7 @@ enum OMSState: String, Sendable {
 }
 
 struct OMSTouchData: Sendable {
+    var deviceID: String
     var id: Int32
     var position: OMSPosition
     var total: Float // total value of capacitance
