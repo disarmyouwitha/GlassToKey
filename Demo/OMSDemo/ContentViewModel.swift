@@ -44,14 +44,12 @@ final class ContentViewModel: ObservableObject {
     private let leftThumbKeys: [(CGKeyCode, CGEventFlags)] = [
         (CGKeyCode(kVK_Delete), []),
         (CGKeyCode(kVK_ANSI_A), []),
-        (CGKeyCode(kVK_ANSI_B), []),
-        (CGKeyCode(kVK_ANSI_C), [])
+        (CGKeyCode(kVK_ANSI_B), [])
     ]
     private let rightThumbKeys: [(CGKeyCode, CGEventFlags)] = [
         (CGKeyCode(kVK_Space), []),
         (CGKeyCode(kVK_ANSI_D), []),
-        (CGKeyCode(kVK_ANSI_E), []),
-        (CGKeyCode(kVK_ANSI_F), [])
+        (CGKeyCode(kVK_ANSI_E), [])
     ]
 
     private var activeTouches: [TouchKey: ActiveTouch] = [:]
