@@ -21,8 +21,6 @@ struct ContentView: View {
                         .font(.headline)
                     HStack(alignment: .top, spacing: 16) {
                         VStack(alignment: .leading) {
-                            Text("Left Trackpad")
-                                .font(.subheadline)
                             Picker("Left Trackpad", selection: Binding(
                                 get: { viewModel.leftDevice },
                                 set: { device in
@@ -40,8 +38,6 @@ struct ContentView: View {
                         }
 
                         VStack(alignment: .leading) {
-                            Text("Right Trackpad")
-                                .font(.subheadline)
                             Picker("Right Trackpad", selection: Binding(
                                 get: { viewModel.rightDevice },
                                 set: { device in
