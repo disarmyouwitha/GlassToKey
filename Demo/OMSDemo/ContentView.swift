@@ -10,29 +10,54 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject var viewModel = ContentViewModel()
-    private let canvasSize = CGSize(width: 600, height: 400)
+    private let trackpadSize = CGSize(width: 280, height: 200)
 
     var body: some View {
         VStack {
-            // Device Selector
+            // Device Selectors
             if !viewModel.availableDevices.isEmpty {
-                VStack(alignment: .leading) {
-                    Text("Trackpad Device:")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Trackpad Devices")
                         .font(.headline)
-                    Picker("Select Device", selection: Binding(
-                        get: { viewModel.selectedDevice },
-                        set: { device in
-                            if let device = device {
-                                viewModel.selectDevice(device)
+                    HStack(alignment: .top, spacing: 16) {
+                        VStack(alignment: .leading) {
+                            Text("Left Trackpad (\(ContentViewModel.leftDeviceKey))")
+                                .font(.subheadline)
+                            Picker("Left Trackpad", selection: Binding(
+                                get: { viewModel.leftDevice },
+                                set: { device in
+                                    if let device = device {
+                                        viewModel.selectLeftDevice(device)
+                                    }
+                                }
+                            )) {
+                                ForEach(viewModel.availableDevices, id: \.self) { device in
+                                    Text("\(device.deviceName) (ID: \(device.deviceID))")
+                                        .tag(device as OMSDeviceInfo?)
+                                }
                             }
+                            .pickerStyle(MenuPickerStyle())
                         }
-                    )) {
-                        ForEach(viewModel.availableDevices, id: \.self) { device in
-                            Text("\(device.deviceName) (ID: \(device.deviceID))")
-                                .tag(device as OMSDeviceInfo?)
+
+                        VStack(alignment: .leading) {
+                            Text("Right Trackpad (\(ContentViewModel.rightDeviceKey))")
+                                .font(.subheadline)
+                            Picker("Right Trackpad", selection: Binding(
+                                get: { viewModel.rightDevice },
+                                set: { device in
+                                    if let device = device {
+                                        viewModel.selectRightDevice(device)
+                                    }
+                                }
+                            )) {
+                                ForEach(viewModel.availableDevices, id: \.self) { device in
+                                    Text("\(device.deviceName) (ID: \(device.deviceID))")
+                                        .tag(device as OMSDeviceInfo?)
+                                }
+                            }
+                            .pickerStyle(MenuPickerStyle())
                         }
                     }
-                    .pickerStyle(MenuPickerStyle())
                 }
                 .padding(.bottom)
             }
@@ -153,9 +178,67 @@ struct ContentView: View {
                 .padding(.bottom)
             }
             
-            Canvas { context, size in
+            HStack(alignment: .top, spacing: 16) {
+                trackpadCanvas(
+                    title: "Left Trackpad",
+                    touches: viewModel.leftTouches
+                )
+                trackpadCanvas(
+                    title: "Right Trackpad",
+                    touches: viewModel.rightTouches
+                )
+            }
+        }
+        .fixedSize()
+        .padding()
+        .onAppear {
+            viewModel.onAppear()
+        }
+        .onDisappear {
+            viewModel.onDisappear()
+        }
+        .onReceive(viewModel.$touchData) { _ in
+            let layout = makeKeyLayout(
+                size: trackpadSize,
+                keyWidth: 18,
+                keyHeight: 17,
+                columns: 6,
+                rows: 3,
+                trackpadWidth: 160,
+                trackpadHeight: 115,
+                columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3]
+            )
+            viewModel.processTouches(
+                viewModel.leftTouches,
+                keyRects: layout.keyRects,
+                thumbRects: layout.thumbRects,
+                canvasSize: trackpadSize
+            )
+            viewModel.processTouches(
+                viewModel.rightTouches,
+                keyRects: layout.keyRects,
+                thumbRects: layout.thumbRects,
+                canvasSize: trackpadSize
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)) { _ in
+            viewModel.ensureHapticsSafe()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willHideNotification)) { _ in
+            viewModel.ensureHapticsSafe()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            viewModel.ensureHapticsSafe()
+        }
+    }
+
+    private func trackpadCanvas(title: String, touches: [OMSTouchData]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline)
+            Canvas { context, _ in
                 let layout = makeKeyLayout(
-                    size: canvasSize,
+                    size: trackpadSize,
                     keyWidth: 18,
                     keyHeight: 17,
                     columns: 6,
@@ -167,48 +250,13 @@ struct ContentView: View {
                 drawKeyGrid(context: &context, keyRects: layout.keyRects)
                 drawThumbGrid(context: &context, thumbRects: layout.thumbRects)
                 drawGridLabels(context: &context, keyRects: layout.keyRects)
-                viewModel.touchData.forEach { touch in
-                    let path = makeEllipse(touch: touch, size: canvasSize)
+                touches.forEach { touch in
+                    let path = makeEllipse(touch: touch, size: trackpadSize)
                     context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
                 }
             }
-            .frame(width: canvasSize.width, height: canvasSize.height)
+            .frame(width: trackpadSize.width, height: trackpadSize.height)
             .border(Color.primary)
-        }
-        .fixedSize()
-        .padding()
-        .onAppear {
-            viewModel.onAppear()
-        }
-        .onDisappear {
-            viewModel.onDisappear()
-        }
-        .onReceive(viewModel.$touchData) { touchData in
-            let layout = makeKeyLayout(
-                size: canvasSize,
-                keyWidth: 18,
-                keyHeight: 17,
-                columns: 6,
-                rows: 3,
-                trackpadWidth: 160,
-                trackpadHeight: 115,
-                columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3]
-            )
-            viewModel.processTouches(
-                touchData,
-                keyRects: layout.keyRects,
-                thumbRects: layout.thumbRects,
-                canvasSize: canvasSize
-            )
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)) { _ in
-            viewModel.ensureHapticsSafe()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willHideNotification)) { _ in
-            viewModel.ensureHapticsSafe()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-            viewModel.ensureHapticsSafe()
         }
     }
 

@@ -62,10 +62,9 @@ public final class OMSManager: Sendable {
         return xcfManager.availableDevices().map { OMSDeviceInfo($0) }
     }
     
-    public var currentDevice: OMSDeviceInfo? {
-        guard let xcfManager = protectedManager.withLockUnchecked(\.self),
-              let current = xcfManager.currentDevice() else { return nil }
-        return OMSDeviceInfo(current)
+    public var activeDevices: [OMSDeviceInfo] {
+        guard let xcfManager = protectedManager.withLockUnchecked(\.self) else { return [] }
+        return xcfManager.activeDevices().map { OMSDeviceInfo($0) }
     }
 
     private init() {
@@ -99,9 +98,10 @@ public final class OMSManager: Sendable {
     }
     
     @discardableResult
-    public func selectDevice(_ device: OMSDeviceInfo) -> Bool {
+    public func setActiveDevices(_ devices: [OMSDeviceInfo]) -> Bool {
         guard let xcfManager = protectedManager.withLockUnchecked(\.self) else { return false }
-        return xcfManager.selectDevice(device.deviceInfo)
+        let deviceInfos = devices.map { $0.deviceInfo }
+        return xcfManager.setActiveDevices(deviceInfos)
     }
     
     public var isHapticEnabled: Bool {
@@ -129,6 +129,7 @@ public final class OMSManager: Sendable {
             let array = touches.compactMap { touch -> OMSTouchData? in
                 guard let state = OMSState(touch.state) else { return nil }
                 return OMSTouchData(
+                    deviceID: event.deviceID,
                     id: touch.identifier,
                     position: OMSPosition(x: touch.posX, y: touch.posY),
                     total: touch.total,

@@ -22,11 +22,14 @@ final class ContentViewModel: ObservableObject {
         ["H", "J", "K", "L", ";", "'"],
         ["N", "M", ",", ".", "/", "?"]
     ]
+    static let leftDeviceKey = "LEFT_DEVICE_ID"
+    static let rightDeviceKey = "RIGHT_DEVICE_ID"
 
     @Published var touchData = [OMSTouchData]()
     @Published var isListening: Bool = false
     @Published var availableDevices = [OMSDeviceInfo]()
-    @Published var selectedDevice: OMSDeviceInfo?
+    @Published var leftDevice: OMSDeviceInfo?
+    @Published var rightDevice: OMSDeviceInfo?
     @Published var isHapticEnabled: Bool = false
 
     private let manager = OMSManager.shared
@@ -34,11 +37,26 @@ final class ContentViewModel: ObservableObject {
     private var hapticStateBeforeHover: Bool = true
     private var isCurrentlyHovering: Bool = false
     private var safetyTimer: Timer?
-    private var activeTouches: [Int32: ActiveTouch] = [:]
+    private struct TouchKey: Hashable {
+        let deviceID: String
+        let id: Int32
+    }
+
+    private var activeTouches: [TouchKey: ActiveTouch] = [:]
     private let tapMaxDuration: TimeInterval = 0.25
 
     init() {
         loadDevices()
+    }
+
+    var leftTouches: [OMSTouchData] {
+        guard let deviceID = leftDevice?.deviceID else { return [] }
+        return touchData.filter { $0.deviceID == deviceID }
+    }
+
+    var rightTouches: [OMSTouchData] {
+        guard let deviceID = rightDevice?.deviceID else { return [] }
+        return touchData.filter { $0.deviceID == deviceID }
     }
 
     func onAppear() {
@@ -90,14 +108,32 @@ final class ContentViewModel: ObservableObject {
     
     func loadDevices() {
         availableDevices = manager.availableDevices
-        selectedDevice = manager.currentDevice
+        leftDevice = availableDevices.first
+        if availableDevices.count > 1 {
+            rightDevice = availableDevices[1]
+        } else {
+            rightDevice = nil
+        }
+        updateActiveDevices()
         updateHapticStatus()
     }
     
-    func selectDevice(_ device: OMSDeviceInfo) {
-        if manager.selectDevice(device) {
-            selectedDevice = device
-            updateHapticStatus()
+    func selectLeftDevice(_ device: OMSDeviceInfo) {
+        leftDevice = device
+        updateActiveDevices()
+        updateHapticStatus()
+    }
+
+    func selectRightDevice(_ device: OMSDeviceInfo) {
+        rightDevice = device
+        updateActiveDevices()
+    }
+
+    private func updateActiveDevices() {
+        let devices = [leftDevice, rightDevice].compactMap { $0 }
+        guard !devices.isEmpty else { return }
+        if manager.setActiveDevices(devices) {
+            activeTouches.removeAll()
         }
     }
     
@@ -219,19 +255,20 @@ final class ContentViewModel: ObservableObject {
                 x: CGFloat(touch.position.x) * canvasSize.width,
                 y: CGFloat(1.0 - touch.position.y) * canvasSize.height
             )
+            let touchKey = TouchKey(deviceID: touch.deviceID, id: touch.id)
             switch touch.state {
             case .starting, .making, .touching:
-                if activeTouches[touch.id] == nil,
+                if activeTouches[touchKey] == nil,
                    let binding = binding(at: point, bindings: bindings) {
-                    activeTouches[touch.id] = ActiveTouch(binding: binding, startTime: Date())
+                    activeTouches[touchKey] = ActiveTouch(binding: binding, startTime: Date())
                 }
             case .breaking, .leaving:
-                if let active = activeTouches.removeValue(forKey: touch.id),
+                if let active = activeTouches.removeValue(forKey: touchKey),
                    Date().timeIntervalSince(active.startTime) <= tapMaxDuration {
                     sendKey(binding: active.binding)
                 }
             case .notTouching:
-                activeTouches.removeValue(forKey: touch.id)
+                activeTouches.removeValue(forKey: touchKey)
             case .hovering, .lingering:
                 break
             }

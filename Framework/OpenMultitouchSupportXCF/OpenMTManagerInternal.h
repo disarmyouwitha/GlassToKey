@@ -9,9 +9,12 @@
 #ifndef OpenMTManagerInternal_h
 #define OpenMTManagerInternal_h
 
+#import "OpenMTInternal.h"
 #import "OpenMTManager.h"
 
 @interface OpenMTManager()
+
+- (NSString *)deviceIDForDeviceRef:(MTDeviceRef)deviceRef;
 
 @end
 
