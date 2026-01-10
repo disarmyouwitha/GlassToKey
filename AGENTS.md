@@ -59,7 +59,6 @@
 ## Important notes for next instance of Codex
 
 ## TODO
-- Make Left Shift work
 - Tap vs hold behavior. It seems to already recognize this - can I have a different keymap for holds?
 - Expand area of big thumb button to cover the entire corners
 - Layers I need to add 2 more layers and have a key I can use to switch on the thumb clusters

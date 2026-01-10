@@ -15,6 +15,7 @@ final class ContentViewModel: ObservableObject {
         let rect: CGRect
         let keyCode: CGKeyCode
         let flags: CGEventFlags
+        let label: String
     }
 
     static let leftGridLabels: [[String]] = [
@@ -53,6 +54,10 @@ final class ContentViewModel: ObservableObject {
     private var activeTouches: [TouchKey: ActiveTouch] = [:]
     private var leftShiftTouchCount = 0
     private let tapMaxDuration: TimeInterval = 0.25
+    private let holdMinDuration: TimeInterval = 0.4
+    private let holdBindingsByLabel: [String: (CGKeyCode, CGEventFlags)] = [
+        "C": (CGKeyCode(kVK_ANSI_C), .maskCommand)
+    ]
 
     init() {
         loadDevices()
@@ -93,7 +98,12 @@ final class ContentViewModel: ObservableObject {
         if manager.stopListening() {
             isListening = false
             if leftShiftTouchCount > 0 {
-                let shiftBinding = KeyBinding(rect: .zero, keyCode: CGKeyCode(kVK_Shift), flags: [])
+                let shiftBinding = KeyBinding(
+                    rect: .zero,
+                    keyCode: CGKeyCode(kVK_Shift),
+                    flags: [],
+                    label: "Shift"
+                )
                 postKey(binding: shiftBinding, keyDown: false)
                 leftShiftTouchCount = 0
             }
@@ -127,7 +137,12 @@ final class ContentViewModel: ObservableObject {
         guard !devices.isEmpty else { return }
         if manager.setActiveDevices(devices) {
             if leftShiftTouchCount > 0 {
-                let shiftBinding = KeyBinding(rect: .zero, keyCode: CGKeyCode(kVK_Shift), flags: [])
+                let shiftBinding = KeyBinding(
+                    rect: .zero,
+                    keyCode: CGKeyCode(kVK_Shift),
+                    flags: [],
+                    label: "Shift"
+                )
                 postKey(binding: shiftBinding, keyDown: false)
                 leftShiftTouchCount = 0
             }
@@ -140,6 +155,8 @@ final class ContentViewModel: ObservableObject {
         let binding: KeyBinding
         let startTime: Date
         let isLeftShift: Bool
+        let holdBinding: KeyBinding?
+        var didHold: Bool
     }
 
     func processTouches(
@@ -169,10 +186,13 @@ final class ContentViewModel: ObservableObject {
                 if activeTouches[touchKey] == nil,
                    let binding = binding(at: point, bindings: bindings) {
                     let isLeftShift = binding.keyCode == CGKeyCode(kVK_Shift)
+                    let holdBinding = holdBinding(for: binding)
                     activeTouches[touchKey] = ActiveTouch(
                         binding: binding,
                         startTime: Date(),
-                        isLeftShift: isLeftShift
+                        isLeftShift: isLeftShift,
+                        holdBinding: holdBinding,
+                        didHold: false
                     )
                     if isLeftShift {
                         if leftShiftTouchCount == 0 {
@@ -180,6 +200,14 @@ final class ContentViewModel: ObservableObject {
                         }
                         leftShiftTouchCount += 1
                     }
+                } else if var active = activeTouches[touchKey],
+                          !active.isLeftShift,
+                          !active.didHold,
+                          let holdBinding = active.holdBinding,
+                          Date().timeIntervalSince(active.startTime) >= holdMinDuration {
+                    sendKey(binding: holdBinding)
+                    active.didHold = true
+                    activeTouches[touchKey] = active
                 }
             case .breaking, .leaving:
                 if let active = activeTouches.removeValue(forKey: touchKey) {
@@ -188,7 +216,8 @@ final class ContentViewModel: ObservableObject {
                         if leftShiftTouchCount == 0 {
                             postKey(binding: active.binding, keyDown: false)
                         }
-                    } else if Date().timeIntervalSince(active.startTime) <= tapMaxDuration {
+                    } else if !active.didHold,
+                              Date().timeIntervalSince(active.startTime) <= tapMaxDuration {
                         sendKey(binding: active.binding)
                     }
                 }
@@ -225,7 +254,12 @@ final class ContentViewModel: ObservableObject {
         for (index, rect) in thumbRects.enumerated() {
             guard index < thumbKeys.count else { continue }
             let (code, flags) = thumbKeys[index]
-            bindings.append(KeyBinding(rect: rect, keyCode: code, flags: flags))
+            bindings.append(KeyBinding(
+                rect: rect,
+                keyCode: code,
+                flags: flags,
+                label: "thumb-\(index)"
+            ))
         }
 
         return bindings
@@ -272,11 +306,16 @@ final class ContentViewModel: ObservableObject {
             "?": (CGKeyCode(kVK_ANSI_Slash), .maskShift)
         ]
         guard let (code, flags) = map[label] else { return nil }
-        return KeyBinding(rect: rect, keyCode: code, flags: flags)
+        return KeyBinding(rect: rect, keyCode: code, flags: flags, label: label)
     }
 
     private func binding(at point: CGPoint, bindings: [KeyBinding]) -> KeyBinding? {
         bindings.first { $0.rect.contains(point) }
+    }
+
+    private func holdBinding(for binding: KeyBinding) -> KeyBinding? {
+        guard let (code, flags) = holdBindingsByLabel[binding.label] else { return nil }
+        return KeyBinding(rect: binding.rect, keyCode: code, flags: flags, label: binding.label)
     }
 
     private func sendKey(binding: KeyBinding) {
