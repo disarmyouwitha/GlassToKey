@@ -342,7 +342,7 @@ struct ContentView: View {
     }
 
     private var typingToggleSize: CGSize {
-        CGSize(width: trackpadSize.width * 0.18, height: trackpadSize.height * 0.18)
+        CGSize(width: trackpadSize.width * 0.27, height: trackpadSize.height * 0.27)
     }
 
     private func typingToggleRect(isLeft: Bool) -> CGRect {

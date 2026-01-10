@@ -364,8 +364,7 @@ final class ContentViewModel: ObservableObject {
                 toggleTouchStarts[touchKey] = Date()
             }
         case .breaking, .leaving:
-            if let startTime = toggleTouchStarts.removeValue(forKey: touchKey),
-               Date().timeIntervalSince(startTime) <= tapMaxDuration {
+            if toggleTouchStarts.removeValue(forKey: touchKey) != nil {
                 toggleTypingMode()
             }
         case .notTouching:
