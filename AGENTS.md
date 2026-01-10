@@ -70,8 +70,6 @@
   - Files: Demo/OMSDemo/ContentView.swift, Demo/OMSDemo/ContentViewModel.swift
 
 ## TODO, first
-- Expand area of big thumb button like space_improvement.png
-- create LHS and RHS hotzone buttons (all the same size, aligned between current GUI elements)
 - Re-create drag-detection functionality built as a toggle on top of typing-toggle
 
 ## TODO, future
@@ -80,4 +78,4 @@
 - can we devise a keymap layout config we can save and let ppl edit & the program uses that to map keys?
 - add config to splay columns based on your touch
 - can this program run in the background and add a taskbar to access the demo/config?
-- once we get taskbar set up we should display mouse vs keyboard mode with red light green light?
+- once we get taskbar set up we should display mouse vs keyboard mode with red light green light?&
