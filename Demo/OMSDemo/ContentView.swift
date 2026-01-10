@@ -30,8 +30,7 @@ struct ContentView: View {
         CGRect(x: 80, y: 85, width: 40, height: 30),
         CGRect(x: 120, y: 85, width: 40, height: 30)
     ]
-    private let typingToggleRectMM = CGRect(x: 130, y: 0, width: 30, height: 45)
-    private let dragToggleRectMM = CGRect(x: 130, y: 45, width: 30, height: 30)
+    private let typingToggleRectMM = CGRect(x: 130, y: 0, width: 30, height: 75)
 
     private var trackpadSize: CGSize {
         CGSize(width: trackpadWidthMM * displayScale, height: trackpadHeightMM * displayScale)
@@ -119,9 +118,7 @@ struct ContentView: View {
                     mirrored: true,
                     labels: mirroredLabels(ContentViewModel.leftGridLabels),
                     typingToggleRect: typingToggleRect(isLeft: true),
-                    dragToggleRect: dragToggleRect(isLeft: true),
-                    typingEnabled: viewModel.isTypingEnabled,
-                    dragDetectionEnabled: viewModel.isDragDetectionEnabled
+                    typingEnabled: viewModel.isTypingEnabled
                 )
                 trackpadCanvas(
                     title: "Right Trackpad",
@@ -129,9 +126,7 @@ struct ContentView: View {
                     mirrored: false,
                     labels: ContentViewModel.rightGridLabels,
                     typingToggleRect: typingToggleRect(isLeft: false),
-                    dragToggleRect: dragToggleRect(isLeft: false),
-                    typingEnabled: viewModel.isTypingEnabled,
-                    dragDetectionEnabled: viewModel.isDragDetectionEnabled
+                    typingEnabled: viewModel.isTypingEnabled
                 )
             }
         }
@@ -174,8 +169,7 @@ struct ContentView: View {
                 canvasSize: trackpadSize,
                 labels: mirroredLabels(ContentViewModel.leftGridLabels),
                 isLeftSide: true,
-                typingToggleRect: typingToggleRect(isLeft: true),
-                dragToggleRect: dragToggleRect(isLeft: true)
+                typingToggleRect: typingToggleRect(isLeft: true)
             )
             viewModel.processTouches(
                 viewModel.rightTouches,
@@ -184,8 +178,7 @@ struct ContentView: View {
                 canvasSize: trackpadSize,
                 labels: ContentViewModel.rightGridLabels,
                 isLeftSide: false,
-                typingToggleRect: typingToggleRect(isLeft: false),
-                dragToggleRect: dragToggleRect(isLeft: false)
+                typingToggleRect: typingToggleRect(isLeft: false)
             )
         }
     }
@@ -196,9 +189,7 @@ struct ContentView: View {
         mirrored: Bool,
         labels: [[String]],
         typingToggleRect: CGRect?,
-        dragToggleRect: CGRect?,
-        typingEnabled: Bool,
-        dragDetectionEnabled: Bool
+        typingEnabled: Bool
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
@@ -224,13 +215,6 @@ struct ContentView: View {
                         context: &context,
                         rect: typingToggleRect,
                         enabled: typingEnabled
-                    )
-                }
-                if let dragToggleRect {
-                    drawDragToggle(
-                        context: &context,
-                        rect: dragToggleRect,
-                        enabled: dragDetectionEnabled
                     )
                 }
                 drawGridLabels(context: &context, keyRects: layout.keyRects, labels: labels)
@@ -334,18 +318,6 @@ struct ContentView: View {
         )
     }
 
-    private func dragToggleRect(isLeft: Bool) -> CGRect {
-        let scaleX = trackpadSize.width / trackpadWidthMM
-        let scaleY = trackpadSize.height / trackpadHeightMM
-        let originXMM = isLeft ? dragToggleRectMM.origin.x : trackpadWidthMM - dragToggleRectMM.maxX
-        return CGRect(
-            x: originXMM * scaleX,
-            y: dragToggleRectMM.origin.y * scaleY,
-            width: dragToggleRectMM.width * scaleX,
-            height: dragToggleRectMM.height * scaleY
-        )
-    }
-
     private func drawSensorGrid(
         context: inout GraphicsContext,
         size: CGSize,
@@ -397,16 +369,6 @@ struct ContentView: View {
         enabled: Bool
     ) {
         let fillColor = enabled ? Color.green.opacity(0.15) : Color.red.opacity(0.15)
-        context.fill(Path(rect), with: .color(fillColor))
-        context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
-    }
-
-    private func drawDragToggle(
-        context: inout GraphicsContext,
-        rect: CGRect,
-        enabled: Bool
-    ) {
-        let fillColor = enabled ? Color.blue.opacity(0.15) : Color.gray.opacity(0.15)
         context.fill(Path(rect), with: .color(fillColor))
         context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
     }

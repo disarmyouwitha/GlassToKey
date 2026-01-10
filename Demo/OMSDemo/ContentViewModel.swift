@@ -31,7 +31,7 @@ final class ContentViewModel: ObservableObject {
     @Published var touchData = [OMSTouchData]()
     @Published var isListening: Bool = false
     @Published var isTypingEnabled: Bool = true
-    @Published var isDragDetectionEnabled: Bool = true
+    private let isDragDetectionEnabled = true
     @Published var availableDevices = [OMSDeviceInfo]()
     @Published var leftDevice: OMSDeviceInfo?
     @Published var rightDevice: OMSDeviceInfo?
@@ -56,7 +56,6 @@ final class ContentViewModel: ObservableObject {
     private var controlTouchCount = 0
     private var repeatTasks: [TouchKey: Task<Void, Never>] = [:]
     private var toggleTouchStarts: [TouchKey: Date] = [:]
-    private var dragToggleTouchStarts: [TouchKey: Date] = [:]
     private let tapMaxDuration: TimeInterval = 0.2
     private let holdMinDuration: TimeInterval = 0.2
     private let modifierActivationDelay: TimeInterval = 0.05
@@ -198,8 +197,7 @@ final class ContentViewModel: ObservableObject {
         canvasSize: CGSize,
         labels: [[String]],
         isLeftSide: Bool,
-        typingToggleRect: CGRect?,
-        dragToggleRect: CGRect?
+        typingToggleRect: CGRect?
     ) {
         guard isListening else { return }
         let bindings = makeBindings(
@@ -220,11 +218,6 @@ final class ContentViewModel: ObservableObject {
                 handleTypingToggleTouch(touchKey: touchKey, state: touch.state)
                 continue
             }
-            if let dragToggleRect, dragToggleRect.contains(point) {
-                handleDragToggleTouch(touchKey: touchKey, state: touch.state)
-                continue
-            }
-
             if !isTypingEnabled {
                 if let active = activeTouches.removeValue(forKey: touchKey) {
                     if let modifierKey = active.modifierKey {
@@ -472,34 +465,11 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    private func handleDragToggleTouch(touchKey: TouchKey, state: OMSState) {
-        switch state {
-        case .starting, .making, .touching:
-            if dragToggleTouchStarts[touchKey] == nil {
-                dragToggleTouchStarts[touchKey] = Date()
-            }
-        case .breaking, .leaving:
-            if dragToggleTouchStarts.removeValue(forKey: touchKey) != nil {
-                toggleDragDetection()
-            }
-        case .notTouching:
-            dragToggleTouchStarts.removeValue(forKey: touchKey)
-        case .hovering, .lingering:
-            break
-        }
-    }
-
     private func toggleTypingMode() {
         isTypingEnabled.toggle()
         if !isTypingEnabled {
             releaseHeldKeys()
         }
-    }
-
-    private func toggleDragDetection() {
-        isDragDetectionEnabled.toggle()
-        pendingTouches.removeAll()
-        disqualifiedTouches.removeAll()
     }
 
     private func modifierKey(for binding: KeyBinding) -> ModifierKey? {
@@ -629,7 +599,6 @@ final class ContentViewModel: ObservableObject {
         pendingTouches.removeAll()
         disqualifiedTouches.removeAll()
         toggleTouchStarts.removeAll()
-        dragToggleTouchStarts.removeAll()
     }
 
     private func disqualifyTouch(_ touchKey: TouchKey) {
