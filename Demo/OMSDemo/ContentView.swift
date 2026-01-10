@@ -14,6 +14,22 @@ struct ContentView: View {
     private let trackpadWidthMM: CGFloat = 160.0
     private let trackpadHeightMM: CGFloat = 114.9
     private let displayScale: CGFloat = 2.7
+    // Per-column anchor positions in trackpad mm (top key origin).
+    private let ColumnAnchorsMM: [CGPoint] = [
+        CGPoint(x: 35.0, y: 20.9),
+        CGPoint(x: 53.0, y: 19.2),
+        CGPoint(x: 71.0, y: 17.5),
+        CGPoint(x: 89.0, y: 19.2),
+        CGPoint(x: 107.0, y: 22.6),
+        CGPoint(x: 125.0, y: 22.6)
+    ]
+
+    private let ThumbAnchorsMM: [CGRect] = [
+        CGRect(x: 0, y: 75, width: 40, height: 40),
+        CGRect(x: 40, y: 85, width: 40, height: 30),
+        CGRect(x: 80, y: 85, width: 40, height: 30),
+    ]
+
     private var trackpadSize: CGSize {
         CGSize(width: trackpadWidthMM * displayScale, height: trackpadHeightMM * displayScale)
     }
@@ -129,7 +145,8 @@ struct ContentView: View {
                 rows: 3,
                 trackpadWidth: trackpadWidthMM,
                 trackpadHeight: trackpadHeightMM,
-                columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3],
+                columnAnchorsMM: ColumnAnchorsMM,
+                thumbAnchorsMM: ThumbAnchorsMM,
                 mirrored: true
             )
             let rightLayout = makeKeyLayout(
@@ -140,7 +157,8 @@ struct ContentView: View {
                 rows: 3,
                 trackpadWidth: trackpadWidthMM,
                 trackpadHeight: trackpadHeightMM,
-                columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3]
+                columnAnchorsMM: ColumnAnchorsMM,
+                thumbAnchorsMM: ThumbAnchorsMM
             )
             viewModel.processTouches(
                 viewModel.leftTouches,
@@ -183,7 +201,8 @@ struct ContentView: View {
                     rows: 3,
                     trackpadWidth: trackpadWidthMM,
                     trackpadHeight: trackpadHeightMM,
-                    columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3],
+                    columnAnchorsMM: ColumnAnchorsMM,
+                    thumbAnchorsMM: ThumbAnchorsMM,
                     mirrored: mirrored
                 )
                 drawSensorGrid(context: &context, size: trackpadSize, columns: 30, rows: 22)
@@ -227,69 +246,13 @@ struct ContentView: View {
         rows: Int,
         trackpadWidth: CGFloat,
         trackpadHeight: CGFloat,
-        columnStagger: [CGFloat],
+        columnAnchorsMM: [CGPoint],
+        thumbAnchorsMM: [CGRect],
         mirrored: Bool = false
     ) -> (keyRects: [[CGRect]], thumbRects: [CGRect]) {
         let scaleX = size.width / trackpadWidth
         let scaleY = size.height / trackpadHeight
         let keySize = CGSize(width: keyWidth * scaleX, height: keyHeight * scaleY)
-        let minStagger = columnStagger.min() ?? 0
-        let thumbKeysQMK: [(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat)] = [
-            (x: 7, y: 3.2, w: 1, h: 1.5),
-            (x: 8, y: 3.7, w: 1, h: 1),
-            (x: 9, y: 3.7, w: 1, h: 1)
-        ]
-        let rightHalfStartX: CGFloat = 9
-        let thumbXOffset: CGFloat = 1
-
-        var unitKeyRects: [[CGRect]] = Array(
-            repeating: Array(repeating: .zero, count: columns),
-            count: rows
-        )
-        var unitThumbRects: [CGRect] = []
-
-        var minX = CGFloat.greatestFiniteMagnitude
-        var minY = CGFloat.greatestFiniteMagnitude
-        var maxX = -CGFloat.greatestFiniteMagnitude
-        var maxY = -CGFloat.greatestFiniteMagnitude
-
-        for row in 0..<rows {
-            for col in 0..<columns {
-                let stagger = (col < columnStagger.count ? columnStagger[col] : 0) - minStagger
-                let unitRect = CGRect(
-                    x: CGFloat(col),
-                    y: CGFloat(row) + stagger,
-                    width: 1,
-                    height: 1
-                )
-                unitKeyRects[row][col] = unitRect
-                minX = min(minX, unitRect.minX)
-                minY = min(minY, unitRect.minY)
-                maxX = max(maxX, unitRect.maxX)
-                maxY = max(maxY, unitRect.maxY)
-            }
-        }
-
-        for key in thumbKeysQMK {
-            let unitRect = CGRect(
-                x: key.x - rightHalfStartX + thumbXOffset,
-                y: key.y - minStagger,
-                width: key.w,
-                height: key.h
-            )
-            unitThumbRects.append(unitRect)
-            minX = min(minX, unitRect.minX)
-            minY = min(minY, unitRect.minY)
-            maxX = max(maxX, unitRect.maxX)
-            maxY = max(maxY, unitRect.maxY)
-        }
-
-        let layoutWidth = (maxX - minX) * keySize.width
-        let layoutHeight = (maxY - minY) * keySize.height
-        let origin = CGPoint(
-            x: (size.width - layoutWidth) * 0.5,
-            y: (size.height - layoutHeight) * 0.5
-        )
 
         var keyRects: [[CGRect]] = Array(
             repeating: Array(repeating: .zero, count: columns),
@@ -297,22 +260,22 @@ struct ContentView: View {
         )
         for row in 0..<rows {
             for col in 0..<columns {
-                let unitRect = unitKeyRects[row][col]
+                let anchorMM = columnAnchorsMM[col]
                 keyRects[row][col] = CGRect(
-                    x: origin.x + (unitRect.minX - minX) * keySize.width,
-                    y: origin.y + (unitRect.minY - minY) * keySize.height,
-                    width: unitRect.width * keySize.width,
-                    height: unitRect.height * keySize.height
+                    x: anchorMM.x * scaleX,
+                    y: anchorMM.y * scaleY + CGFloat(row) * keySize.height,
+                    width: keySize.width,
+                    height: keySize.height
                 )
             }
         }
 
-        let thumbRects = unitThumbRects.map { unitRect in
+        let thumbRects = thumbAnchorsMM.map { rectMM in
             CGRect(
-                x: origin.x + (unitRect.minX - minX) * keySize.width,
-                y: origin.y + (unitRect.minY - minY) * keySize.height,
-                width: unitRect.width * keySize.width,
-                height: unitRect.height * keySize.height
+                x: rectMM.origin.x * scaleX,
+                y: rectMM.origin.y * scaleY,
+                width: rectMM.width * scaleX,
+                height: rectMM.height * scaleY
             )
         }
 
