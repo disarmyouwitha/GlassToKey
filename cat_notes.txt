@@ -1,0 +1,6 @@
+ Notes / gaps
+
+  - Quick‑tap (125ms) and tap‑preferred behavior are not implemented; it’s a simple threshold.
+  - Hold actions are “single‑shot” at the hold threshold. For LCTRL (B hold), this currently sends a Control key press/release, not a true held modifier.
+
+  If you want LCTRL (and any other modifier holds) to behave like real held modifiers, say the word and I’ll add that next.

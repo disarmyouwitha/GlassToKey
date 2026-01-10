@@ -62,3 +62,6 @@
 - Tap vs hold behavior. It seems to already recognize this - can I have a different keymap for holds?
 - Expand area of big thumb button to cover the entire corners
 - Layers I need to add 2 more layers and have a key I can use to switch on the thumb clusters
+- can we devise a keymap layout config we can save and let ppl edit & the program uses that to map keys?
+- add config to splay columns based on your touch
+- can this program run in the background and add a taskbar to access the demo/config?
