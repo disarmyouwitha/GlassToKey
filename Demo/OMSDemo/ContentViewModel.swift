@@ -261,6 +261,18 @@ final class ContentViewModel: ObservableObject {
                         didRepeat: false,
                         didMultiTouch: didMultiTouch
                     )
+                    if !dragEnabled {
+                        if let modifierKey {
+                            handleModifierDown(modifierKey, binding: binding)
+                        } else if isContinuousKey {
+                            sendKey(binding: binding)
+                            startRepeat(for: touchKey, binding: binding)
+                            if var active = activeTouches[touchKey] {
+                                active.didRepeat = true
+                                activeTouches[touchKey] = active
+                            }
+                        }
+                    }
                 }
 
                 if var active = activeTouches[touchKey] {
