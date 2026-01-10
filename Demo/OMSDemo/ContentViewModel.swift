@@ -182,6 +182,7 @@ final class ContentViewModel: ObservableObject {
         var didMove: Bool
         var qualifiedForKeys: Bool
         var didRepeat: Bool
+        var didMultiTouch: Bool
     }
 
     func processTouches(
@@ -213,6 +214,18 @@ final class ContentViewModel: ObservableObject {
                     let modifierKey = modifierKey(for: binding)
                     let isContinuousKey = isContinuousKey(binding)
                     let holdBinding = holdBinding(for: binding)
+                    let overlappingTouches = activeTouches.keys.filter {
+                        $0.deviceID == touch.deviceID
+                    }
+                    let didMultiTouch = !overlappingTouches.isEmpty
+                    if didMultiTouch {
+                        for key in overlappingTouches {
+                            if var existing = activeTouches[key] {
+                                existing.didMultiTouch = true
+                                activeTouches[key] = existing
+                            }
+                        }
+                    }
                     activeTouches[touchKey] = ActiveTouch(
                         binding: binding,
                         startTime: Date(),
@@ -223,7 +236,8 @@ final class ContentViewModel: ObservableObject {
                         didHold: false,
                         didMove: false,
                         qualifiedForKeys: false,
-                        didRepeat: false
+                        didRepeat: false,
+                        didMultiTouch: didMultiTouch
                     )
                 }
 
@@ -274,11 +288,13 @@ final class ContentViewModel: ObservableObject {
                        active.modifierKey == nil,
                        !active.isContinuousKey,
                        !active.didHold,
+                       !active.didMultiTouch,
                        Date().timeIntervalSince(active.startTime) <= tapMaxDuration {
                         sendKey(binding: active.binding)
                     } else if !active.didMove,
                               active.isContinuousKey,
                               !active.didRepeat,
+                              !active.didMultiTouch,
                               Date().timeIntervalSince(active.startTime) <= tapMaxDuration {
                         sendKey(binding: active.binding)
                     }
