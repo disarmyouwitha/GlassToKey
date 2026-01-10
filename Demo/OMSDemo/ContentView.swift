@@ -21,7 +21,7 @@ struct ContentView: View {
                         .font(.headline)
                     HStack(alignment: .top, spacing: 16) {
                         VStack(alignment: .leading) {
-                            Text("Left Trackpad (\(ContentViewModel.leftDeviceKey))")
+                            Text("Left Trackpad")
                                 .font(.subheadline)
                             Picker("Left Trackpad", selection: Binding(
                                 get: { viewModel.leftDevice },
@@ -40,7 +40,7 @@ struct ContentView: View {
                         }
 
                         VStack(alignment: .leading) {
-                            Text("Right Trackpad (\(ContentViewModel.rightDeviceKey))")
+                            Text("Right Trackpad")
                                 .font(.subheadline)
                             Picker("Right Trackpad", selection: Binding(
                                 get: { viewModel.rightDevice },
@@ -69,113 +69,13 @@ struct ContentView: View {
                     } label: {
                         Text("Stop")
                     }
-                    .onHover { isHovering in
-                        if isHovering {
-                            viewModel.onButtonHover()
-                        } else {
-                            viewModel.onButtonExitHover()
-                        }
-                    }
                 } else {
                     Button {
                         viewModel.start()
                     } label: {
                         Text("Start")
                     }
-                    .onHover { isHovering in
-                        if isHovering {
-                            viewModel.onButtonHover()
-                        } else {
-                            viewModel.onButtonExitHover()
-                        }
-                    }
                 }
-                
-                if viewModel.isHapticEnabled {
-                    Button {
-                        viewModel.stopHaptics()
-                    } label: {
-                        Text("Stop Haptics")
-                            .foregroundColor(.red)
-                    }
-                    .onHover { isHovering in
-                        if isHovering {
-                            viewModel.onButtonHover()
-                        } else {
-                            viewModel.onButtonExitHover()
-                        }
-                    }
-                } else {
-                    Button {
-                        viewModel.startHaptics()
-                    } label: {
-                        Text("Start Haptics")
-                            .foregroundColor(.green)
-                    }
-                    .onHover { isHovering in
-                        if isHovering {
-                            viewModel.onButtonHover()
-                        } else {
-                            viewModel.onButtonExitHover()
-                        }
-                    }
-                }
-            }
-            
-            // Raw Haptic Testing Section
-            if viewModel.isHapticEnabled {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Raw Haptic Testing:")
-                        .font(.headline)
-                    
-                    Text("Known Working IDs: 1, 2, 3, 4, 5, 6, 15, 16")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Actuation ID:")
-                                .font(.caption)
-                            TextField("ID", text: $viewModel.customActuationID)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 80)
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Unknown1 (UInt32):")
-                                .font(.caption)
-                            TextField("0", text: $viewModel.customUnknown1)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 80)
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Unknown2 (Float):")
-                                .font(.caption)
-                            TextField("1.0", text: $viewModel.customUnknown2)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 80)
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Unknown3 (Float):")
-                                .font(.caption)
-                            TextField("2.0", text: $viewModel.customUnknown3)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 80)
-                        }
-                        
-                        Button("Trigger") {
-                            viewModel.triggerRawHaptic()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .keyboardShortcut(.return, modifiers: [])
-                    }
-                    .onSubmit {
-                        viewModel.triggerRawHaptic()
-                    }
-                }
-                .padding(.bottom)
             }
             
             HStack(alignment: .top, spacing: 16) {
@@ -220,15 +120,6 @@ struct ContentView: View {
                 thumbRects: layout.thumbRects,
                 canvasSize: trackpadSize
             )
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)) { _ in
-            viewModel.ensureHapticsSafe()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willHideNotification)) { _ in
-            viewModel.ensureHapticsSafe()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-            viewModel.ensureHapticsSafe()
         }
     }
 
