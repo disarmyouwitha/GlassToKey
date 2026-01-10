@@ -30,6 +30,7 @@ final class ContentViewModel: ObservableObject {
     ]
     @Published var touchData = [OMSTouchData]()
     @Published var isListening: Bool = false
+    @Published var isTypingEnabled: Bool = true
     @Published var availableDevices = [OMSDeviceInfo]()
     @Published var leftDevice: OMSDeviceInfo?
     @Published var rightDevice: OMSDeviceInfo?
@@ -55,6 +56,7 @@ final class ContentViewModel: ObservableObject {
     private var leftShiftTouchCount = 0
     private var controlTouchCount = 0
     private var repeatTasks: [TouchKey: Task<Void, Never>] = [:]
+    private var toggleTouchStarts: [TouchKey: Date] = [:]
     private let tapMaxDuration: TimeInterval = 0.2
     private let holdMinDuration: TimeInterval = 0.2
     private let repeatInitialDelay: UInt64 = 350_000_000
@@ -184,7 +186,8 @@ final class ContentViewModel: ObservableObject {
         thumbRects: [CGRect],
         canvasSize: CGSize,
         labels: [[String]],
-        isLeftSide: Bool
+        isLeftSide: Bool,
+        typingToggleRect: CGRect?
     ) {
         guard isListening else { return }
         let bindings = makeBindings(
@@ -200,6 +203,23 @@ final class ContentViewModel: ObservableObject {
                 y: CGFloat(1.0 - touch.position.y) * canvasSize.height
             )
             let touchKey = TouchKey(deviceID: touch.deviceID, id: touch.id)
+
+            if let typingToggleRect, typingToggleRect.contains(point) {
+                handleTypingToggleTouch(touchKey: touchKey, state: touch.state)
+                continue
+            }
+
+            if !isTypingEnabled {
+                if let active = activeTouches.removeValue(forKey: touchKey) {
+                    if let modifierKey = active.modifierKey {
+                        handleModifierUp(modifierKey, binding: active.binding)
+                    } else if active.isContinuousKey {
+                        stopRepeat(for: touchKey)
+                    }
+                }
+                continue
+            }
+
             switch touch.state {
             case .starting, .making, .touching:
                 if activeTouches[touchKey] == nil,
@@ -335,6 +355,31 @@ final class ContentViewModel: ObservableObject {
 
     private func binding(at point: CGPoint, bindings: [KeyBinding]) -> KeyBinding? {
         bindings.first { $0.rect.contains(point) }
+    }
+
+    private func handleTypingToggleTouch(touchKey: TouchKey, state: OMSTouchState) {
+        switch state {
+        case .starting, .making, .touching:
+            if toggleTouchStarts[touchKey] == nil {
+                toggleTouchStarts[touchKey] = Date()
+            }
+        case .breaking, .leaving:
+            if let startTime = toggleTouchStarts.removeValue(forKey: touchKey),
+               Date().timeIntervalSince(startTime) <= tapMaxDuration {
+                toggleTypingMode()
+            }
+        case .notTouching:
+            toggleTouchStarts.removeValue(forKey: touchKey)
+        case .hovering, .lingering:
+            break
+        }
+    }
+
+    private func toggleTypingMode() {
+        isTypingEnabled.toggle()
+        if !isTypingEnabled {
+            releaseHeldKeys()
+        }
     }
 
     private func modifierKey(for binding: KeyBinding) -> ModifierKey? {

@@ -98,13 +98,17 @@ struct ContentView: View {
                     title: "Left Trackpad",
                     touches: viewModel.leftTouches,
                     mirrored: true,
-                    labels: mirroredLabels(ContentViewModel.leftGridLabels)
+                    labels: mirroredLabels(ContentViewModel.leftGridLabels),
+                    typingToggleRect: typingToggleRect(isLeft: true),
+                    typingEnabled: viewModel.isTypingEnabled
                 )
                 trackpadCanvas(
                     title: "Right Trackpad",
                     touches: viewModel.rightTouches,
                     mirrored: false,
-                    labels: ContentViewModel.rightGridLabels
+                    labels: ContentViewModel.rightGridLabels,
+                    typingToggleRect: typingToggleRect(isLeft: false),
+                    typingEnabled: viewModel.isTypingEnabled
                 )
             }
         }
@@ -144,7 +148,8 @@ struct ContentView: View {
                 thumbRects: leftLayout.thumbRects,
                 canvasSize: trackpadSize,
                 labels: mirroredLabels(ContentViewModel.leftGridLabels),
-                isLeftSide: true
+                isLeftSide: true,
+                typingToggleRect: typingToggleRect(isLeft: true)
             )
             viewModel.processTouches(
                 viewModel.rightTouches,
@@ -152,7 +157,8 @@ struct ContentView: View {
                 thumbRects: rightLayout.thumbRects,
                 canvasSize: trackpadSize,
                 labels: ContentViewModel.rightGridLabels,
-                isLeftSide: false
+                isLeftSide: false,
+                typingToggleRect: typingToggleRect(isLeft: false)
             )
         }
     }
@@ -161,7 +167,9 @@ struct ContentView: View {
         title: String,
         touches: [OMSTouchData],
         mirrored: Bool,
-        labels: [[String]]
+        labels: [[String]],
+        typingToggleRect: CGRect?,
+        typingEnabled: Bool
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
@@ -181,6 +189,13 @@ struct ContentView: View {
                 drawSensorGrid(context: &context, size: trackpadSize, columns: 30, rows: 22)
                 drawKeyGrid(context: &context, keyRects: layout.keyRects)
                 drawThumbGrid(context: &context, thumbRects: layout.thumbRects)
+                if let typingToggleRect {
+                    drawTypingToggle(
+                        context: &context,
+                        rect: typingToggleRect,
+                        enabled: typingEnabled
+                    )
+                }
                 drawGridLabels(context: &context, keyRects: layout.keyRects, labels: labels)
                 touches.forEach { touch in
                     let path = makeEllipse(touch: touch, size: trackpadSize)
@@ -326,6 +341,17 @@ struct ContentView: View {
         return (keyRects, thumbRects)
     }
 
+    private var typingToggleSize: CGSize {
+        CGSize(width: trackpadSize.width * 0.18, height: trackpadSize.height * 0.18)
+    }
+
+    private func typingToggleRect(isLeft: Bool) -> CGRect {
+        let size = typingToggleSize
+        let originX = isLeft ? 0 : trackpadSize.width - size.width
+        let originY = trackpadSize.height - size.height
+        return CGRect(x: originX, y: originY, width: size.width, height: size.height)
+    }
+
     private func drawSensorGrid(
         context: inout GraphicsContext,
         size: CGSize,
@@ -369,6 +395,16 @@ struct ContentView: View {
         for rect in thumbRects {
             context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
         }
+    }
+
+    private func drawTypingToggle(
+        context: inout GraphicsContext,
+        rect: CGRect,
+        enabled: Bool
+    ) {
+        let fillColor = enabled ? Color.green.opacity(0.15) : Color.red.opacity(0.15)
+        context.fill(Path(rect), with: .color(fillColor))
+        context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
     }
 
     private func drawGridLabels(
