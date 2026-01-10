@@ -17,9 +17,14 @@ final class ContentViewModel: ObservableObject {
         let flags: CGEventFlags
     }
 
-    static let gridLabels: [[String]] = [
-        ["Y", "U", "I", "O", "P", "["],
-        ["H", "J", "K", "L", ";", "'"],
+    static let leftGridLabels: [[String]] = [
+        ["Tab", "Q", "W", "E", "R", "T"],
+        ["Shift", "A", "S", "D", "F", "G"],
+        ["Ctrl", "Z", "X", "C", "V", "B"]
+    ]
+    static let rightGridLabels: [[String]] = [
+        ["Y", "U", "I", "O", "P", "Back"],
+        ["H", "J", "K", "L", ";", "Ret"],
         ["N", "M", ",", ".", "/", "?"]
     ]
     @Published var touchData = [OMSTouchData]()
@@ -90,12 +95,12 @@ final class ContentViewModel: ObservableObject {
         updateActiveDevices()
     }
     
-    func selectLeftDevice(_ device: OMSDeviceInfo) {
+    func selectLeftDevice(_ device: OMSDeviceInfo?) {
         leftDevice = device
         updateActiveDevices()
     }
 
-    func selectRightDevice(_ device: OMSDeviceInfo) {
+    func selectRightDevice(_ device: OMSDeviceInfo?) {
         rightDevice = device
         updateActiveDevices()
     }
@@ -118,10 +123,15 @@ final class ContentViewModel: ObservableObject {
         _ touches: [OMSTouchData],
         keyRects: [[CGRect]],
         thumbRects: [CGRect],
-        canvasSize: CGSize
+        canvasSize: CGSize,
+        labels: [[String]]
     ) {
         guard isListening else { return }
-        let bindings = makeBindings(keyRects: keyRects, thumbRects: thumbRects)
+        let bindings = makeBindings(
+            keyRects: keyRects,
+            thumbRects: thumbRects,
+            labels: labels
+        )
 
         for touch in touches {
             let point = CGPoint(
@@ -148,13 +158,17 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    private func makeBindings(keyRects: [[CGRect]], thumbRects: [CGRect]) -> [KeyBinding] {
+    private func makeBindings(
+        keyRects: [[CGRect]],
+        thumbRects: [CGRect],
+        labels: [[String]]
+    ) -> [KeyBinding] {
         var bindings: [KeyBinding] = []
         for row in 0..<keyRects.count {
             for col in 0..<keyRects[row].count {
-                guard row < Self.gridLabels.count,
-                      col < Self.gridLabels[row].count else { continue }
-                let label = Self.gridLabels[row][col]
+                guard row < labels.count,
+                      col < labels[row].count else { continue }
+                let label = labels[row][col]
                 guard let binding = bindingForLabel(label, rect: keyRects[row][col]) else { continue }
                 bindings.append(binding)
             }
@@ -176,18 +190,36 @@ final class ContentViewModel: ObservableObject {
 
     private func bindingForLabel(_ label: String, rect: CGRect) -> KeyBinding? {
         let map: [String: (CGKeyCode, CGEventFlags)] = [
+            "Tab": (CGKeyCode(kVK_Tab), []),
+            "Q": (CGKeyCode(kVK_ANSI_Q), []),
+            "W": (CGKeyCode(kVK_ANSI_W), []),
+            "E": (CGKeyCode(kVK_ANSI_E), []),
+            "R": (CGKeyCode(kVK_ANSI_R), []),
+            "T": (CGKeyCode(kVK_ANSI_T), []),
+            "Shift": (CGKeyCode(kVK_Shift), []),
+            "A": (CGKeyCode(kVK_ANSI_A), []),
+            "S": (CGKeyCode(kVK_ANSI_S), []),
+            "D": (CGKeyCode(kVK_ANSI_D), []),
+            "F": (CGKeyCode(kVK_ANSI_F), []),
+            "G": (CGKeyCode(kVK_ANSI_G), []),
+            "Ctrl": (CGKeyCode(kVK_Control), []),
+            "Z": (CGKeyCode(kVK_ANSI_Z), []),
+            "X": (CGKeyCode(kVK_ANSI_X), []),
+            "C": (CGKeyCode(kVK_ANSI_C), []),
+            "V": (CGKeyCode(kVK_ANSI_V), []),
+            "B": (CGKeyCode(kVK_ANSI_B), []),
             "Y": (CGKeyCode(kVK_ANSI_Y), []),
             "U": (CGKeyCode(kVK_ANSI_U), []),
             "I": (CGKeyCode(kVK_ANSI_I), []),
             "O": (CGKeyCode(kVK_ANSI_O), []),
             "P": (CGKeyCode(kVK_ANSI_P), []),
-            "[": (CGKeyCode(kVK_ANSI_LeftBracket), []),
+            "Back": (CGKeyCode(kVK_Delete), []),
             "H": (CGKeyCode(kVK_ANSI_H), []),
             "J": (CGKeyCode(kVK_ANSI_J), []),
             "K": (CGKeyCode(kVK_ANSI_K), []),
             "L": (CGKeyCode(kVK_ANSI_L), []),
             ";": (CGKeyCode(kVK_ANSI_Semicolon), []),
-            "'": (CGKeyCode(kVK_ANSI_Quote), []),
+            "Ret": (CGKeyCode(kVK_Return), []),
             "N": (CGKeyCode(kVK_ANSI_N), []),
             "M": (CGKeyCode(kVK_ANSI_M), []),
             ",": (CGKeyCode(kVK_ANSI_Comma), []),
