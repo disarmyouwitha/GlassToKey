@@ -269,6 +269,7 @@ final class ContentViewModel: ObservableObject {
                        active.modifierKey == nil,
                        !active.isContinuousKey,
                        !active.didHold,
+                       !active.didMultiTouch,
                        let holdBinding = active.holdBinding,
                        elapsed >= holdMinDuration {
                         sendKey(binding: holdBinding)
