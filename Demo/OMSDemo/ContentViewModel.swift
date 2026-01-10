@@ -31,6 +31,7 @@ final class ContentViewModel: ObservableObject {
     @Published var touchData = [OMSTouchData]()
     @Published var isListening: Bool = false
     @Published var isTypingEnabled: Bool = true
+    @Published var isDragDetectionEnabled: Bool = true
     @Published var availableDevices = [OMSDeviceInfo]()
     @Published var leftDevice: OMSDeviceInfo?
     @Published var rightDevice: OMSDeviceInfo?
@@ -197,6 +198,7 @@ final class ContentViewModel: ObservableObject {
         typingToggleRect: CGRect?
     ) {
         guard isListening else { return }
+        let dragEnabled = isDragDetectionEnabled
         let bindings = makeBindings(
             keyRects: keyRects,
             thumbRects: thumbRects,
@@ -255,26 +257,37 @@ final class ContentViewModel: ObservableObject {
                         holdBinding: holdBinding,
                         didHold: false,
                         didMove: false,
-                        qualifiedForKeys: false,
+                        qualifiedForKeys: !dragEnabled,
                         didRepeat: false,
                         didMultiTouch: didMultiTouch
                     )
                 }
 
                 if var active = activeTouches[touchKey] {
-                    let distance = hypot(point.x - active.startPoint.x, point.y - active.startPoint.y)
-                    if distance > dragCancelDistance, !active.didMove {
-                        active.didMove = true
-                        if let modifierKey = active.modifierKey, active.qualifiedForKeys {
-                            handleModifierUp(modifierKey, binding: active.binding)
-                        }
-                        if active.isContinuousKey, active.didRepeat {
-                            stopRepeat(for: touchKey)
-                        }
-                    }
-
                     let elapsed = Date().timeIntervalSince(active.startTime)
-                    if !active.didMove, !active.qualifiedForKeys, elapsed >= dragQualificationDelay {
+                    if dragEnabled {
+                        let distance = hypot(point.x - active.startPoint.x, point.y - active.startPoint.y)
+                        if distance > dragCancelDistance, !active.didMove {
+                            active.didMove = true
+                            if let modifierKey = active.modifierKey, active.qualifiedForKeys {
+                                handleModifierUp(modifierKey, binding: active.binding)
+                            }
+                            if active.isContinuousKey, active.didRepeat {
+                                stopRepeat(for: touchKey)
+                            }
+                        }
+
+                        if !active.didMove, !active.qualifiedForKeys, elapsed >= dragQualificationDelay {
+                            active.qualifiedForKeys = true
+                            if let modifierKey = active.modifierKey {
+                                handleModifierDown(modifierKey, binding: active.binding)
+                            } else if active.isContinuousKey {
+                                sendKey(binding: active.binding)
+                                startRepeat(for: touchKey, binding: active.binding)
+                                active.didRepeat = true
+                            }
+                        }
+                    } else if !active.qualifiedForKeys {
                         active.qualifiedForKeys = true
                         if let modifierKey = active.modifierKey {
                             handleModifierDown(modifierKey, binding: active.binding)
@@ -285,7 +298,8 @@ final class ContentViewModel: ObservableObject {
                         }
                     }
 
-                    if !active.didMove,
+                    let allowKeyActions = !dragEnabled || !active.didMove
+                    if allowKeyActions,
                        active.modifierKey == nil,
                        !active.isContinuousKey,
                        !active.didHold,
@@ -305,14 +319,15 @@ final class ContentViewModel: ObservableObject {
                     if active.isContinuousKey, active.didRepeat {
                         stopRepeat(for: touchKey)
                     }
-                    if !active.didMove,
+                    let allowKeyActions = !dragEnabled || !active.didMove
+                    if allowKeyActions,
                        active.modifierKey == nil,
                        !active.isContinuousKey,
                        !active.didHold,
                        !active.didMultiTouch,
                        Date().timeIntervalSince(active.startTime) <= tapMaxDuration {
                         sendKey(binding: active.binding)
-                    } else if !active.didMove,
+                    } else if allowKeyActions,
                               active.isContinuousKey,
                               !active.didRepeat,
                               !active.didMultiTouch,

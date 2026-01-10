@@ -78,6 +78,8 @@ struct ContentView: View {
                         Text("Start")
                     }
                 }
+                Toggle("Drag detection", isOn: $viewModel.isDragDetectionEnabled)
+                    .toggleStyle(.switch)
             }
 
             VStack(alignment: .leading, spacing: 8) {
