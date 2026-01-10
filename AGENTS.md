@@ -70,8 +70,8 @@
   - Files: Demo/OMSDemo/ContentView.swift, Demo/OMSDemo/ContentViewModel.swift
 
 ## TODO, first
-- Merge typing-toggle into main.
-- Expand area of big thumb button to cover the entire corners
+- Expand area of big thumb button like space_improvement.png
+- create LHS and RHS hotzone buttons (all the same size, aligned between current GUI elements)
 - Re-create drag-detection functionality built as a toggle on top of typing-toggle
 
 ## TODO, future

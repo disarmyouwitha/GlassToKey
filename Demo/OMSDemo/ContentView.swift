@@ -14,6 +14,13 @@ struct ContentView: View {
     private let trackpadWidthMM: CGFloat = 160.0
     private let trackpadHeightMM: CGFloat = 114.9
     private let displayScale: CGFloat = 2.7
+    // Override with per-column anchor positions in trackpad mm when needed.
+    private let leftColumnAnchorsMM: [CGPoint] = []
+    private let rightColumnAnchorsMM: [CGPoint] = []
+    private let leftThumbAnchorsMM: [CGRect] = [
+        CGRect(x: 17.0, y: 71.9, width: 18.0, height: 25.5)
+    ]
+    private let rightThumbAnchorsMM: [CGRect] = []
     private var trackpadSize: CGSize {
         CGSize(width: trackpadWidthMM * displayScale, height: trackpadHeightMM * displayScale)
     }
@@ -130,6 +137,8 @@ struct ContentView: View {
                 trackpadWidth: trackpadWidthMM,
                 trackpadHeight: trackpadHeightMM,
                 columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3],
+                columnAnchorsMM: leftColumnAnchorsMM,
+                thumbAnchorsMM: leftThumbAnchorsMM,
                 mirrored: true
             )
             let rightLayout = makeKeyLayout(
@@ -140,7 +149,9 @@ struct ContentView: View {
                 rows: 3,
                 trackpadWidth: trackpadWidthMM,
                 trackpadHeight: trackpadHeightMM,
-                columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3]
+                columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3],
+                columnAnchorsMM: rightColumnAnchorsMM,
+                thumbAnchorsMM: rightThumbAnchorsMM
             )
             viewModel.processTouches(
                 viewModel.leftTouches,
@@ -184,6 +195,8 @@ struct ContentView: View {
                     trackpadWidth: trackpadWidthMM,
                     trackpadHeight: trackpadHeightMM,
                     columnStagger: [0.2, 0.1, 0.0, 0.1, 0.3, 0.3],
+                    columnAnchorsMM: mirrored ? leftColumnAnchorsMM : rightColumnAnchorsMM,
+                    thumbAnchorsMM: mirrored ? leftThumbAnchorsMM : rightThumbAnchorsMM,
                     mirrored: mirrored
                 )
                 drawSensorGrid(context: &context, size: trackpadSize, columns: 30, rows: 22)
@@ -228,11 +241,88 @@ struct ContentView: View {
         trackpadWidth: CGFloat,
         trackpadHeight: CGFloat,
         columnStagger: [CGFloat],
+        columnAnchorsMM: [CGPoint] = [],
+        thumbAnchorsMM: [CGRect] = [],
         mirrored: Bool = false
     ) -> (keyRects: [[CGRect]], thumbRects: [CGRect]) {
         let scaleX = size.width / trackpadWidth
         let scaleY = size.height / trackpadHeight
         let keySize = CGSize(width: keyWidth * scaleX, height: keyHeight * scaleY)
+        let fallbackAnchors = legacyAnchors(
+            size: size,
+            columns: columns,
+            rows: rows,
+            keySize: keySize,
+            columnStagger: columnStagger,
+            trackpadWidth: trackpadWidth,
+            trackpadHeight: trackpadHeight
+        )
+        let resolvedColumnAnchorsMM = columnAnchorsMM.count >= columns
+            ? Array(columnAnchorsMM.prefix(columns))
+            : fallbackAnchors.columnAnchorsMM
+        let resolvedThumbAnchorsMM = !thumbAnchorsMM.isEmpty
+            ? thumbAnchorsMM
+            : fallbackAnchors.thumbAnchorsMM
+
+        var keyRects: [[CGRect]] = Array(
+            repeating: Array(repeating: .zero, count: columns),
+            count: rows
+        )
+        for row in 0..<rows {
+            for col in 0..<columns {
+                let anchorMM = resolvedColumnAnchorsMM[col]
+                keyRects[row][col] = CGRect(
+                    x: anchorMM.x * scaleX,
+                    y: anchorMM.y * scaleY + CGFloat(row) * keySize.height,
+                    width: keySize.width,
+                    height: keySize.height
+                )
+            }
+        }
+
+        let thumbRects = resolvedThumbAnchorsMM.map { rectMM in
+            CGRect(
+                x: rectMM.origin.x * scaleX,
+                y: rectMM.origin.y * scaleY,
+                width: rectMM.width * scaleX,
+                height: rectMM.height * scaleY
+            )
+        }
+
+        if mirrored {
+            let mirroredKeyRects = keyRects.map { row in
+                row.map { rect in
+                    CGRect(
+                        x: size.width - rect.maxX,
+                        y: rect.minY,
+                        width: rect.width,
+                        height: rect.height
+                    )
+                }
+            }
+            let mirroredThumbRects = thumbRects.map { rect in
+                CGRect(
+                    x: size.width - rect.maxX,
+                    y: rect.minY,
+                    width: rect.width,
+                    height: rect.height
+                )
+            }
+            return (mirroredKeyRects, mirroredThumbRects)
+        }
+
+        return (keyRects, thumbRects)
+    }
+
+    private func legacyAnchors(
+        size: CGSize,
+        columns: Int,
+        rows: Int,
+        keySize: CGSize,
+        columnStagger: [CGFloat],
+        trackpadWidth: CGFloat,
+        trackpadHeight: CGFloat
+    ) -> (columnAnchorsMM: [CGPoint], thumbAnchorsMM: [CGRect]) {
         let minStagger = columnStagger.min() ?? 0
         let thumbKeysQMK: [(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat)] = [
             (x: 7, y: 3.2, w: 1, h: 1.5)
@@ -289,54 +379,42 @@ struct ContentView: View {
             y: (size.height - layoutHeight) * 0.5
         )
 
-        var keyRects: [[CGRect]] = Array(
-            repeating: Array(repeating: .zero, count: columns),
-            count: rows
-        )
-        for row in 0..<rows {
-            for col in 0..<columns {
-                let unitRect = unitKeyRects[row][col]
-                keyRects[row][col] = CGRect(
-                    x: origin.x + (unitRect.minX - minX) * keySize.width,
-                    y: origin.y + (unitRect.minY - minY) * keySize.height,
-                    width: unitRect.width * keySize.width,
-                    height: unitRect.height * keySize.height
-                )
-            }
+        let scaleX = size.width / trackpadWidth
+        let scaleY = size.height / trackpadHeight
+        var columnAnchorsMM: [CGPoint] = []
+        for col in 0..<columns {
+            let stagger = (col < columnStagger.count ? columnStagger[col] : 0) - minStagger
+            let unitRect = CGRect(
+                x: CGFloat(col),
+                y: CGFloat(0) + stagger,
+                width: 1,
+                height: 1
+            )
+            let anchor = CGPoint(
+                x: origin.x + (unitRect.minX - minX) * keySize.width,
+                y: origin.y + (unitRect.minY - minY) * keySize.height
+            )
+            columnAnchorsMM.append(
+                CGPoint(x: anchor.x / scaleX, y: anchor.y / scaleY)
+            )
         }
 
-        let thumbRects = unitThumbRects.map { unitRect in
-            CGRect(
+        let thumbAnchorsMM = unitThumbRects.map { unitRect in
+            let rect = CGRect(
                 x: origin.x + (unitRect.minX - minX) * keySize.width,
                 y: origin.y + (unitRect.minY - minY) * keySize.height,
                 width: unitRect.width * keySize.width,
                 height: unitRect.height * keySize.height
             )
+            return CGRect(
+                x: rect.origin.x / scaleX,
+                y: rect.origin.y / scaleY,
+                width: rect.width / scaleX,
+                height: rect.height / scaleY
+            )
         }
 
-        if mirrored {
-            let mirroredKeyRects = keyRects.map { row in
-                row.map { rect in
-                    CGRect(
-                        x: size.width - rect.maxX,
-                        y: rect.minY,
-                        width: rect.width,
-                        height: rect.height
-                    )
-                }
-            }
-            let mirroredThumbRects = thumbRects.map { rect in
-                CGRect(
-                    x: size.width - rect.maxX,
-                    y: rect.minY,
-                    width: rect.width,
-                    height: rect.height
-                )
-            }
-            return (mirroredKeyRects, mirroredThumbRects)
-        }
-
-        return (keyRects, thumbRects)
+        return (columnAnchorsMM, thumbAnchorsMM)
     }
 
     private var typingToggleSize: CGSize {
