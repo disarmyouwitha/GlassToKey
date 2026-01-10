@@ -367,7 +367,7 @@ final class ContentViewModel: ObservableObject {
                 }
             case .hovering, .lingering:
                 break
-            }ml@
+            }
         }
     }
 
