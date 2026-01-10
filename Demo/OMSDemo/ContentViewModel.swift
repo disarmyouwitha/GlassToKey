@@ -42,13 +42,9 @@ final class ContentViewModel: ObservableObject {
         let id: Int32
     }
     private let leftThumbKeys: [(CGKeyCode, CGEventFlags)] = [
-        (CGKeyCode(kVK_Delete), []),
-        (CGKeyCode(kVK_Delete), []),
         (CGKeyCode(kVK_Delete), [])
     ]
     private let rightThumbKeys: [(CGKeyCode, CGEventFlags)] = [
-        (CGKeyCode(kVK_Space), []),
-        (CGKeyCode(kVK_Space), []),
         (CGKeyCode(kVK_Space), [])
     ]
 

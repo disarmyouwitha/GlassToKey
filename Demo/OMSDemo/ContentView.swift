@@ -235,9 +235,7 @@ struct ContentView: View {
         let keySize = CGSize(width: keyWidth * scaleX, height: keyHeight * scaleY)
         let minStagger = columnStagger.min() ?? 0
         let thumbKeysQMK: [(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat)] = [
-            (x: 7, y: 3.2, w: 1, h: 1.5),
-            (x: 8, y: 3.7, w: 1, h: 1),
-            (x: 9, y: 3.7, w: 1, h: 1)
+            (x: 7, y: 3.2, w: 1, h: 1.5)
         ]
         let rightHalfStartX: CGFloat = 9
         let thumbXOffset: CGFloat = 1
