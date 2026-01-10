@@ -25,7 +25,10 @@ struct ContentView: View {
     ]
 
     private let ThumbAnchorsMM: [CGRect] = [
-        CGRect(x: 17.0, y: 71.9, width: 18.0, height: 25.5)
+        CGRect(x: 0, y: 75, width: 40, height: 40),
+        CGRect(x: 40, y: 75, width: 40, height: 40),
+        CGRect(x: 80, y: 75, width: 40, height: 40),
+        CGRect(x: 120, y: 75, width: 40, height: 40)
     ]
 
     private var trackpadSize: CGSize {
