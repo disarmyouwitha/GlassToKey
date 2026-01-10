@@ -59,7 +59,7 @@ final class ContentViewModel: ObservableObject {
     private let holdMinDuration: TimeInterval = 0.2
     private let repeatInitialDelay: UInt64 = 350_000_000
     private let repeatInterval: UInt64 = 50_000_000
-    private let dragCancelDistance: CGFloat = 10.0
+    private let dragCancelDistance: CGFloat = 6.0
     private let dragQualificationDelay: TimeInterval = 0.05
     private let holdBindingsByLabel: [String: (CGKeyCode, CGEventFlags)] = [
         "Esc": (CGKeyCode(kVK_Escape), []),
