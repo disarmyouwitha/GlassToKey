@@ -70,7 +70,7 @@ final class ContentViewModel: ObservableObject {
     private let tapMaxDuration: TimeInterval = 0.2
     private let holdMinDuration: TimeInterval = 0.2
     private let modifierActivationDelay: TimeInterval = 0.05
-    private let dragCancelDistance: CGFloat = 10.0
+    private let dragCancelDistance: CGFloat = 5.0
     private let repeatInitialDelay: UInt64 = 350_000_000
     private let repeatInterval: UInt64 = 50_000_000
     private let holdBindingsByLabel: [String: (CGKeyCode, CGEventFlags)] = [
