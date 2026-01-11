@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var displayTouchData = [OMSTouchData]()
     @State private var visualsEnabled = true
     @State private var keyScale = 1.0
+    @State private var thumbScale = 1.0
     @State private var leftLayout: ContentViewModel.Layout
     @State private var rightLayout: ContentViewModel.Layout
     private static let trackpadWidthMM: CGFloat = 160.0
@@ -23,6 +24,7 @@ struct ContentView: View {
     private static let baseKeyWidthMM: CGFloat = 18.0
     private static let baseKeyHeightMM: CGFloat = 17.0
     private static let keyScaleRange: ClosedRange<Double> = 0.5...2.0
+    private static let thumbScaleRange: ClosedRange<Double> = 0.5...2.0
     private static let keyScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -30,6 +32,15 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 2
         formatter.minimum = NSNumber(value: ContentView.keyScaleRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.keyScaleRange.upperBound)
+        return formatter
+    }()
+    private static let thumbScaleFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
+        formatter.minimum = NSNumber(value: ContentView.thumbScaleRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.thumbScaleRange.upperBound)
         return formatter
     }()
     private let displayRefreshInterval: TimeInterval = 1.0 / 60.0
@@ -65,6 +76,7 @@ struct ContentView: View {
             keyWidth: Self.baseKeyWidthMM,
             keyHeight: Self.baseKeyHeightMM,
             keyScale: initialScale,
+            thumbScale: initialScale,
             columns: 6,
             rows: 3,
             trackpadWidth: Self.trackpadWidthMM,
@@ -78,6 +90,7 @@ struct ContentView: View {
             keyWidth: Self.baseKeyWidthMM,
             keyHeight: Self.baseKeyHeightMM,
             keyScale: initialScale,
+            thumbScale: initialScale,
             columns: 6,
             rows: 3,
             trackpadWidth: Self.trackpadWidthMM,
@@ -86,6 +99,7 @@ struct ContentView: View {
             thumbAnchorsMM: Self.ThumbAnchorsMM
         )
         _keyScale = State(initialValue: initialScale)
+        _thumbScale = State(initialValue: initialScale)
         _leftLayout = State(initialValue: initialLeftLayout)
         _rightLayout = State(initialValue: initialRightLayout)
     }
@@ -168,6 +182,22 @@ struct ContentView: View {
                     )
                     .labelsHidden()
                 }
+                HStack(spacing: 8) {
+                    Text("Thumb scale")
+                    TextField(
+                        "1.0",
+                        value: $thumbScale,
+                        formatter: Self.thumbScaleFormatter
+                    )
+                    .frame(width: 60)
+                    Stepper(
+                        "",
+                        value: $thumbScale,
+                        in: Self.thumbScaleRange,
+                        step: 0.05
+                    )
+                    .labelsHidden()
+                }
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -221,6 +251,9 @@ struct ContentView: View {
         }
         .onChange(of: keyScale) { newValue in
             applyKeyScale(newValue)
+        }
+        .onChange(of: thumbScale) { newValue in
+            applyThumbScale(newValue)
         }
         .task {
             for await _ in Timer.publish(
@@ -300,6 +333,7 @@ struct ContentView: View {
         keyWidth: CGFloat,
         keyHeight: CGFloat,
         keyScale: Double,
+        thumbScale: Double,
         columns: Int,
         rows: Int,
         trackpadWidth: CGFloat,
@@ -314,6 +348,7 @@ struct ContentView: View {
         let scaledKeyHeight = keyHeight * CGFloat(keyScale)
         let keySize = CGSize(width: scaledKeyWidth * scaleX, height: scaledKeyHeight * scaleY)
         let adjustedAnchorsMM = scaledColumnAnchorsMM(columnAnchorsMM, scale: CGFloat(keyScale))
+        let thumbScaleValue = CGFloat(thumbScale)
 
         var keyRects: [[CGRect]] = Array(
             repeating: Array(repeating: .zero, count: columns),
@@ -331,12 +366,20 @@ struct ContentView: View {
             }
         }
 
+        let thumbOuterEdgeX = thumbAnchorsMM.map { $0.maxX }.max() ?? 0
         let thumbRects = thumbAnchorsMM.map { rectMM in
-            CGRect(
-                x: rectMM.origin.x * scaleX,
-                y: rectMM.origin.y * scaleY,
-                width: rectMM.width * scaleX,
-                height: rectMM.height * scaleY
+            let scaledWidth = rectMM.width * thumbScaleValue
+            let scaledHeight = rectMM.height * thumbScaleValue
+            let distanceFromOuter = thumbOuterEdgeX - rectMM.maxX
+            let scaledDistanceFromOuter = distanceFromOuter * thumbScaleValue
+            let scaledMaxX = thumbOuterEdgeX - scaledDistanceFromOuter
+            let originX = scaledMaxX - scaledWidth
+            let originY = rectMM.midY - scaledHeight / 2.0
+            return CGRect(
+                x: originX * scaleX,
+                y: originY * scaleY,
+                width: scaledWidth * scaleX,
+                height: scaledHeight * scaleY
             )
         }
 
@@ -383,6 +426,10 @@ struct ContentView: View {
         min(max(value, Self.keyScaleRange.lowerBound), Self.keyScaleRange.upperBound)
     }
 
+    private func normalizedThumbScale(_ value: Double) -> Double {
+        min(max(value, Self.thumbScaleRange.lowerBound), Self.thumbScaleRange.upperBound)
+    }
+
     private func applyKeyScale(_ value: Double) {
         let normalized = normalizedKeyScale(value)
         if normalized != value {
@@ -394,6 +441,7 @@ struct ContentView: View {
             keyWidth: Self.baseKeyWidthMM,
             keyHeight: Self.baseKeyHeightMM,
             keyScale: normalized,
+            thumbScale: thumbScale,
             columns: 6,
             rows: 3,
             trackpadWidth: Self.trackpadWidthMM,
@@ -407,6 +455,51 @@ struct ContentView: View {
             keyWidth: Self.baseKeyWidthMM,
             keyHeight: Self.baseKeyHeightMM,
             keyScale: normalized,
+            thumbScale: thumbScale,
+            columns: 6,
+            rows: 3,
+            trackpadWidth: Self.trackpadWidthMM,
+            trackpadHeight: Self.trackpadHeightMM,
+            columnAnchorsMM: Self.ColumnAnchorsMM,
+            thumbAnchorsMM: Self.ThumbAnchorsMM
+        )
+        viewModel.configureLayouts(
+            leftLayout: leftLayout,
+            rightLayout: rightLayout,
+            leftLabels: mirroredLabels(ContentViewModel.leftGridLabels),
+            rightLabels: ContentViewModel.rightGridLabels,
+            leftTypingToggleRect: typingToggleRect(isLeft: true),
+            rightTypingToggleRect: typingToggleRect(isLeft: false),
+            trackpadSize: trackpadSize
+        )
+    }
+
+    private func applyThumbScale(_ value: Double) {
+        let normalized = normalizedThumbScale(value)
+        if normalized != value {
+            thumbScale = normalized
+            return
+        }
+        leftLayout = ContentView.makeKeyLayout(
+            size: trackpadSize,
+            keyWidth: Self.baseKeyWidthMM,
+            keyHeight: Self.baseKeyHeightMM,
+            keyScale: keyScale,
+            thumbScale: normalized,
+            columns: 6,
+            rows: 3,
+            trackpadWidth: Self.trackpadWidthMM,
+            trackpadHeight: Self.trackpadHeightMM,
+            columnAnchorsMM: Self.ColumnAnchorsMM,
+            thumbAnchorsMM: Self.ThumbAnchorsMM,
+            mirrored: true
+        )
+        rightLayout = ContentView.makeKeyLayout(
+            size: trackpadSize,
+            keyWidth: Self.baseKeyWidthMM,
+            keyHeight: Self.baseKeyHeightMM,
+            keyScale: keyScale,
+            thumbScale: normalized,
             columns: 6,
             rows: 3,
             trackpadWidth: Self.trackpadWidthMM,

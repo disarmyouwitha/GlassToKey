@@ -25,7 +25,7 @@ final class ContentViewModel: ObservableObject {
 
     static let leftGridLabels: [[String]] = [
         ["Esc", "Q", "W", "E", "R", "T"],
-        ["Ctrl", "A", "S", "D", "F", "G"],
+        ["Shift", "A", "S", "D", "F", "G"],
         ["Shift", "Z", "X", "C", "V", "B"]
     ]
     static let rightGridLabels: [[String]] = [
@@ -98,7 +98,7 @@ final class ContentViewModel: ObservableObject {
         "X": (CGKeyCode(kVK_ANSI_X), .maskCommand),
         "C": (CGKeyCode(kVK_ANSI_C), .maskCommand),
         "V": (CGKeyCode(kVK_ANSI_V), .maskCommand),
-        "B": (CGKeyCode(kVK_Control), []),
+        //"B": (CGKeyCode(kVK_Control), []),
         "N": (CGKeyCode(kVK_ANSI_Equal), []),
         "M": (CGKeyCode(kVK_ANSI_2), .maskShift),
         ",": (CGKeyCode(kVK_ANSI_4), .maskShift),
