@@ -29,7 +29,9 @@
 - Keep Swift API changes in `Sources/OpenMultitouchSupport/`.
 - Keep framework changes in `Framework/OpenMultitouchSupportXCF/`.
 - Treat `OpenMultitouchSupportXCF.xcframework` as generated output (rebuild instead of hand-editing).
-- Always ask to review TODO items start up. When a new TODO task is started always offer to create a new branch and auto generate the name.
+- Always review the TODO items and show a checklist on startup.
+- When a new TODO task is started always offer to create a new branch (auto generate the name for the user silently).
+- When user says to create a PR you should fill out the name and the description automatically.
 - ALWAYS run `xcodebuild` after finishing changes to check for build errors.
 - GlassToKey build command: `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
 - Call out testing gaps when relevant.
@@ -60,8 +62,11 @@
 - No notes left
 
 ## TODO
+- Can we try halfing the px moved from 10px to 5px for drag detection?
 - Layers I need to add a layer key I can add to the thumb cluster like MOmentary layer switching 
+- Make status light blue on layer change
 - Ask me for arrow keys + Num pad layout for the new layer
+- Possible to turn on/off OSX single-finger tap with typing mode??
 - can we devise a keymap layout config we can save and let ppl edit & the program uses that to map keys?
 
 ## FUTURE
