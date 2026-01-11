@@ -23,7 +23,6 @@
 		77292A892B931953001CA3F6 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		77292A8B2B931954001CA3F6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		77292A8E2B931954001CA3F6 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
-		77292A902B931954001CA3F6 /* GlassToKey.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GlassToKey.entitlements; sourceTree = "<group>"; };
 		77292A962B931C84001CA3F6 /* OpenMultitouchSupport */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = OpenMultitouchSupport; path = ..; sourceTree = "<group>"; };
 		77292A972B931D60001CA3F6 /* ContentViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewModel.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6A7B8C9D0E1F2 /* GlassToKeyController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassToKeyController.swift; sourceTree = "<group>"; };
@@ -63,7 +62,6 @@
 		77292A862B931953001CA3F6 /* GlassToKey */ = {
 			isa = PBXGroup;
 			children = (
-				77292A902B931954001CA3F6 /* GlassToKey.entitlements */,
 				77292A8B2B931954001CA3F6 /* Assets.xcassets */,
 				77292A872B931953001CA3F6 /* GlassToKeyApp.swift */,
 				A1B2C3D4E5F6A7B8C9D0E1F2 /* GlassToKeyController.swift */,
@@ -298,7 +296,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = GlassToKey/GlassToKey.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -324,7 +321,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = GlassToKey/GlassToKey.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
