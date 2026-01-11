@@ -70,12 +70,13 @@
   - Files: Demo/OMSDemo/ContentView.swift, Demo/OMSDemo/ContentViewModel.swift
 
 ## TODO, first
-- Re-create drag-detection functionality built as a toggle on top of typing-toggle
+- make outer buttons where tab, ctrl, shift, back, return, etc. twice as wide.
+- Add scale to 1.5x 2x the keysize (should be configurable/saved in a config)
+- Layers I need to add another layer and have a key I can use to switch on the thumb cluster
 
 ## TODO, future
-- Add scale to 1.5x 2x the keysize (should be configurable/saved in a config)
-- Layers I need to add 2 more layers and have a key I can use to switch on the thumb clusters
 - can we devise a keymap layout config we can save and let ppl edit & the program uses that to map keys?
 - add config to splay columns based on your touch
 - can this program run in the background and add a taskbar to access the demo/config?
-- once we get taskbar set up we should display mouse vs keyboard mode with red light green light?&
+- once we get taskbar set up we should display mouse vs keyboard mode with red light green light?
+ 
