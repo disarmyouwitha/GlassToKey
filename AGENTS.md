@@ -62,7 +62,6 @@
 - No notes left
 
 ## TODO
-- Can we try halfing the px moved from 10px to 5px for drag detection?
 - Layers I need to add a layer key I can add to the thumb cluster like MOmentary layer switching 
 - Make status light blue on layer change
 - Ask me for arrow keys + Num pad layout for the new layer
