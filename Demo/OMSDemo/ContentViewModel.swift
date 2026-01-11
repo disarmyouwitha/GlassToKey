@@ -18,17 +18,22 @@ final class ContentViewModel: ObservableObject {
         let label: String
     }
 
+    struct Layout {
+        let keyRects: [[CGRect]]
+        let thumbRects: [CGRect]
+    }
+
     static let leftGridLabels: [[String]] = [
         ["Esc", "Q", "W", "E", "R", "T"],
-        ["Ctrl", "A", "S", "D", "F", "G"],
+        ["Shift", "A", "S", "D", "F", "G"],
         ["Shift", "Z", "X", "C", "V", "B"]
     ]
     static let rightGridLabels: [[String]] = [
         ["Y", "U", "I", "O", "P", "Back"],
         ["H", "J", "K", "L", ";", "Ret"],
-        ["N", "M", ",", ".", "/", "\\"]
+        ["N", "M", ",", ".", "/", "Ret"]
     ]
-    @Published var touchData = [OMSTouchData]()
+    private var latestTouchData = [OMSTouchData]()
     @Published var isListening: Bool = false
     @Published var isTypingEnabled: Bool = true
     private let isDragDetectionEnabled = true
@@ -43,11 +48,17 @@ final class ContentViewModel: ObservableObject {
         let id: Int32
     }
     private let leftThumbKeys: [(CGKeyCode, CGEventFlags)] = [
-        (CGKeyCode(kVK_Delete), [])
-    ]
-    private let rightThumbKeys: [(CGKeyCode, CGEventFlags)] = [
+        (CGKeyCode(kVK_Delete), []),
         (CGKeyCode(kVK_Space), [])
     ]
+    private let rightThumbKeys: [(CGKeyCode, CGEventFlags)] = [
+        (CGKeyCode(kVK_Space), []),
+        (CGKeyCode(kVK_Space), []),
+        (CGKeyCode(kVK_Space), []),
+        (CGKeyCode(kVK_Return), [])
+    ]
+    var leftThumbKeyCount: Int { leftThumbKeys.count }
+    var rightThumbKeyCount: Int { rightThumbKeys.count }
 
     private var activeTouches: [TouchKey: ActiveTouch] = [:]
     private var pendingTouches: [TouchKey: PendingTouch] = [:]
@@ -87,13 +98,20 @@ final class ContentViewModel: ObservableObject {
         "X": (CGKeyCode(kVK_ANSI_X), .maskCommand),
         "C": (CGKeyCode(kVK_ANSI_C), .maskCommand),
         "V": (CGKeyCode(kVK_ANSI_V), .maskCommand),
-        "B": (CGKeyCode(kVK_Control), []),
+        //"B": (CGKeyCode(kVK_Control), []),
         "N": (CGKeyCode(kVK_ANSI_Equal), []),
         "M": (CGKeyCode(kVK_ANSI_2), .maskShift),
         ",": (CGKeyCode(kVK_ANSI_4), .maskShift),
         ".": (CGKeyCode(kVK_ANSI_6), .maskShift),
         "/": (CGKeyCode(kVK_ANSI_Backslash), [])
     ]
+    private var leftLayout: Layout?
+    private var rightLayout: Layout?
+    private var leftLabels: [[String]] = []
+    private var rightLabels: [[String]] = []
+    private var leftTypingToggleRect: CGRect?
+    private var rightTypingToggleRect: CGRect?
+    private var trackpadSize: CGSize = .zero
 
     init() {
         loadDevices()
@@ -101,19 +119,42 @@ final class ContentViewModel: ObservableObject {
 
     var leftTouches: [OMSTouchData] {
         guard let deviceID = leftDevice?.deviceID else { return [] }
-        return touchData.filter { $0.deviceID == deviceID }
+        return latestTouchData.filter { $0.deviceID == deviceID }
     }
 
     var rightTouches: [OMSTouchData] {
         guard let deviceID = rightDevice?.deviceID else { return [] }
-        return touchData.filter { $0.deviceID == deviceID }
+        return latestTouchData.filter { $0.deviceID == deviceID }
     }
 
     func onAppear() {
         task = Task { [weak self, manager] in
             for await touchData in manager.touchDataStream {
                 await MainActor.run {
-                    self?.touchData = touchData
+                    guard let self else { return }
+                    self.latestTouchData = touchData
+                    guard let leftLayout = self.leftLayout,
+                          let rightLayout = self.rightLayout else {
+                        return
+                    }
+                    self.processTouches(
+                        self.leftTouches,
+                        keyRects: leftLayout.keyRects,
+                        thumbRects: leftLayout.thumbRects,
+                        canvasSize: self.trackpadSize,
+                        labels: self.leftLabels,
+                        isLeftSide: true,
+                        typingToggleRect: self.leftTypingToggleRect
+                    )
+                    self.processTouches(
+                        self.rightTouches,
+                        keyRects: rightLayout.keyRects,
+                        thumbRects: rightLayout.thumbRects,
+                        canvasSize: self.trackpadSize,
+                        labels: self.rightLabels,
+                        isLeftSide: false,
+                        typingToggleRect: self.rightTypingToggleRect
+                    )
                 }
             }
         }
@@ -156,6 +197,28 @@ final class ContentViewModel: ObservableObject {
     func selectRightDevice(_ device: OMSDeviceInfo?) {
         rightDevice = device
         updateActiveDevices()
+    }
+
+    func configureLayouts(
+        leftLayout: Layout,
+        rightLayout: Layout,
+        leftLabels: [[String]],
+        rightLabels: [[String]],
+        leftTypingToggleRect: CGRect?,
+        rightTypingToggleRect: CGRect?,
+        trackpadSize: CGSize
+    ) {
+        self.leftLayout = leftLayout
+        self.rightLayout = rightLayout
+        self.leftLabels = leftLabels
+        self.rightLabels = rightLabels
+        self.leftTypingToggleRect = leftTypingToggleRect
+        self.rightTypingToggleRect = rightTypingToggleRect
+        self.trackpadSize = trackpadSize
+    }
+
+    func snapshotTouchData() -> [OMSTouchData] {
+        latestTouchData
     }
 
     private func updateActiveDevices() {
@@ -334,7 +397,9 @@ final class ContentViewModel: ObservableObject {
                     }
                 }
             case .breaking, .leaving:
-                pendingTouches.removeValue(forKey: touchKey)
+                if let pending = pendingTouches.removeValue(forKey: touchKey) {
+                    maybeSendPendingContinuousTap(pending, at: point)
+                }
                 if disqualifiedTouches.remove(touchKey) != nil {
                     continue
                 }
@@ -350,7 +415,9 @@ final class ContentViewModel: ObservableObject {
                     }
                 }
             case .notTouching:
-                pendingTouches.removeValue(forKey: touchKey)
+                if let pending = pendingTouches.removeValue(forKey: touchKey) {
+                    maybeSendPendingContinuousTap(pending, at: point)
+                }
                 if disqualifiedTouches.remove(touchKey) != nil {
                     continue
                 }
@@ -489,6 +556,16 @@ final class ContentViewModel: ObservableObject {
     private func holdBinding(for binding: KeyBinding) -> KeyBinding? {
         guard let (code, flags) = holdBindingsByLabel[binding.label] else { return nil }
         return KeyBinding(rect: binding.rect, keyCode: code, flags: flags, label: binding.label)
+    }
+
+    private func maybeSendPendingContinuousTap(_ pending: PendingTouch, at point: CGPoint) {
+        guard isContinuousKey(pending.binding),
+              Date().timeIntervalSince(pending.startTime) <= tapMaxDuration,
+              pending.binding.rect.contains(point),
+              (!isDragDetectionEnabled || pending.maxDistance <= dragCancelDistance) else {
+            return
+        }
+        sendKey(binding: pending.binding)
     }
 
     private func sendKey(binding: KeyBinding) {

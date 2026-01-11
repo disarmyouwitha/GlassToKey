@@ -29,6 +29,8 @@
 - Keep framework changes in `Framework/OpenMultitouchSupportXCF/`.
 - Treat `OpenMultitouchSupportXCF.xcframework` as generated output (rebuild instead of hand-editing).
 - No automated tests currently; call out testing gaps when relevant.
+- Always run `xcodebuild` after finishing changes to check for build errors.
+- Demo build command: `xcodebuild -project Demo/OMSDemo.xcodeproj -scheme OMSDemo -configuration Debug -destination 'platform=macOS' build`
 
 ## Common workflows
 ### Swift wrapper changes only
@@ -70,12 +72,14 @@
   - Files: Demo/OMSDemo/ContentView.swift, Demo/OMSDemo/ContentViewModel.swift
 
 ## TODO, first
-- Re-create drag-detection functionality built as a toggle on top of typing-toggle
+- make outer buttons where tab, ctrl, shift, back, return, etc. width slightly wider with their own scale
+- set position offset of the keys. they should all move together.       
+- Layers I need to add another layer and have a key I can use to switch on the thumb cluster
 
 ## TODO, future
-- Add scale to 1.5x 2x the keysize (should be configurable/saved in a config)
-- Layers I need to add 2 more layers and have a key I can use to switch on the thumb clusters
+- can this program run in the background and add a taskbar to access the demo/config?
+- once we get taskbar set up we should display mouse vs keyboard mode with red light green light?
 - can we devise a keymap layout config we can save and let ppl edit & the program uses that to map keys?
 - add config to splay columns based on your touch
-- can this program run in the background and add a taskbar to access the demo/config?
-- once we get taskbar set up we should display mouse vs keyboard mode with red light green light?&
+- make buttons addable through gui, set position by dragging into place. set action through gui (that saves to the keymap)
+ 
