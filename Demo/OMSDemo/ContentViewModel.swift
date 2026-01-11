@@ -334,7 +334,9 @@ final class ContentViewModel: ObservableObject {
                     }
                 }
             case .breaking, .leaving:
-                pendingTouches.removeValue(forKey: touchKey)
+                if let pending = pendingTouches.removeValue(forKey: touchKey) {
+                    maybeSendPendingContinuousTap(pending, at: point)
+                }
                 if disqualifiedTouches.remove(touchKey) != nil {
                     continue
                 }
@@ -350,7 +352,9 @@ final class ContentViewModel: ObservableObject {
                     }
                 }
             case .notTouching:
-                pendingTouches.removeValue(forKey: touchKey)
+                if let pending = pendingTouches.removeValue(forKey: touchKey) {
+                    maybeSendPendingContinuousTap(pending, at: point)
+                }
                 if disqualifiedTouches.remove(touchKey) != nil {
                     continue
                 }
@@ -489,6 +493,16 @@ final class ContentViewModel: ObservableObject {
     private func holdBinding(for binding: KeyBinding) -> KeyBinding? {
         guard let (code, flags) = holdBindingsByLabel[binding.label] else { return nil }
         return KeyBinding(rect: binding.rect, keyCode: code, flags: flags, label: binding.label)
+    }
+
+    private func maybeSendPendingContinuousTap(_ pending: PendingTouch, at point: CGPoint) {
+        guard isContinuousKey(pending.binding),
+              Date().timeIntervalSince(pending.startTime) <= tapMaxDuration,
+              pending.binding.rect.contains(point),
+              (!isDragDetectionEnabled || pending.maxDistance <= dragCancelDistance) else {
+            return
+        }
+        sendKey(binding: pending.binding)
     }
 
     private func sendKey(binding: KeyBinding) {
