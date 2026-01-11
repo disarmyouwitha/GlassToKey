@@ -60,12 +60,11 @@
 - No notes left
 
 ## TODO
-- once we get taskbar set up we should display mouse vs keyboard mode with red light green light?
-
-## FUTURE
 - Layers I need to add a layer key I can add to the thumb cluster like MOmentary layer switching 
 - Ask me for arrow keys + Num pad layout for the new layer
 - can we devise a keymap layout config we can save and let ppl edit & the program uses that to map keys?
+
+## FUTURE
 - add config to splay columns based on your touch
 - make buttons addable through gui, set position by dragging into place. set action through gui (that saves to the keymap)
  
