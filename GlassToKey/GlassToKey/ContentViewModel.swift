@@ -1,6 +1,6 @@
 //
 //  ContentViewModel.swift
-//  OMSDemo
+//  GlassToKey
 //
 //  Created by Takuto Nakamura on 2024/03/02.
 //

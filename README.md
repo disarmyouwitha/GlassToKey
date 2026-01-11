@@ -2,22 +2,19 @@
 
 ## Intention
 An attempt to use the Apple Magic Trackpad as a keyboard (and mouse!) like the TouchStream LP~
-S$~ince it is built on the same technology, I thought it would be fun to try and create an open source version!
+Since it is built on the same technology, I thought it would be fun to try and create an open source version!
 
 <img src="Screenshots/touchstreamLP.jpg" alt="Fingerworks Touchstream LP" width="900px" />
 
 It's just Codex and I vibe coding~ you can submit an issue but this is really just a repo for me, you might have to fork and extend!
 
-## Demo
-
-<img src="Screenshots/new_OMSDemo.png" alt="GlassToKey demo" width="900px" />
-
-**Latest demo updates:** per-key scaling controls (key, pinky, thumb), device selectors, and a Save button that persists device IDs and layout/visual settings for quick reloads. Green zones toggle on/off typing mode~
-
 ## Usage
 
-Build the demo, click Start and begin typing!$
-You can stop the visualizer or minimize the window and it will still continue to work.
+Build the GlassToKey project and you are good to go! A Green circle will appear in the OSX status bar indicating that Typing is allowed.
+
+Clicking the indicator light will allow you to view the Config or Quit the program.
+
+<img src="Screenshots/GTK_config.png" alt="GlassToKey" width="900px" />
 
 If you hold any key for longer than 200ms I have a whole hidden tap-hold layer. <br>
 (Sorry it is not more user friendly at this point)

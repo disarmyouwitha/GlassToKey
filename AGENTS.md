@@ -4,14 +4,13 @@
 - Purpose: observe global trackpad multitouch events via the private MultitouchSupport.framework.
 - Deliverables: Swift wrapper API + Objective-C framework shipped as an XCFramework.
 - Platform: macOS 13+, Xcode 16+, Swift tools 6.0.
-- Sandbox: App Sandbox must be disabled for consumers and the demo app.
+- Sandbox: App Sandbox must be disabled for consumers and the GlassToKey app.
 
 ## Repository map
 - `Sources/OpenMultitouchSupport/`: Swift wrapper API.
 - `Framework/OpenMultitouchSupportXCF/`: Objective-C framework source.
 - `Framework/OpenMultitouchSupportXCF.xcodeproj`: framework build target.
 - `GlassToKey/`: menu bar app.
-- `Demo/OMSDemo/`: demo app.
 - `OpenMultitouchSupportXCF.xcframework`: local dev output (generated).
 - `Package.swift` / `Package.swift.template`: SPM manifest (release vs template).
 
@@ -24,8 +23,6 @@
 - `GlassToKey/GlassToKeyApp.swift`: menu bar status item + app lifecycle.
 - `GlassToKey/ContentView.swift`: main UI for trackpad visualization and settings.
 - `GlassToKey/ContentViewModel.swift`: touch filtering, typing mode state, key dispatch.
-- `Demo/OMSDemo/ContentView.swift`: UI with dual pickers/canvases.
-- `Demo/OMSDemo/ContentViewModel.swift`: per-device touch filtering and state.
 - `README.md`: public usage and device selection docs.
 
 ## Working agreements
@@ -58,10 +55,6 @@
 ```
 - Requires `gh` auth.
 - Builds the XCFramework, creates the release, and updates `Package.swift`.
-
-## Demo app
-- Open `Demo/OMSDemo` in Xcode and run the app.
-- Ensure App Sandbox is disabled in the demo target.
 
 ## Important notes for next instance of Codex
 - No notes left
