@@ -1,3 +1,5 @@
+import AppKit
+import Combine
 import SwiftUI
 
 @main
@@ -16,11 +18,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let controller = GlassToKeyController()
     private var statusItem: NSStatusItem?
     private var configWindow: NSWindow?
+    private var typingModeCancellable: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         controller.start()
         configureStatusItem()
+        observeTypingMode()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -36,7 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func configureStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            button.title = "GTK"
+            button.title = ""
+            button.imagePosition = .imageLeading
         }
 
         let menu = NSMenu()
@@ -59,6 +64,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         item.menu = menu
         statusItem = item
+        updateStatusIndicator(isTypingEnabled: controller.viewModel.isTypingEnabled)
+    }
+
+    private func observeTypingMode() {
+        typingModeCancellable = controller.viewModel.$isTypingEnabled
+            .removeDuplicates()
+            .sink { [weak self] isTypingEnabled in
+                self?.updateStatusIndicator(isTypingEnabled: isTypingEnabled)
+            }
+    }
+
+    private func updateStatusIndicator(isTypingEnabled: Bool) {
+        guard let button = statusItem?.button else { return }
+        button.image = statusIndicatorImage(isTypingEnabled: isTypingEnabled)
+        button.toolTip = isTypingEnabled ? "Keyboard mode" : "Mouse mode"
+    }
+
+    private func statusIndicatorImage(isTypingEnabled: Bool) -> NSImage {
+        let size = NSSize(width: 10, height: 10)
+        let image = NSImage(size: size)
+        image.isTemplate = false
+        image.lockFocus()
+        let rect = NSRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1)
+        let path = NSBezierPath(ovalIn: rect)
+        let color = isTypingEnabled ? NSColor.systemGreen : NSColor.systemRed
+        color.setFill()
+        path.fill()
+        image.unlockFocus()
+        return image
     }
 
     @objc private func openConfigWindow() {

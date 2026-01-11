@@ -63,7 +63,6 @@
 - No notes left
 
 ## TODO
-- can this program run in the background and add a taskbar to access the demo/config?
 - once we get taskbar set up we should display mouse vs keyboard mode with red light green light?
 
 ## FUTURE
