@@ -10,6 +10,7 @@
 - `Sources/OpenMultitouchSupport/`: Swift wrapper API.
 - `Framework/OpenMultitouchSupportXCF/`: Objective-C framework source.
 - `Framework/OpenMultitouchSupportXCF.xcodeproj`: framework build target.
+- `GlassToKey/`: menu bar app.
 - `Demo/OMSDemo/`: demo app.
 - `OpenMultitouchSupportXCF.xcframework`: local dev output (generated).
 - `Package.swift` / `Package.swift.template`: SPM manifest (release vs template).
@@ -20,6 +21,9 @@
 - `Framework/OpenMultitouchSupportXCF/OpenMTEvent.h` / `OpenMTEvent.m`: event payloads (includes deviceID).
 - `Sources/OpenMultitouchSupport/OMSManager.swift`: Swift API for device selection and event streaming.
 - `Sources/OpenMultitouchSupport/OMSTouchData.swift`: touch data model (includes deviceID).
+- `GlassToKey/GlassToKeyApp.swift`: menu bar status item + app lifecycle.
+- `GlassToKey/ContentView.swift`: main UI for trackpad visualization and settings.
+- `GlassToKey/ContentViewModel.swift`: touch filtering, typing mode state, key dispatch.
 - `Demo/OMSDemo/ContentView.swift`: UI with dual pickers/canvases.
 - `Demo/OMSDemo/ContentViewModel.swift`: per-device touch filtering and state.
 - `README.md`: public usage and device selection docs.
@@ -30,7 +34,7 @@
 - Treat `OpenMultitouchSupportXCF.xcframework` as generated output (rebuild instead of hand-editing).
 - Always ask to review TODO items start up. When a new TODO task is started always offer to create a new branch and auto generate the name.
 - ALWAYS run `xcodebuild` after finishing changes to check for build errors.
-- Demo build command: `xcodebuild -project Demo/OMSDemo.xcodeproj -scheme OMSDemo -configuration Debug -destination 'platform=macOS' build`
+- GlassToKey build command: `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
 - Call out testing gaps when relevant.
 
 ## Common workflows
