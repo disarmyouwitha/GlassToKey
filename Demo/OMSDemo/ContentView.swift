@@ -14,9 +14,24 @@ struct ContentView: View {
     @State private var testText = ""
     @State private var displayTouchData = [OMSTouchData]()
     @State private var visualsEnabled = true
+    @State private var keyScale = 1.0
+    @State private var leftLayout: ContentViewModel.Layout
+    @State private var rightLayout: ContentViewModel.Layout
     private static let trackpadWidthMM: CGFloat = 160.0
     private static let trackpadHeightMM: CGFloat = 114.9
     private static let displayScale: CGFloat = 2.7
+    private static let baseKeyWidthMM: CGFloat = 18.0
+    private static let baseKeyHeightMM: CGFloat = 17.0
+    private static let keyScaleRange: ClosedRange<Double> = 0.5...2.0
+    private static let keyScaleFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
+        formatter.minimum = NSNumber(value: ContentView.keyScaleRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.keyScaleRange.upperBound)
+        return formatter
+    }()
     private let displayRefreshInterval: TimeInterval = 1.0 / 60.0
     // Per-column anchor positions in trackpad mm (top key origin).
     private static let ColumnAnchorsMM: [CGPoint] = [
@@ -37,8 +52,6 @@ struct ContentView: View {
     private static let typingToggleRectMM = CGRect(x: 130, y: 0, width: 30, height: 75)
 
     private let trackpadSize: CGSize
-    private let leftLayout: ContentViewModel.Layout
-    private let rightLayout: ContentViewModel.Layout
 
     init() {
         let size = CGSize(
@@ -46,10 +59,12 @@ struct ContentView: View {
             height: Self.trackpadHeightMM * Self.displayScale
         )
         trackpadSize = size
-        leftLayout = ContentView.makeKeyLayout(
+        let initialScale = 1.0
+        let initialLeftLayout = ContentView.makeKeyLayout(
             size: size,
-            keyWidth: 18,
-            keyHeight: 17,
+            keyWidth: Self.baseKeyWidthMM,
+            keyHeight: Self.baseKeyHeightMM,
+            keyScale: initialScale,
             columns: 6,
             rows: 3,
             trackpadWidth: Self.trackpadWidthMM,
@@ -58,10 +73,11 @@ struct ContentView: View {
             thumbAnchorsMM: Self.ThumbAnchorsMM,
             mirrored: true
         )
-        rightLayout = ContentView.makeKeyLayout(
+        let initialRightLayout = ContentView.makeKeyLayout(
             size: size,
-            keyWidth: 18,
-            keyHeight: 17,
+            keyWidth: Self.baseKeyWidthMM,
+            keyHeight: Self.baseKeyHeightMM,
+            keyScale: initialScale,
             columns: 6,
             rows: 3,
             trackpadWidth: Self.trackpadWidthMM,
@@ -69,6 +85,9 @@ struct ContentView: View {
             columnAnchorsMM: Self.ColumnAnchorsMM,
             thumbAnchorsMM: Self.ThumbAnchorsMM
         )
+        _keyScale = State(initialValue: initialScale)
+        _leftLayout = State(initialValue: initialLeftLayout)
+        _rightLayout = State(initialValue: initialRightLayout)
     }
 
     var body: some View {
@@ -133,6 +152,22 @@ struct ContentView: View {
                 }
                 Toggle("Visuals", isOn: $visualsEnabled)
                     .toggleStyle(SwitchToggleStyle())
+                HStack(spacing: 8) {
+                    Text("Key scale")
+                    TextField(
+                        "1.0",
+                        value: $keyScale,
+                        formatter: Self.keyScaleFormatter
+                    )
+                    .frame(width: 60)
+                    Stepper(
+                        "",
+                        value: $keyScale,
+                        in: Self.keyScaleRange,
+                        step: 0.05
+                    )
+                    .labelsHidden()
+                }
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -174,15 +209,7 @@ struct ContentView: View {
         .padding()
         .frame(minWidth: trackpadSize.width * 2 + 120, minHeight: trackpadSize.height + 180)
         .onAppear {
-            viewModel.configureLayouts(
-                leftLayout: leftLayout,
-                rightLayout: rightLayout,
-                leftLabels: mirroredLabels(ContentViewModel.leftGridLabels),
-                rightLabels: ContentViewModel.rightGridLabels,
-                leftTypingToggleRect: typingToggleRect(isLeft: true),
-                rightTypingToggleRect: typingToggleRect(isLeft: false),
-                trackpadSize: trackpadSize
-            )
+            applyKeyScale(keyScale)
             viewModel.onAppear()
             displayTouchData = viewModel.snapshotTouchData()
         }
@@ -191,6 +218,9 @@ struct ContentView: View {
         }
         .onChange(of: visualsEnabled) { enabled in
             displayTouchData = enabled ? viewModel.snapshotTouchData() : []
+        }
+        .onChange(of: keyScale) { newValue in
+            applyKeyScale(newValue)
         }
         .task {
             for await _ in Timer.publish(
@@ -238,11 +268,11 @@ struct ContentView: View {
                             )
                         }
                         drawGridLabels(context: &context, keyRects: layout.keyRects, labels: labels)
-                        touches.forEach { touch in
-                            let path = makeEllipse(touch: touch, size: trackpadSize)
-                            context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
-                        }
-                    }
+        touches.forEach { touch in
+            let path = makeEllipse(touch: touch, size: trackpadSize)
+            context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
+        }
+    }
                 } else {
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
@@ -269,6 +299,7 @@ struct ContentView: View {
         size: CGSize,
         keyWidth: CGFloat,
         keyHeight: CGFloat,
+        keyScale: Double,
         columns: Int,
         rows: Int,
         trackpadWidth: CGFloat,
@@ -279,7 +310,10 @@ struct ContentView: View {
     ) -> ContentViewModel.Layout {
         let scaleX = size.width / trackpadWidth
         let scaleY = size.height / trackpadHeight
-        let keySize = CGSize(width: keyWidth * scaleX, height: keyHeight * scaleY)
+        let scaledKeyWidth = keyWidth * CGFloat(keyScale)
+        let scaledKeyHeight = keyHeight * CGFloat(keyScale)
+        let keySize = CGSize(width: scaledKeyWidth * scaleX, height: scaledKeyHeight * scaleY)
+        let adjustedAnchorsMM = scaledColumnAnchorsMM(columnAnchorsMM, scale: CGFloat(keyScale))
 
         var keyRects: [[CGRect]] = Array(
             repeating: Array(repeating: .zero, count: columns),
@@ -287,7 +321,7 @@ struct ContentView: View {
         )
         for row in 0..<rows {
             for col in 0..<columns {
-                let anchorMM = columnAnchorsMM[col]
+                let anchorMM = adjustedAnchorsMM[col]
                 keyRects[row][col] = CGRect(
                     x: anchorMM.x * scaleX,
                     y: anchorMM.y * scaleY + CGFloat(row) * keySize.height,
@@ -332,6 +366,63 @@ struct ContentView: View {
         }
 
         return ContentViewModel.Layout(keyRects: keyRects, thumbRects: thumbRects)
+    }
+
+    private static func scaledColumnAnchorsMM(
+        _ anchors: [CGPoint],
+        scale: CGFloat
+    ) -> [CGPoint] {
+        guard let originX = anchors.first?.x else { return anchors }
+        return anchors.map { anchor in
+            let offsetX = anchor.x - originX
+            return CGPoint(x: originX + offsetX * scale, y: anchor.y)
+        }
+    }
+
+    private func normalizedKeyScale(_ value: Double) -> Double {
+        min(max(value, Self.keyScaleRange.lowerBound), Self.keyScaleRange.upperBound)
+    }
+
+    private func applyKeyScale(_ value: Double) {
+        let normalized = normalizedKeyScale(value)
+        if normalized != value {
+            keyScale = normalized
+            return
+        }
+        leftLayout = ContentView.makeKeyLayout(
+            size: trackpadSize,
+            keyWidth: Self.baseKeyWidthMM,
+            keyHeight: Self.baseKeyHeightMM,
+            keyScale: normalized,
+            columns: 6,
+            rows: 3,
+            trackpadWidth: Self.trackpadWidthMM,
+            trackpadHeight: Self.trackpadHeightMM,
+            columnAnchorsMM: Self.ColumnAnchorsMM,
+            thumbAnchorsMM: Self.ThumbAnchorsMM,
+            mirrored: true
+        )
+        rightLayout = ContentView.makeKeyLayout(
+            size: trackpadSize,
+            keyWidth: Self.baseKeyWidthMM,
+            keyHeight: Self.baseKeyHeightMM,
+            keyScale: normalized,
+            columns: 6,
+            rows: 3,
+            trackpadWidth: Self.trackpadWidthMM,
+            trackpadHeight: Self.trackpadHeightMM,
+            columnAnchorsMM: Self.ColumnAnchorsMM,
+            thumbAnchorsMM: Self.ThumbAnchorsMM
+        )
+        viewModel.configureLayouts(
+            leftLayout: leftLayout,
+            rightLayout: rightLayout,
+            leftLabels: mirroredLabels(ContentViewModel.leftGridLabels),
+            rightLabels: ContentViewModel.rightGridLabels,
+            leftTypingToggleRect: typingToggleRect(isLeft: true),
+            rightTypingToggleRect: typingToggleRect(isLeft: false),
+            trackpadSize: trackpadSize
+        )
     }
 
     private func typingToggleRect(isLeft: Bool) -> CGRect {

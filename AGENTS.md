@@ -70,8 +70,8 @@
   - Files: Demo/OMSDemo/ContentView.swift, Demo/OMSDemo/ContentViewModel.swift
 
 ## TODO, first
-- make outer buttons where tab, ctrl, shift, back, return, etc. twice as wide.
-- Add scale to 1.5x 2x the keysize (should be configurable/saved in a config)
+- Add scale to the keysize. Should be configurable, allow decimal percision, and update the spacing between columns
+- make outer buttons where tab, ctrl, shift, back, return, etc. have their own size modifier
 - Layers I need to add another layer and have a key I can use to switch on the thumb cluster
 
 ## TODO, future
