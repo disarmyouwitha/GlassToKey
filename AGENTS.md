@@ -29,7 +29,8 @@
 - Keep framework changes in `Framework/OpenMultitouchSupportXCF/`.
 - Treat `OpenMultitouchSupportXCF.xcframework` as generated output (rebuild instead of hand-editing).
 - No automated tests currently; call out testing gaps when relevant.
-- Always run `xcodebuild` after finishing changes to check for build errors.
+- Always ask if we should create a new branch when a new task is started. If yes, auto generate branch name.
+- ALWAYS run `xcodebuild` after finishing changes to check for build errors.
 - Demo build command: `xcodebuild -project Demo/OMSDemo.xcodeproj -scheme OMSDemo -configuration Debug -destination 'platform=macOS' build`
 
 ## Common workflows
@@ -59,21 +60,11 @@
 - Ensure App Sandbox is disabled in the demo target.
 
 ## Important notes for next instance of Codex
-  Branch: drag-detection
-
-  - Adds drag‑cancel gating so touches that move >10pt before qualifying do not trigger keys.
-  - Key activation waits ~50ms of steady contact before modifiers/space/backspace engage.
-  - File: Demo/OMSDemo/ContentViewModel.swift
-
-  Branch: typing-toggle
-
-  - Adds a typing mode toggle hotspot: bottom‑left on left pad, bottom‑right on right pad.
-  - Toggle region is drawn (green = typing on, red = typing off). Tapping it flips typing and releases held keys.
-  - Files: Demo/OMSDemo/ContentView.swift, Demo/OMSDemo/ContentViewModel.swift
 
 ## TODO, first
 - Set position offset of the keys X,Y. They should all move together. This should be added to the saved config. 
 - Layers I need to add another layer and have a key I can use to switch on the thumb cluster
+- Ask me for arrow keys + Num pad layout for the new layer
 
 ## TODO, future
 - can this program run in the background and add a taskbar to access the demo/config?
