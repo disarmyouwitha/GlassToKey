@@ -478,17 +478,15 @@ struct ContentView: View {
             canvasWidth: size.width
         )
 
-        let thumbOuterEdgeX = thumbAnchorsMM.map { $0.maxX }.max() ?? 0
+        let thumbOuterEdgeX = thumbAnchorsMM.map { $0.minX }.min() ?? 0
         let thumbRects = thumbAnchorsMM.map { rectMM in
             let scaledWidth = rectMM.width * thumbScaleValue
             let scaledHeight = rectMM.height * thumbScaleValue
-            let distanceFromOuter = thumbOuterEdgeX - rectMM.maxX
-            let scaledDistanceFromOuter = distanceFromOuter * thumbScaleValue
-            let scaledMaxX = thumbOuterEdgeX - scaledDistanceFromOuter
-            let originX = scaledMaxX - scaledWidth
+            let distanceFromOuter = rectMM.minX - thumbOuterEdgeX
+            let scaledMinX = thumbOuterEdgeX + distanceFromOuter * thumbScaleValue
             let originY = rectMM.midY - scaledHeight / 2.0
             return CGRect(
-                x: originX * scaleX,
+                x: scaledMinX * scaleX,
                 y: originY * scaleY,
                 width: scaledWidth * scaleX,
                 height: scaledHeight * scaleY

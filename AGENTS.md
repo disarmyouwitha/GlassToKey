@@ -62,13 +62,12 @@
 ## Important notes for next instance of Codex
 
 ## TODO, first
-- Set position offset of the keys X,Y. They should all move together. This should be added to the saved config. 
-- Layers I need to add another layer and have a key I can use to switch on the thumb cluster
-- Ask me for arrow keys + Num pad layout for the new layer
-
-## TODO, future
 - can this program run in the background and add a taskbar to access the demo/config?
 - once we get taskbar set up we should display mouse vs keyboard mode with red light green light?
+
+## TODO, future
+- Layers I need to add another layer and have a key I can use to switch on the thumb cluster
+- Ask me for arrow keys + Num pad layout for the new layer
 - can we devise a keymap layout config we can save and let ppl edit & the program uses that to map keys?
 - add config to splay columns based on your touch
 - make buttons addable through gui, set position by dragging into place. set action through gui (that saves to the keymap)
