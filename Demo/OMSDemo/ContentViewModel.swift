@@ -26,7 +26,7 @@ final class ContentViewModel: ObservableObject {
     static let rightGridLabels: [[String]] = [
         ["Y", "U", "I", "O", "P", "Back"],
         ["H", "J", "K", "L", ";", "Ret"],
-        ["N", "M", ",", ".", "/", "\\"]
+        ["N", "M", ",", ".", "/", "Ret"]
     ]
     @Published var touchData = [OMSTouchData]()
     @Published var isListening: Bool = false
@@ -46,8 +46,13 @@ final class ContentViewModel: ObservableObject {
         (CGKeyCode(kVK_Delete), [])
     ]
     private let rightThumbKeys: [(CGKeyCode, CGEventFlags)] = [
-        (CGKeyCode(kVK_Space), [])
+        (CGKeyCode(kVK_Space), []),
+        (CGKeyCode(kVK_Space), []),
+        (CGKeyCode(kVK_Space), []),
+        (CGKeyCode(kVK_Return), [])
     ]
+    var leftThumbKeyCount: Int { leftThumbKeys.count }
+    var rightThumbKeyCount: Int { rightThumbKeys.count }
 
     private var activeTouches: [TouchKey: ActiveTouch] = [:]
     private var pendingTouches: [TouchKey: PendingTouch] = [:]

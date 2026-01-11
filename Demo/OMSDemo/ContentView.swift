@@ -117,6 +117,7 @@ struct ContentView: View {
                     touches: viewModel.leftTouches,
                     mirrored: true,
                     labels: mirroredLabels(ContentViewModel.leftGridLabels),
+                    activeThumbCount: viewModel.leftThumbKeyCount,
                     typingToggleRect: typingToggleRect(isLeft: true),
                     typingEnabled: viewModel.isTypingEnabled
                 )
@@ -125,6 +126,7 @@ struct ContentView: View {
                     touches: viewModel.rightTouches,
                     mirrored: false,
                     labels: ContentViewModel.rightGridLabels,
+                    activeThumbCount: viewModel.rightThumbKeyCount,
                     typingToggleRect: typingToggleRect(isLeft: false),
                     typingEnabled: viewModel.isTypingEnabled
                 )
@@ -188,6 +190,7 @@ struct ContentView: View {
         touches: [OMSTouchData],
         mirrored: Bool,
         labels: [[String]],
+        activeThumbCount: Int,
         typingToggleRect: CGRect?,
         typingEnabled: Bool
     ) -> some View {
@@ -209,7 +212,11 @@ struct ContentView: View {
                 )
                 drawSensorGrid(context: &context, size: trackpadSize, columns: 30, rows: 22)
                 drawKeyGrid(context: &context, keyRects: layout.keyRects)
-                drawThumbGrid(context: &context, thumbRects: layout.thumbRects)
+                drawThumbGrid(
+                    context: &context,
+                    thumbRects: layout.thumbRects,
+                    activeThumbCount: activeThumbCount
+                )
                 if let typingToggleRect {
                     drawTypingToggle(
                         context: &context,
@@ -357,8 +364,15 @@ struct ContentView: View {
         }
     }
 
-    private func drawThumbGrid(context: inout GraphicsContext, thumbRects: [CGRect]) {
-        for rect in thumbRects {
+    private func drawThumbGrid(
+        context: inout GraphicsContext,
+        thumbRects: [CGRect],
+        activeThumbCount: Int
+    ) {
+        for (index, rect) in thumbRects.enumerated() {
+            if index < activeThumbCount {
+                context.fill(Path(rect), with: .color(Color.blue.opacity(0.15)))
+            }
             context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
         }
     }
