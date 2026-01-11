@@ -295,19 +295,6 @@ struct ContentView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Typing Test")
-                    .font(.subheadline)
-                TextEditor(text: $testText)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(height: 60)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
-                    )
-            }
-            .padding(.vertical, 8)
-            
             HStack(alignment: .top, spacing: 16) {
                 trackpadCanvas(
                     title: "Left Trackpad",
@@ -330,6 +317,19 @@ struct ContentView: View {
                     typingEnabled: viewModel.isTypingEnabled
                 )
             }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Typing Test")
+                    .font(.subheadline)
+                TextEditor(text: $testText)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(height: 60)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
+                    )
+            }
+            .padding(.vertical, 8)
         }
         .padding()
         .frame(minWidth: trackpadSize.width * 2 + 120, minHeight: trackpadSize.height + 180)
