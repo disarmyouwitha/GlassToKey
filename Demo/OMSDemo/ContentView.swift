@@ -19,6 +19,12 @@ struct ContentView: View {
     @State private var pinkyScale = 1.2
     @State private var leftLayout: ContentViewModel.Layout
     @State private var rightLayout: ContentViewModel.Layout
+    @AppStorage("OMSDemo.leftDeviceID") private var storedLeftDeviceID = ""
+    @AppStorage("OMSDemo.rightDeviceID") private var storedRightDeviceID = ""
+    @AppStorage("OMSDemo.visualsEnabled") private var storedVisualsEnabled = true
+    @AppStorage("OMSDemo.keyScale") private var storedKeyScale = 1.0
+    @AppStorage("OMSDemo.thumbScale") private var storedThumbScale = 1.0
+    @AppStorage("OMSDemo.pinkyScale") private var storedPinkyScale = 1.2
     private static let trackpadWidthMM: CGFloat = 160.0
     private static let trackpadHeightMM: CGFloat = 114.9
     private static let displayScale: CGFloat = 2.7
@@ -200,6 +206,22 @@ struct ContentView: View {
                     .labelsHidden()
                 }
                 HStack(spacing: 8) {
+                    Text("Pinky scale")
+                    TextField(
+                        "1.2",
+                        value: $pinkyScale,
+                        formatter: Self.pinkyScaleFormatter
+                    )
+                    .frame(width: 60)
+                    Stepper(
+                        "",
+                        value: $pinkyScale,
+                        in: Self.pinkyScaleRange,
+                        step: 0.05
+                    )
+                    .labelsHidden()
+                }
+                HStack(spacing: 8) {
                     Text("Thumb scale")
                     TextField(
                         "1.0",
@@ -215,21 +237,8 @@ struct ContentView: View {
                     )
                     .labelsHidden()
                 }
-                HStack(spacing: 8) {
-                    Text("Pinky scale")
-                    TextField(
-                        "1.2",
-                        value: $pinkyScale,
-                        formatter: Self.pinkyScaleFormatter
-                    )
-                    .frame(width: 60)
-                    Stepper(
-                        "",
-                        value: $pinkyScale,
-                        in: Self.pinkyScaleRange,
-                        step: 0.05
-                    )
-                    .labelsHidden()
+                Button("Save") {
+                    saveSettings()
                 }
             }
 
@@ -272,7 +281,7 @@ struct ContentView: View {
         .padding()
         .frame(minWidth: trackpadSize.width * 2 + 120, minHeight: trackpadSize.height + 180)
         .onAppear {
-            applyKeyScale(keyScale)
+            applySavedSettings()
             viewModel.onAppear()
             displayTouchData = viewModel.snapshotTouchData()
         }
@@ -667,6 +676,36 @@ struct ContentView: View {
             rightTypingToggleRect: typingToggleRect(isLeft: false),
             trackpadSize: trackpadSize
         )
+    }
+
+    private func applySavedSettings() {
+        visualsEnabled = storedVisualsEnabled
+        keyScale = storedKeyScale
+        thumbScale = storedThumbScale
+        pinkyScale = storedPinkyScale
+        applyKeyScale(keyScale)
+        applyThumbScale(thumbScale)
+        applyPinkyScale(pinkyScale)
+        if let leftDevice = deviceForID(storedLeftDeviceID) {
+            viewModel.selectLeftDevice(leftDevice)
+        }
+        if let rightDevice = deviceForID(storedRightDeviceID) {
+            viewModel.selectRightDevice(rightDevice)
+        }
+    }
+
+    private func saveSettings() {
+        storedLeftDeviceID = viewModel.leftDevice?.deviceID ?? ""
+        storedRightDeviceID = viewModel.rightDevice?.deviceID ?? ""
+        storedVisualsEnabled = visualsEnabled
+        storedKeyScale = keyScale
+        storedThumbScale = thumbScale
+        storedPinkyScale = pinkyScale
+    }
+
+    private func deviceForID(_ deviceID: String) -> OMSDeviceInfo? {
+        guard !deviceID.isEmpty else { return nil }
+        return viewModel.availableDevices.first { $0.deviceID == deviceID }
     }
 
     private func typingToggleRect(isLeft: Bool) -> CGRect {
