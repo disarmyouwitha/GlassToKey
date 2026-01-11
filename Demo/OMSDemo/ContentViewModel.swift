@@ -18,6 +18,11 @@ final class ContentViewModel: ObservableObject {
         let label: String
     }
 
+    struct Layout {
+        let keyRects: [[CGRect]]
+        let thumbRects: [CGRect]
+    }
+
     static let leftGridLabels: [[String]] = [
         ["Esc", "Q", "W", "E", "R", "T"],
         ["Ctrl", "A", "S", "D", "F", "G"],
@@ -28,7 +33,7 @@ final class ContentViewModel: ObservableObject {
         ["H", "J", "K", "L", ";", "Ret"],
         ["N", "M", ",", ".", "/", "Ret"]
     ]
-    @Published var touchData = [OMSTouchData]()
+    private var latestTouchData = [OMSTouchData]()
     @Published var isListening: Bool = false
     @Published var isTypingEnabled: Bool = true
     private let isDragDetectionEnabled = true
@@ -99,6 +104,13 @@ final class ContentViewModel: ObservableObject {
         ".": (CGKeyCode(kVK_ANSI_6), .maskShift),
         "/": (CGKeyCode(kVK_ANSI_Backslash), [])
     ]
+    private var leftLayout: Layout?
+    private var rightLayout: Layout?
+    private var leftLabels: [[String]] = []
+    private var rightLabels: [[String]] = []
+    private var leftTypingToggleRect: CGRect?
+    private var rightTypingToggleRect: CGRect?
+    private var trackpadSize: CGSize = .zero
 
     init() {
         loadDevices()
@@ -106,19 +118,42 @@ final class ContentViewModel: ObservableObject {
 
     var leftTouches: [OMSTouchData] {
         guard let deviceID = leftDevice?.deviceID else { return [] }
-        return touchData.filter { $0.deviceID == deviceID }
+        return latestTouchData.filter { $0.deviceID == deviceID }
     }
 
     var rightTouches: [OMSTouchData] {
         guard let deviceID = rightDevice?.deviceID else { return [] }
-        return touchData.filter { $0.deviceID == deviceID }
+        return latestTouchData.filter { $0.deviceID == deviceID }
     }
 
     func onAppear() {
         task = Task { [weak self, manager] in
             for await touchData in manager.touchDataStream {
                 await MainActor.run {
-                    self?.touchData = touchData
+                    guard let self else { return }
+                    self.latestTouchData = touchData
+                    guard let leftLayout = self.leftLayout,
+                          let rightLayout = self.rightLayout else {
+                        return
+                    }
+                    self.processTouches(
+                        self.leftTouches,
+                        keyRects: leftLayout.keyRects,
+                        thumbRects: leftLayout.thumbRects,
+                        canvasSize: self.trackpadSize,
+                        labels: self.leftLabels,
+                        isLeftSide: true,
+                        typingToggleRect: self.leftTypingToggleRect
+                    )
+                    self.processTouches(
+                        self.rightTouches,
+                        keyRects: rightLayout.keyRects,
+                        thumbRects: rightLayout.thumbRects,
+                        canvasSize: self.trackpadSize,
+                        labels: self.rightLabels,
+                        isLeftSide: false,
+                        typingToggleRect: self.rightTypingToggleRect
+                    )
                 }
             }
         }
@@ -161,6 +196,28 @@ final class ContentViewModel: ObservableObject {
     func selectRightDevice(_ device: OMSDeviceInfo?) {
         rightDevice = device
         updateActiveDevices()
+    }
+
+    func configureLayouts(
+        leftLayout: Layout,
+        rightLayout: Layout,
+        leftLabels: [[String]],
+        rightLabels: [[String]],
+        leftTypingToggleRect: CGRect?,
+        rightTypingToggleRect: CGRect?,
+        trackpadSize: CGSize
+    ) {
+        self.leftLayout = leftLayout
+        self.rightLayout = rightLayout
+        self.leftLabels = leftLabels
+        self.rightLabels = rightLabels
+        self.leftTypingToggleRect = leftTypingToggleRect
+        self.rightTypingToggleRect = rightTypingToggleRect
+        self.trackpadSize = trackpadSize
+    }
+
+    func snapshotTouchData() -> [OMSTouchData] {
+        latestTouchData
     }
 
     private func updateActiveDevices() {
