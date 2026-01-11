@@ -1,8 +1,7 @@
 # GlassToKey
 
 ## Intention
-An attempt to use the Apple Magic Trackpad as a keyboard (and mouse!) like the TouchStream LP~ 
-
+An attempt to use the Apple Magic Trackpad as a keyboard (and mouse!) like the TouchStream LP~<br>
 Since it is built on the same technology, I thought it would be fun to try and create an open source version!
 
 <img src="touchstreamLP.jpg" alt="Fingerworks Touchstream LP" width="900px" />
@@ -17,17 +16,15 @@ It's just Codex and I vibe coding~ you can submit an issue but this is really ju
 
 ## Usage
 
-Build the demo and click Start to begin tracking fingers! 
-
+Build the demo and click Start to begin tracking fingers! <br>
 You can stop the visualizer or minimize the window and it will still continue to work.
 
-If you hold any key for longer than 200ms I have a whole hidden tap-hold layer. 
-
+If you hold any key for longer than 200ms I have a whole hidden tap-hold layer. <br>
 (Sorry it is not more user friendly at this point)
 
 ## TODO
 
-This repo is not really in shape for users, but a developer could definitely get in and modify the keymap, etc. $
+This repo is not really in shape for users, but a developer could definitely get in and modify the keymap, etc. 
 
 **I have a todo list in the AGENTS.md file if you want to check it out! Or load up codex and say, "read agents.md lets start on the todo" and start submitting PRs, lol!**
 
