@@ -4,13 +4,13 @@
 - Purpose: observe global trackpad multitouch events via the private MultitouchSupport.framework.
 - Deliverables: Swift wrapper API + Objective-C framework shipped as an XCFramework.
 - Platform: macOS 13+, Xcode 16+, Swift tools 6.0.
-- Sandbox: App Sandbox must be disabled for consumers and the demo app.
+- Sandbox: App Sandbox must be disabled for consumers and the GlassToKey app.
 
 ## Repository map
 - `Sources/OpenMultitouchSupport/`: Swift wrapper API.
 - `Framework/OpenMultitouchSupportXCF/`: Objective-C framework source.
 - `Framework/OpenMultitouchSupportXCF.xcodeproj`: framework build target.
-- `Demo/OMSDemo/`: demo app.
+- `GlassToKey/`: menu bar app.
 - `OpenMultitouchSupportXCF.xcframework`: local dev output (generated).
 - `Package.swift` / `Package.swift.template`: SPM manifest (release vs template).
 
@@ -20,18 +20,19 @@
 - `Framework/OpenMultitouchSupportXCF/OpenMTEvent.h` / `OpenMTEvent.m`: event payloads (includes deviceID).
 - `Sources/OpenMultitouchSupport/OMSManager.swift`: Swift API for device selection and event streaming.
 - `Sources/OpenMultitouchSupport/OMSTouchData.swift`: touch data model (includes deviceID).
-- `Demo/OMSDemo/ContentView.swift`: UI with dual pickers/canvases.
-- `Demo/OMSDemo/ContentViewModel.swift`: per-device touch filtering and state.
+- `GlassToKey/GlassToKeyApp.swift`: menu bar status item + app lifecycle.
+- `GlassToKey/ContentView.swift`: main UI for trackpad visualization and settings.
+- `GlassToKey/ContentViewModel.swift`: touch filtering, typing mode state, key dispatch.
 - `README.md`: public usage and device selection docs.
 
 ## Working agreements
 - Keep Swift API changes in `Sources/OpenMultitouchSupport/`.
 - Keep framework changes in `Framework/OpenMultitouchSupportXCF/`.
 - Treat `OpenMultitouchSupportXCF.xcframework` as generated output (rebuild instead of hand-editing).
-- No automated tests currently; call out testing gaps when relevant.
-- Always ask if we should create a new branch when a new task is started. If yes, auto generate branch name.
+- Always ask to review TODO items start up. When a new TODO task is started always offer to create a new branch and auto generate the name.
 - ALWAYS run `xcodebuild` after finishing changes to check for build errors.
-- Demo build command: `xcodebuild -project Demo/OMSDemo.xcodeproj -scheme OMSDemo -configuration Debug -destination 'platform=macOS' build`
+- GlassToKey build command: `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
+- Call out testing gaps when relevant.
 
 ## Common workflows
 ### Swift wrapper changes only
@@ -55,18 +56,14 @@
 - Requires `gh` auth.
 - Builds the XCFramework, creates the release, and updates `Package.swift`.
 
-## Demo app
-- Open `Demo/OMSDemo` in Xcode and run the app.
-- Ensure App Sandbox is disabled in the demo target.
-
 ## Important notes for next instance of Codex
+- No notes left
 
-## TODO, first
-- can this program run in the background and add a taskbar to access the demo/config?
+## TODO
 - once we get taskbar set up we should display mouse vs keyboard mode with red light green light?
 
-## TODO, future
-- Layers I need to add another layer and have a key I can use to switch on the thumb cluster
+## FUTURE
+- Layers I need to add a layer key I can add to the thumb cluster like MOmentary layer switching 
 - Ask me for arrow keys + Num pad layout for the new layer
 - can we devise a keymap layout config we can save and let ppl edit & the program uses that to map keys?
 - add config to splay columns based on your touch

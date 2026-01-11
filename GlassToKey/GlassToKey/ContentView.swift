@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  OMSDemo
+//  GlassToKey
 //
 //  Created by Takuto Nakamura on 2024/03/02.
 //
@@ -10,7 +10,7 @@ import OpenMultitouchSupport
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject var viewModel = ContentViewModel()
+    @StateObject private var viewModel: ContentViewModel
     @State private var testText = ""
     @State private var displayTouchData = [OMSTouchData]()
     @State private var visualsEnabled = true
@@ -21,19 +21,19 @@ struct ContentView: View {
     @State private var keyOffsetY = 0.0
     @State private var leftLayout: ContentViewModel.Layout
     @State private var rightLayout: ContentViewModel.Layout
-    @AppStorage("OMSDemo.leftDeviceID") private var storedLeftDeviceID = ""
-    @AppStorage("OMSDemo.rightDeviceID") private var storedRightDeviceID = ""
-    @AppStorage("OMSDemo.visualsEnabled") private var storedVisualsEnabled = true
-    @AppStorage("OMSDemo.keyScale") private var storedKeyScale = 1.0
-    @AppStorage("OMSDemo.thumbScale") private var storedThumbScale = 1.0
-    @AppStorage("OMSDemo.pinkyScale") private var storedPinkyScale = 1.2
-    @AppStorage("OMSDemo.keyOffsetX") private var storedKeyOffsetX = 0.0
-    @AppStorage("OMSDemo.keyOffsetY") private var storedKeyOffsetY = 0.0
-    private static let trackpadWidthMM: CGFloat = 160.0
-    private static let trackpadHeightMM: CGFloat = 114.9
-    private static let displayScale: CGFloat = 2.7
-    private static let baseKeyWidthMM: CGFloat = 18.0
-    private static let baseKeyHeightMM: CGFloat = 17.0
+    @AppStorage(GlassToKeyDefaultsKeys.leftDeviceID) private var storedLeftDeviceID = ""
+    @AppStorage(GlassToKeyDefaultsKeys.rightDeviceID) private var storedRightDeviceID = ""
+    @AppStorage(GlassToKeyDefaultsKeys.visualsEnabled) private var storedVisualsEnabled = true
+    @AppStorage(GlassToKeyDefaultsKeys.keyScale) private var storedKeyScale = 1.0
+    @AppStorage(GlassToKeyDefaultsKeys.thumbScale) private var storedThumbScale = 1.0
+    @AppStorage(GlassToKeyDefaultsKeys.pinkyScale) private var storedPinkyScale = 1.2
+    @AppStorage(GlassToKeyDefaultsKeys.keyOffsetX) private var storedKeyOffsetX = 0.0
+    @AppStorage(GlassToKeyDefaultsKeys.keyOffsetY) private var storedKeyOffsetY = 0.0
+    static let trackpadWidthMM: CGFloat = 160.0
+    static let trackpadHeightMM: CGFloat = 114.9
+    static let displayScale: CGFloat = 2.7
+    static let baseKeyWidthMM: CGFloat = 18.0
+    static let baseKeyHeightMM: CGFloat = 17.0
     private static let keyScaleRange: ClosedRange<Double> = 0.5...2.0
     private static let thumbScaleRange: ClosedRange<Double> = 0.5...2.0
     private static let pinkyScaleRange: ClosedRange<Double> = 0.5...2.0
@@ -76,7 +76,7 @@ struct ContentView: View {
     }()
     private let displayRefreshInterval: TimeInterval = 1.0 / 60.0
     // Per-column anchor positions in trackpad mm (top key origin).
-    private static let ColumnAnchorsMM: [CGPoint] = [
+    static let ColumnAnchorsMM: [CGPoint] = [
         CGPoint(x: 35.0, y: 20.9),
         CGPoint(x: 53.0, y: 19.2),
         CGPoint(x: 71.0, y: 17.5),
@@ -85,17 +85,18 @@ struct ContentView: View {
         CGPoint(x: 125.0, y: 22.6)
     ]
 
-    private static let ThumbAnchorsMM: [CGRect] = [
+    static let ThumbAnchorsMM: [CGRect] = [
         CGRect(x: 0, y: 75, width: 40, height: 40),
         CGRect(x: 40, y: 85, width: 40, height: 30),
         CGRect(x: 80, y: 85, width: 40, height: 30),
         CGRect(x: 120, y: 85, width: 40, height: 30)
     ]
-    private static let typingToggleRectMM = CGRect(x: 135, y: 0, width: 25, height: 75)
+    static let typingToggleRectMM = CGRect(x: 135, y: 0, width: 25, height: 75)
 
     private let trackpadSize: CGSize
 
-    init() {
+    init(viewModel: ContentViewModel = ContentViewModel()) {
+        _viewModel = StateObject(wrappedValue: viewModel)
         let size = CGSize(
             width: Self.trackpadWidthMM * Self.displayScale,
             height: Self.trackpadHeightMM * Self.displayScale
@@ -334,11 +335,7 @@ struct ContentView: View {
         .frame(minWidth: trackpadSize.width * 2 + 120, minHeight: trackpadSize.height + 180)
         .onAppear {
             applySavedSettings()
-            viewModel.onAppear()
             displayTouchData = viewModel.snapshotTouchData()
-        }
-        .onDisappear {
-            viewModel.onDisappear()
         }
         .onChange(of: visualsEnabled) { enabled in
             displayTouchData = enabled ? viewModel.snapshotTouchData() : []
@@ -431,7 +428,7 @@ struct ContentView: View {
             .path(in: CGRect(origin: .zero, size: size))
     }
 
-    private static func makeKeyLayout(
+    static func makeKeyLayout(
         size: CGSize,
         keyWidth: CGFloat,
         keyHeight: CGFloat,
@@ -576,7 +573,7 @@ struct ContentView: View {
         }
     }
 
-    private static func outerKeyWidthByLabel(pinkyScale: Double) -> [String: CGFloat] {
+    static func outerKeyWidthByLabel(pinkyScale: Double) -> [String: CGFloat] {
         let scale = CGFloat(pinkyScale)
         return [
             "Esc": scale,
@@ -827,7 +824,7 @@ struct ContentView: View {
         }
     }
 
-    private static func mirroredLabels(_ labels: [[String]]) -> [[String]] {
+    static func mirroredLabels(_ labels: [[String]]) -> [[String]] {
         labels.map { Array($0.reversed()) }
     }
 
