@@ -28,10 +28,10 @@
 - Keep Swift API changes in `Sources/OpenMultitouchSupport/`.
 - Keep framework changes in `Framework/OpenMultitouchSupportXCF/`.
 - Treat `OpenMultitouchSupportXCF.xcframework` as generated output (rebuild instead of hand-editing).
-- No automated tests currently; call out testing gaps when relevant.
-- Always ask if we should create a new branch when a new task is started. If yes, auto generate branch name.
+- Always ask to review TODO items start up. When a new TODO task is started always offer to create a new branch and auto generate the name.
 - ALWAYS run `xcodebuild` after finishing changes to check for build errors.
 - Demo build command: `xcodebuild -project Demo/OMSDemo.xcodeproj -scheme OMSDemo -configuration Debug -destination 'platform=macOS' build`
+- Call out testing gaps when relevant.
 
 ## Common workflows
 ### Swift wrapper changes only
@@ -60,13 +60,14 @@
 - Ensure App Sandbox is disabled in the demo target.
 
 ## Important notes for next instance of Codex
+- No notes left
 
-## TODO, first
+## TODO
 - can this program run in the background and add a taskbar to access the demo/config?
 - once we get taskbar set up we should display mouse vs keyboard mode with red light green light?
 
-## TODO, future
-- Layers I need to add another layer and have a key I can use to switch on the thumb cluster
+## FUTURE
+- Layers I need to add a layer key I can add to the thumb cluster like MOmentary layer switching 
 - Ask me for arrow keys + Num pad layout for the new layer
 - can we devise a keymap layout config we can save and let ppl edit & the program uses that to map keys?
 - add config to splay columns based on your touch

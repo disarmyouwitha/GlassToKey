@@ -1,8 +1,8 @@
 # GlassToKey
 
 ## Intention
-An attempt to use the Apple Magic Trackpad as a keyboard (and mouse!) like the TouchStream LP~<br>
-Since it is built on the same technology, I thought it would be fun to try and create an open source version!
+An attempt to use the Apple Magic Trackpad as a keyboard (and mouse!) like the TouchStream LP~
+S$~ince it is built on the same technology, I thought it would be fun to try and create an open source version!
 
 <img src="Screenshots/touchstreamLP.jpg" alt="Fingerworks Touchstream LP" width="900px" />
 
@@ -16,7 +16,7 @@ It's just Codex and I vibe coding~ you can submit an issue but this is really ju
 
 ## Usage
 
-Build the demo and click Start to begin tracking fingers! <br>
+Build the demo, click Start and begin typing!$
 You can stop the visualizer or minimize the window and it will still continue to work.
 
 If you hold any key for longer than 200ms I have a whole hidden tap-hold layer. <br>
@@ -26,7 +26,7 @@ If you hold any key for longer than 200ms I have a whole hidden tap-hold layer. 
 
 This repo is not really in shape for users, but a developer could definitely get in and modify the keymap, etc. 
 
-**I have a todo list in the AGENTS.md file if you want to check it out! Or load up codex and say, "read agents.md lets start on the todo" and start submitting PRs, lol!**
+**I have a todo list in the AGENTS.md file if you want to check it out! Or load up codex and say, "read agents.md" and start submitting PRs, lol!**
 
 ---
 
@@ -35,10 +35,9 @@ This repo is not really in shape for users, but a developer could definitely get
 **This is a fork of [Kyome22/OpenMultitouchSupport](https://github.com/Kyome22/OpenMultitouchSupport) with some added features.**
 
 This library refers the following frameworks very much. Special Thanks!
-- [Kyome22/OpenMultitouchSupport](https://github.com/Kyome22/OpenMultitouchSupport)
-- [KrishKrosh/OpenMultitouchSupport](https://github.com/KrishKrosh/OpenMultitouchSupport)
 - [mhuusko5/M5MultitouchSupport](https://github.com/mhuusko5/M5MultitouchSupport)
 - [calftrail/Touch](https://github.com/calftrail/Touch/blob/master/TouchSynthesis/MultitouchSupport.h)
+- [KrishKrosh/OpenMultitouchSupport](https://github.com/KrishKrosh/OpenMultitouchSupport)
 
 ## Requirements
 
