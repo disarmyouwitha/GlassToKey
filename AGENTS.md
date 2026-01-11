@@ -72,8 +72,7 @@
   - Files: Demo/OMSDemo/ContentView.swift, Demo/OMSDemo/ContentViewModel.swift
 
 ## TODO, first
-- make outer buttons where tab, ctrl, shift, back, return, etc. width slightly wider with their own scale
-- set position offset of the keys. they should all move together.       
+- Set position offset of the keys X,Y. They should all move together. This should be added to the saved config. 
 - Layers I need to add another layer and have a key I can use to switch on the thumb cluster
 
 ## TODO, future
