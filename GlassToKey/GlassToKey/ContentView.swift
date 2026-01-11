@@ -149,14 +149,69 @@ struct ContentView: View {
     }
 
     var body: some View {
-        VStack {
-            // Device Selectors
-            if !viewModel.availableDevices.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Trackpad Devices")
+        VStack(spacing: 16) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("GlassToKey Studio")
+                        .font(.title2)
+                        .bold()
+                    Text("Arrange, tune, and test")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Toggle("Visuals", isOn: $visualsEnabled)
+                    .toggleStyle(SwitchToggleStyle())
+                if viewModel.isListening {
+                    Button("Stop") {
+                        viewModel.stop()
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else {
+                    Button("Start") {
+                        viewModel.start()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Trackpad Deck")
                         .font(.headline)
                     HStack(alignment: .top, spacing: 16) {
-                        VStack(alignment: .leading) {
+                        trackpadCanvas(
+                            title: "Left Trackpad",
+                            touches: visualsEnabled ? displayLeftTouches : [],
+                            mirrored: true,
+                            labels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
+                            activeThumbCount: viewModel.leftThumbKeyCount,
+                            visualsEnabled: visualsEnabled,
+                            typingToggleRect: typingToggleRect(isLeft: true),
+                            typingEnabled: viewModel.isTypingEnabled
+                        )
+                        trackpadCanvas(
+                            title: "Right Trackpad",
+                            touches: visualsEnabled ? displayRightTouches : [],
+                            mirrored: false,
+                            labels: ContentViewModel.rightGridLabels,
+                            activeThumbCount: viewModel.rightThumbKeyCount,
+                            visualsEnabled: visualsEnabled,
+                            typingToggleRect: typingToggleRect(isLeft: false),
+                            typingEnabled: viewModel.isTypingEnabled
+                        )
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Devices")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        if viewModel.availableDevices.isEmpty {
+                            Text("No trackpads detected.")
+                                .foregroundStyle(.secondary)
+                        } else {
                             Picker("Left Trackpad", selection: Binding(
                                 get: { viewModel.leftDevice },
                                 set: { device in
@@ -171,9 +226,7 @@ struct ContentView: View {
                                 }
                             }
                             .pickerStyle(MenuPickerStyle())
-                        }
 
-                        VStack(alignment: .leading) {
                             Picker("Right Trackpad", selection: Binding(
                                 get: { viewModel.rightDevice },
                                 set: { device in
@@ -190,149 +243,143 @@ struct ContentView: View {
                             .pickerStyle(MenuPickerStyle())
                         }
                     }
-                }
-                .padding(.bottom)
-            }
-            
-            HStack(spacing: 20) {
-                if viewModel.isListening {
-                    Button {
-                        viewModel.stop()
-                    } label: {
-                        Text("Stop")
-                    }
-                } else {
-                    Button {
-                        viewModel.start()
-                    } label: {
-                        Text("Start")
-                    }
-                }
-                Toggle("Visuals", isOn: $visualsEnabled)
-                    .toggleStyle(SwitchToggleStyle())
-                HStack(spacing: 8) {
-                    Text("Offset X")
-                    TextField(
-                        "0.0",
-                        value: $keyOffsetX,
-                        formatter: Self.keyOffsetFormatter
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.primary.opacity(0.05))
                     )
-                    .frame(width: 60)
-                    Stepper(
-                        "",
-                        value: $keyOffsetX,
-                        in: Self.keyOffsetRange,
-                        step: 0.5
-                    )
-                    .labelsHidden()
-                }
-                HStack(spacing: 8) {
-                    Text("Offset Y")
-                    TextField(
-                        "0.0",
-                        value: $keyOffsetY,
-                        formatter: Self.keyOffsetFormatter
-                    )
-                    .frame(width: 60)
-                    Stepper(
-                        "",
-                        value: $keyOffsetY,
-                        in: Self.keyOffsetRange,
-                        step: 0.5
-                    )
-                    .labelsHidden()
-                }
-                HStack(spacing: 8) {
-                    Text("Key scale")
-                    TextField(
-                        "1.0",
-                        value: $keyScale,
-                        formatter: Self.keyScaleFormatter
-                    )
-                    .frame(width: 60)
-                    Stepper(
-                        "",
-                        value: $keyScale,
-                        in: Self.keyScaleRange,
-                        step: 0.05
-                    )
-                    .labelsHidden()
-                }
-                HStack(spacing: 8) {
-                    Text("Pinky scale")
-                    TextField(
-                        "1.2",
-                        value: $pinkyScale,
-                        formatter: Self.pinkyScaleFormatter
-                    )
-                    .frame(width: 60)
-                    Stepper(
-                        "",
-                        value: $pinkyScale,
-                        in: Self.pinkyScaleRange,
-                        step: 0.05
-                    )
-                    .labelsHidden()
-                }
-                HStack(spacing: 8) {
-                    Text("Thumb scale")
-                    TextField(
-                        "1.0",
-                        value: $thumbScale,
-                        formatter: Self.thumbScaleFormatter
-                    )
-                    .frame(width: 60)
-                    Stepper(
-                        "",
-                        value: $thumbScale,
-                        in: Self.thumbScaleRange,
-                        step: 0.05
-                    )
-                    .labelsHidden()
-                }
-                Button("Save") {
-                    saveSettings()
-                }
-            }
 
-            HStack(alignment: .top, spacing: 16) {
-                trackpadCanvas(
-                    title: "Left Trackpad",
-                    touches: visualsEnabled ? displayLeftTouches : [],
-                    mirrored: true,
-                    labels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
-                    activeThumbCount: viewModel.leftThumbKeyCount,
-                    visualsEnabled: visualsEnabled,
-                    typingToggleRect: typingToggleRect(isLeft: true),
-                    typingEnabled: viewModel.isTypingEnabled
-                )
-                trackpadCanvas(
-                    title: "Right Trackpad",
-                    touches: visualsEnabled ? displayRightTouches : [],
-                    mirrored: false,
-                    labels: ContentViewModel.rightGridLabels,
-                    activeThumbCount: viewModel.rightThumbKeyCount,
-                    visualsEnabled: visualsEnabled,
-                    typingToggleRect: typingToggleRect(isLeft: false),
-                    typingEnabled: viewModel.isTypingEnabled
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Typing Test")
-                    .font(.subheadline)
-                TextEditor(text: $testText)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(height: 60)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Layout Tuning")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                            GridRow {
+                                Text("Offset X")
+                                TextField(
+                                    "0.0",
+                                    value: $keyOffsetX,
+                                    formatter: Self.keyOffsetFormatter
+                                )
+                                .frame(width: 60)
+                                Stepper(
+                                    "",
+                                    value: $keyOffsetX,
+                                    in: Self.keyOffsetRange,
+                                    step: 0.5
+                                )
+                                .labelsHidden()
+                            }
+                            GridRow {
+                                Text("Offset Y")
+                                TextField(
+                                    "0.0",
+                                    value: $keyOffsetY,
+                                    formatter: Self.keyOffsetFormatter
+                                )
+                                .frame(width: 60)
+                                Stepper(
+                                    "",
+                                    value: $keyOffsetY,
+                                    in: Self.keyOffsetRange,
+                                    step: 0.5
+                                )
+                                .labelsHidden()
+                            }
+                            GridRow {
+                                Text("Key scale")
+                                TextField(
+                                    "1.0",
+                                    value: $keyScale,
+                                    formatter: Self.keyScaleFormatter
+                                )
+                                .frame(width: 60)
+                                Stepper(
+                                    "",
+                                    value: $keyScale,
+                                    in: Self.keyScaleRange,
+                                    step: 0.05
+                                )
+                                .labelsHidden()
+                            }
+                            GridRow {
+                                Text("Pinky scale")
+                                TextField(
+                                    "1.2",
+                                    value: $pinkyScale,
+                                    formatter: Self.pinkyScaleFormatter
+                                )
+                                .frame(width: 60)
+                                Stepper(
+                                    "",
+                                    value: $pinkyScale,
+                                    in: Self.pinkyScaleRange,
+                                    step: 0.05
+                                )
+                                .labelsHidden()
+                            }
+                            GridRow {
+                                Text("Thumb scale")
+                                TextField(
+                                    "1.0",
+                                    value: $thumbScale,
+                                    formatter: Self.thumbScaleFormatter
+                                )
+                                .frame(width: 60)
+                                Stepper(
+                                    "",
+                                    value: $thumbScale,
+                                    in: Self.thumbScaleRange,
+                                    step: 0.05
+                                )
+                                .labelsHidden()
+                            }
+                        }
+                        Button("Save Layout") {
+                            saveSettings()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.primary.opacity(0.05))
                     )
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Typing Test")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        TextEditor(text: $testText)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(height: 100)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
+                            )
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.primary.opacity(0.05))
+                    )
+                }
+                .frame(width: 320)
             }
-            .padding(.vertical, 8)
         }
         .padding()
-        .frame(minWidth: trackpadSize.width * 2 + 120, minHeight: trackpadSize.height + 180)
+        .background(
+            RadialGradient(
+                colors: [
+                    Color.accentColor.opacity(0.08),
+                    Color.clear
+                ],
+                center: .topLeading,
+                startRadius: 40,
+                endRadius: 420
+            )
+        )
+        .frame(minWidth: trackpadSize.width * 2 + 480, minHeight: trackpadSize.height + 200)
         .onAppear {
             applySavedSettings()
             displayTouchData = viewModel.snapshotTouchData()
