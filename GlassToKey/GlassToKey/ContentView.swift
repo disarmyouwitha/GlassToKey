@@ -438,10 +438,11 @@ struct ContentView: View {
             applySavedSettings()
             displayTouchData = viewModel.snapshotTouchData()
         }
-        .onChange(of: visualsEnabled) { _ in
-            saveSettings()
-        }
         .onChange(of: visualsEnabled) { enabled in
+            if !enabled {
+                selectedButtonID = nil
+            }
+            saveSettings()
             displayTouchData = enabled ? viewModel.snapshotTouchData() : []
         }
         .onChange(of: keyScale) { newValue in
