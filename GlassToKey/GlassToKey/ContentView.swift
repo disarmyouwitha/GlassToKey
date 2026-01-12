@@ -81,6 +81,15 @@ struct ContentView: View {
         formatter.maximum = NSNumber(value: ContentView.keyOffsetRange.upperBound)
         return formatter
     }()
+    private static let customButtonPositionFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 1
+        formatter.minimum = 0
+        formatter.maximum = 100
+        return formatter
+    }()
     private let displayRefreshInterval: TimeInterval = 1.0 / 60.0
     // Per-column anchor positions in trackpad mm (top key origin).
     static let ColumnAnchorsMM: [CGPoint] = [
@@ -376,6 +385,54 @@ struct ContentView: View {
                                         }
                                     }
                                     .pickerStyle(MenuPickerStyle())
+                                    Grid(alignment: .leading, verticalSpacing: 6) {
+                                        GridRow {
+                                            Text("X (%)")
+                                            let xBinding = positionPercentBinding(
+                                                for: selectedIndex,
+                                                axis: .x
+                                            )
+                                            TextField(
+                                                "0",
+                                                value: xBinding,
+                                                formatter: Self.customButtonPositionFormatter
+                                            )
+                                            .frame(width: 60)
+                                            Stepper(
+                                                "",
+                                                value: xBinding,
+                                                in: positionPercentRange(
+                                                    for: selectedIndex,
+                                                    axis: .x
+                                                ),
+                                                step: 0.5
+                                            )
+                                            .labelsHidden()
+                                        }
+                                        GridRow {
+                                            Text("Y (%)")
+                                            let yBinding = positionPercentBinding(
+                                                for: selectedIndex,
+                                                axis: .y
+                                            )
+                                            TextField(
+                                                "0",
+                                                value: yBinding,
+                                                formatter: Self.customButtonPositionFormatter
+                                            )
+                                            .frame(width: 60)
+                                            Stepper(
+                                                "",
+                                                value: yBinding,
+                                                in: positionPercentRange(
+                                                    for: selectedIndex,
+                                                    axis: .y
+                                                ),
+                                                step: 0.5
+                                            )
+                                            .labelsHidden()
+                                        }
+                                    }
                                     HStack {
                                         Text("Selected")
                                             .font(.caption)
@@ -982,6 +1039,54 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private enum CustomButtonAxis {
+        case x
+        case y
+    }
+
+    private func positionPercentBinding(
+        for index: Int,
+        axis: CustomButtonAxis
+    ) -> Binding<Double> {
+        Binding(
+            get: {
+                let rect = customButtons[index].rect
+                let value = axis == .x ? rect.x : rect.y
+                return Double(value * 100.0)
+            },
+            set: { newValue in
+                let rect = customButtons[index].rect
+                let maxNormalized = axis == .x
+                    ? (1.0 - rect.width)
+                    : (1.0 - rect.height)
+                let upper = max(0.0, Double(maxNormalized))
+                let normalized = min(max(newValue / 100.0, 0.0), upper)
+                var updated = rect
+                if axis == .x {
+                    updated.x = CGFloat(normalized)
+                } else {
+                    updated.y = CGFloat(normalized)
+                }
+                customButtons[index].rect = updated.clamped(
+                    minWidth: Self.minCustomButtonSize.width,
+                    minHeight: Self.minCustomButtonSize.height
+                )
+            }
+        )
+    }
+
+    private func positionPercentRange(
+        for index: Int,
+        axis: CustomButtonAxis
+    ) -> ClosedRange<Double> {
+        let rect = customButtons[index].rect
+        let maxNormalized = axis == .x
+            ? (1.0 - rect.width)
+            : (1.0 - rect.height)
+        let upper = max(0.0, Double(maxNormalized)) * 100.0
+        return 0.0...upper
     }
 
     private func deviceForID(_ deviceID: String) -> OMSDeviceInfo? {

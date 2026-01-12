@@ -61,7 +61,8 @@
 ## Important notes for next instance of Codex
 - No notes left
 
-## TODO^
+## TODO
+- Can't adjust x,y of selected custom buttons. (cant drag into place.) select and move works. Maybe X,Y offset slider if it is too hard to implement dragable?
 - Layers I need to add a layer key I can add to the thumb cluster like MOmentary layer switching 
 - Make status light blue on layer change
 - Ask me for arrow keys + Num pad layout for the new layer
@@ -72,4 +73,4 @@
 - add config to splay columns based on your touch
 - make buttons addable through gui, set position by dragging into place. set action through gui (that saves to the keymap)
 - Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight
-- can we round the corners to give the visuals a softer look?
+- can we round the corners to give the visuals a softer look?GlassToKey/GlassToKey/GlassToKeyDefaultsKeys.swiftGlassToKey/GlassToKey/GlassToKeyDefaultsKeys.swift
