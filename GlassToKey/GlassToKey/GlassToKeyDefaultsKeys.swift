@@ -9,4 +9,5 @@ enum GlassToKeyDefaultsKeys {
     static let pinkyScale = "GlassToKey.pinkyScale"
     static let keyOffsetX = "GlassToKey.keyOffsetX"
     static let keyOffsetY = "GlassToKey.keyOffsetY"
+    static let customButtons = "GlassToKey.customButtons"
 }

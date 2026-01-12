@@ -14,6 +14,7 @@ struct ContentView: View {
     @State private var testText = ""
     @State private var displayTouchData = [OMSTouchData]()
     @State private var visualsEnabled = true
+    @State private var isEditingButtons = false
     @State private var keyScale = 1.0
     @State private var thumbScale = 1.0
     @State private var pinkyScale = 1.2
@@ -21,6 +22,9 @@ struct ContentView: View {
     @State private var keyOffsetY = 0.0
     @State private var leftLayout: ContentViewModel.Layout
     @State private var rightLayout: ContentViewModel.Layout
+    @State private var customButtons: [CustomButton] = []
+    @State private var dragStartRects: [UUID: NormalizedRect] = [:]
+    @State private var resizeStartRects: [UUID: NormalizedRect] = [:]
     @AppStorage(GlassToKeyDefaultsKeys.leftDeviceID) private var storedLeftDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.rightDeviceID) private var storedRightDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.visualsEnabled) private var storedVisualsEnabled = true
@@ -29,11 +33,14 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.pinkyScale) private var storedPinkyScale = 1.2
     @AppStorage(GlassToKeyDefaultsKeys.keyOffsetX) private var storedKeyOffsetX = 0.0
     @AppStorage(GlassToKeyDefaultsKeys.keyOffsetY) private var storedKeyOffsetY = 0.0
+    @AppStorage(GlassToKeyDefaultsKeys.customButtons) private var storedCustomButtonsData = Data()
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
     static let baseKeyWidthMM: CGFloat = 18.0
     static let baseKeyHeightMM: CGFloat = 17.0
+    static let minCustomButtonSize = CGSize(width: 0.05, height: 0.05)
+    private static let resizeHandleSize: CGFloat = 10.0
     private static let keyScaleRange: ClosedRange<Double> = 0.5...2.0
     private static let thumbScaleRange: ClosedRange<Double> = 0.5...2.0
     private static let pinkyScaleRange: ClosedRange<Double> = 0.5...2.0
@@ -185,8 +192,9 @@ struct ContentView: View {
                             touches: visualsEnabled ? displayLeftTouches : [],
                             mirrored: true,
                             labels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
-                            activeThumbCount: viewModel.leftThumbKeyCount,
+                            customButtons: customButtons.filter { $0.side == .left },
                             visualsEnabled: visualsEnabled,
+                            isEditingButtons: isEditingButtons,
                             typingToggleRect: typingToggleRect(isLeft: true),
                             typingEnabled: viewModel.isTypingEnabled
                         )
@@ -195,8 +203,9 @@ struct ContentView: View {
                             touches: visualsEnabled ? displayRightTouches : [],
                             mirrored: false,
                             labels: ContentViewModel.rightGridLabels,
-                            activeThumbCount: viewModel.rightThumbKeyCount,
+                            customButtons: customButtons.filter { $0.side == .right },
                             visualsEnabled: visualsEnabled,
+                            isEditingButtons: isEditingButtons,
                             typingToggleRect: typingToggleRect(isLeft: false),
                             typingEnabled: viewModel.isTypingEnabled
                         )
@@ -347,6 +356,57 @@ struct ContentView: View {
                     )
 
                     VStack(alignment: .leading, spacing: 10) {
+                        Text("Custom Buttons")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Toggle("Edit on trackpad", isOn: $isEditingButtons)
+                        HStack(spacing: 8) {
+                            Button("Add Left") {
+                                addCustomButton(side: .left)
+                            }
+                            Button("Add Right") {
+                                addCustomButton(side: .right)
+                            }
+                        }
+                        ForEach($customButtons) { $button in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text(button.action.label)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Button("Delete") {
+                                        removeCustomButton(id: button.id)
+                                    }
+                                }
+                                Picker("Side", selection: $button.side) {
+                                    ForEach(TrackpadSide.allCases) { side in
+                                        Text(side == .left ? "Left" : "Right")
+                                            .tag(side)
+                                    }
+                                }
+                                .pickerStyle(MenuPickerStyle())
+                                Picker("Action", selection: $button.action) {
+                                    ForEach(KeyActionCatalog.presets, id: \.self) { action in
+                                        Text(action.label).tag(action)
+                                    }
+                                }
+                                .pickerStyle(MenuPickerStyle())
+                            }
+                            .padding(8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.primary.opacity(0.05))
+                            )
+                        }
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.primary.opacity(0.05))
+                    )
+
+                    VStack(alignment: .leading, spacing: 10) {
                         Text("Typing Test")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -402,6 +462,10 @@ struct ContentView: View {
         .onChange(of: keyOffsetY) { newValue in
             applyKeyOffsetY(newValue)
         }
+        .onChange(of: customButtons) { newValue in
+            viewModel.updateCustomButtons(newValue)
+            saveCustomButtons(newValue)
+        }
         .task {
             for await _ in Timer.publish(
                 every: displayRefreshInterval,
@@ -421,8 +485,9 @@ struct ContentView: View {
         touches: [OMSTouchData],
         mirrored: Bool,
         labels: [[String]],
-        activeThumbCount: Int,
+        customButtons: [CustomButton],
         visualsEnabled: Bool,
+        isEditingButtons: Bool,
         typingToggleRect: CGRect?,
         typingEnabled: Bool
     ) -> some View {
@@ -430,16 +495,12 @@ struct ContentView: View {
             Text(title)
                 .font(.subheadline)
             Group {
-                if visualsEnabled {
+                if visualsEnabled || isEditingButtons {
                     Canvas { context, _ in
                         let layout = mirrored ? leftLayout : rightLayout
                         drawSensorGrid(context: &context, size: trackpadSize, columns: 30, rows: 22)
                         drawKeyGrid(context: &context, keyRects: layout.keyRects)
-                        drawThumbGrid(
-                            context: &context,
-                            thumbRects: layout.thumbRects,
-                            activeThumbCount: activeThumbCount
-                        )
+                        drawCustomButtons(context: &context, buttons: customButtons)
                         if let typingToggleRect {
                             drawTypingToggle(
                                 context: &context,
@@ -448,11 +509,11 @@ struct ContentView: View {
                             )
                         }
                         drawGridLabels(context: &context, keyRects: layout.keyRects, labels: labels)
-        touches.forEach { touch in
-            let path = makeEllipse(touch: touch, size: trackpadSize)
-            context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
-        }
-    }
+                        touches.forEach { touch in
+                            let path = makeEllipse(touch: touch, size: trackpadSize)
+                            context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
+                        }
+                    }
                 } else {
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
@@ -460,6 +521,11 @@ struct ContentView: View {
             }
             .frame(width: trackpadSize.width, height: trackpadSize.height)
             .border(Color.primary)
+            .overlay {
+                if isEditingButtons {
+                    customButtonsOverlay(buttons: customButtons)
+                }
+            }
         }
     }
 
@@ -745,6 +811,7 @@ struct ContentView: View {
         pinkyScale = storedPinkyScale
         keyOffsetX = storedKeyOffsetX
         keyOffsetY = storedKeyOffsetY
+        loadCustomButtons()
         applyKeyScale(keyScale)
         applyThumbScale(thumbScale)
         applyPinkyScale(pinkyScale)
@@ -767,6 +834,132 @@ struct ContentView: View {
         storedPinkyScale = pinkyScale
         storedKeyOffsetX = keyOffsetX
         storedKeyOffsetY = keyOffsetY
+    }
+
+    private func loadCustomButtons() {
+        if let decoded = CustomButtonStore.decode(storedCustomButtonsData),
+           !decoded.isEmpty {
+            customButtons = decoded
+        } else {
+            customButtons = CustomButtonDefaults.defaultButtons(
+                trackpadWidth: Self.trackpadWidthMM,
+                trackpadHeight: Self.trackpadHeightMM,
+                thumbAnchorsMM: Self.ThumbAnchorsMM
+            )
+            saveCustomButtons(customButtons)
+        }
+        viewModel.updateCustomButtons(customButtons)
+    }
+
+    private func saveCustomButtons(_ buttons: [CustomButton]) {
+        storedCustomButtonsData = CustomButtonStore.encode(buttons) ?? Data()
+    }
+
+    private func addCustomButton(side: TrackpadSide) {
+        let action = KeyActionCatalog.action(for: "Space") ?? KeyActionCatalog.presets.first
+        guard let action else { return }
+        customButtons.append(CustomButton(
+            id: UUID(),
+            side: side,
+            rect: defaultNewButtonRect(for: side),
+            action: action
+        ))
+    }
+
+    private func removeCustomButton(id: UUID) {
+        customButtons.removeAll { $0.id == id }
+    }
+
+    private func updateCustomButton(id: UUID, update: (inout CustomButton) -> Void) {
+        guard let index = customButtons.firstIndex(where: { $0.id == id }) else { return }
+        update(&customButtons[index])
+    }
+
+    private func defaultNewButtonRect(for side: TrackpadSide) -> NormalizedRect {
+        let x: CGFloat = side == .left ? 0.1 : 0.75
+        let rect = NormalizedRect(x: x, y: 0.7, width: 0.15, height: 0.12)
+        return rect.clamped(
+            minWidth: Self.minCustomButtonSize.width,
+            minHeight: Self.minCustomButtonSize.height
+        )
+    }
+
+    private func customButtonsOverlay(buttons: [CustomButton]) -> some View {
+        ZStack {
+            ForEach(buttons) { button in
+                let rect = button.rect.rect(in: trackpadSize)
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Color.accentColor.opacity(0.9), lineWidth: 1.5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.accentColor.opacity(0.08))
+                    )
+                    .frame(width: rect.width, height: rect.height)
+                    .position(x: rect.midX, y: rect.midY)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                let start = dragStartRects[button.id] ?? button.rect
+                                dragStartRects[button.id] = start
+                                let dx = value.translation.width / trackpadSize.width
+                                let dy = value.translation.height / trackpadSize.height
+                                let updated = NormalizedRect(
+                                    x: start.x + dx,
+                                    y: start.y + dy,
+                                    width: start.width,
+                                    height: start.height
+                                ).clamped(
+                                    minWidth: Self.minCustomButtonSize.width,
+                                    minHeight: Self.minCustomButtonSize.height
+                                )
+                                updateCustomButton(id: button.id) { $0.rect = updated }
+                            }
+                            .onEnded { _ in
+                                dragStartRects.removeValue(forKey: button.id)
+                            }
+                    )
+                Text(button.action.label)
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .position(x: rect.midX, y: rect.midY)
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(
+                        width: Self.resizeHandleSize,
+                        height: Self.resizeHandleSize
+                    )
+                    .position(x: rect.maxX, y: rect.maxY)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                let start = resizeStartRects[button.id] ?? button.rect
+                                resizeStartRects[button.id] = start
+                                let dw = value.translation.width / trackpadSize.width
+                                let dh = value.translation.height / trackpadSize.height
+                                let maxWidth = 1.0 - start.x
+                                let maxHeight = 1.0 - start.y
+                                let width = min(
+                                    maxWidth,
+                                    max(Self.minCustomButtonSize.width, start.width + dw)
+                                )
+                                let height = min(
+                                    maxHeight,
+                                    max(Self.minCustomButtonSize.height, start.height + dh)
+                                )
+                                let updated = NormalizedRect(
+                                    x: start.x,
+                                    y: start.y,
+                                    width: width,
+                                    height: height
+                                )
+                                updateCustomButton(id: button.id) { $0.rect = updated }
+                            }
+                            .onEnded { _ in
+                                resizeStartRects.removeValue(forKey: button.id)
+                            }
+                    )
+            }
+        }
     }
 
     private func deviceForID(_ deviceID: String) -> OMSDeviceInfo? {
@@ -827,16 +1020,19 @@ struct ContentView: View {
         }
     }
 
-    private func drawThumbGrid(
+    private func drawCustomButtons(
         context: inout GraphicsContext,
-        thumbRects: [CGRect],
-        activeThumbCount: Int
+        buttons: [CustomButton]
     ) {
-        for (index, rect) in thumbRects.enumerated() {
-            if index < activeThumbCount {
-                context.fill(Path(rect), with: .color(Color.blue.opacity(0.15)))
-            }
+        let textStyle = Font.system(size: 10, weight: .semibold, design: .monospaced)
+        for button in buttons {
+            let rect = button.rect.rect(in: trackpadSize)
+            context.fill(Path(rect), with: .color(Color.blue.opacity(0.12)))
             context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
+            let label = Text(button.action.label)
+                .font(textStyle)
+                .foregroundColor(.secondary)
+            context.draw(label, at: CGPoint(x: rect.midX, y: rect.midY))
         }
     }
 

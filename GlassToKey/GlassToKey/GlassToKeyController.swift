@@ -94,6 +94,9 @@ final class GlassToKeyController: ObservableObject {
             trackpadSize: trackpadSize
         )
 
+        let customButtons = loadCustomButtons()
+        viewModel.updateCustomButtons(customButtons)
+
         let leftDeviceID = stringValue(forKey: GlassToKeyDefaultsKeys.leftDeviceID)
         let rightDeviceID = stringValue(forKey: GlassToKeyDefaultsKeys.rightDeviceID)
         if let leftDevice = deviceForID(leftDeviceID) {
@@ -121,6 +124,20 @@ final class GlassToKeyController: ObservableObject {
     private func deviceForID(_ deviceID: String) -> OMSDeviceInfo? {
         guard !deviceID.isEmpty else { return nil }
         return viewModel.availableDevices.first { $0.deviceID == deviceID }
+    }
+
+    private func loadCustomButtons() -> [CustomButton] {
+        let defaults = UserDefaults.standard
+        if let data = defaults.data(forKey: GlassToKeyDefaultsKeys.customButtons),
+           let decoded = CustomButtonStore.decode(data),
+           !decoded.isEmpty {
+            return decoded
+        }
+        return CustomButtonDefaults.defaultButtons(
+            trackpadWidth: ContentView.trackpadWidthMM,
+            trackpadHeight: ContentView.trackpadHeightMM,
+            thumbAnchorsMM: ContentView.ThumbAnchorsMM
+        )
     }
 
     private func doubleValue(forKey key: String, defaultValue: Double) -> Double {
