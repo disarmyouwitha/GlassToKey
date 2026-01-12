@@ -872,7 +872,7 @@ struct ContentView: View {
         let newButton = CustomButton(
             id: UUID(),
             side: side,
-            rect: defaultNewButtonRect(for: side),
+            rect: nextAvailableButtonRect(for: side),
             action: action
         )
         customButtons.append(newButton)
@@ -898,6 +898,47 @@ struct ContentView: View {
             minWidth: Self.minCustomButtonSize.width,
             minHeight: Self.minCustomButtonSize.height
         )
+    }
+
+    private func nextAvailableButtonRect(for side: TrackpadSide) -> NormalizedRect {
+        let baseSize = CGSize(width: 0.15, height: 0.12)
+        let xCandidates: [CGFloat]
+        if side == .left {
+            xCandidates = stride(from: 0.05, through: 0.45, by: 0.08).map { $0 }
+        } else {
+            xCandidates = stride(from: 0.55, through: 0.9, by: 0.08).map { $0 }
+        }
+        let yCandidates: [CGFloat] = stride(from: 0.7, through: 0.15, by: -0.15).map { $0 }
+        let existing = customButtons.filter { $0.side == side }.map { $0.rect }
+
+        for y in yCandidates {
+            for x in xCandidates {
+                let candidate = NormalizedRect(
+                    x: x,
+                    y: y,
+                    width: baseSize.width,
+                    height: baseSize.height
+                ).clamped(
+                    minWidth: Self.minCustomButtonSize.width,
+                    minHeight: Self.minCustomButtonSize.height
+                )
+                if !intersects(candidate, existing) {
+                    return candidate
+                }
+            }
+        }
+        return defaultNewButtonRect(for: side)
+    }
+
+    private func intersects(_ rect: NormalizedRect, _ others: [NormalizedRect]) -> Bool {
+        let rectA = CGRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
+        for other in others {
+            let rectB = CGRect(x: other.x, y: other.y, width: other.width, height: other.height)
+            if rectA.intersects(rectB) {
+                return true
+            }
+        }
+        return false
     }
 
     private func customButtonsOverlay(
