@@ -118,7 +118,6 @@ struct ContentView: View {
             keyWidth: Self.baseKeyWidthMM,
             keyHeight: Self.baseKeyHeightMM,
             keyScale: initialScale,
-            thumbScale: initialScale,
             labels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
             widthScaleByLabel: Self.outerKeyWidthByLabel(pinkyScale: initialPinkyScale),
             columns: 6,
@@ -126,7 +125,6 @@ struct ContentView: View {
             trackpadWidth: Self.trackpadWidthMM,
             trackpadHeight: Self.trackpadHeightMM,
             columnAnchorsMM: Self.ColumnAnchorsMM,
-            thumbAnchorsMM: Self.ThumbAnchorsMM,
             keyOffsetMM: CGPoint(x: initialKeyOffsetX, y: initialKeyOffsetY),
             mirrored: true
         )
@@ -135,7 +133,6 @@ struct ContentView: View {
             keyWidth: Self.baseKeyWidthMM,
             keyHeight: Self.baseKeyHeightMM,
             keyScale: initialScale,
-            thumbScale: initialScale,
             labels: ContentViewModel.rightGridLabels,
             widthScaleByLabel: Self.outerKeyWidthByLabel(pinkyScale: initialPinkyScale),
             columns: 6,
@@ -143,7 +140,6 @@ struct ContentView: View {
             trackpadWidth: Self.trackpadWidthMM,
             trackpadHeight: Self.trackpadHeightMM,
             columnAnchorsMM: Self.ColumnAnchorsMM,
-            thumbAnchorsMM: Self.ThumbAnchorsMM,
             keyOffsetMM: CGPoint(x: -initialKeyOffsetX, y: initialKeyOffsetY)
         )
         _keyScale = State(initialValue: initialScale)
@@ -554,7 +550,6 @@ struct ContentView: View {
         keyWidth: CGFloat,
         keyHeight: CGFloat,
         keyScale: Double,
-        thumbScale: Double,
         labels: [[String]],
         widthScaleByLabel: [String: CGFloat],
         columns: Int,
@@ -562,7 +557,6 @@ struct ContentView: View {
         trackpadWidth: CGFloat,
         trackpadHeight: CGFloat,
         columnAnchorsMM: [CGPoint],
-        thumbAnchorsMM: [CGRect],
         keyOffsetMM: CGPoint = .zero,
         mirrored: Bool = false
     ) -> ContentViewModel.Layout {
@@ -572,7 +566,6 @@ struct ContentView: View {
         let scaledKeyHeight = keyHeight * CGFloat(keyScale)
         let keySize = CGSize(width: scaledKeyWidth * scaleX, height: scaledKeyHeight * scaleY)
         let adjustedAnchorsMM = scaledColumnAnchorsMM(columnAnchorsMM, scale: CGFloat(keyScale))
-        let thumbScaleValue = CGFloat(thumbScale)
 
         var keyRects: [[CGRect]] = Array(
             repeating: Array(repeating: .zero, count: columns),
@@ -596,21 +589,6 @@ struct ContentView: View {
             canvasWidth: size.width
         )
 
-        let thumbOuterEdgeX = thumbAnchorsMM.map { $0.minX }.min() ?? 0
-        let thumbRects = thumbAnchorsMM.map { rectMM in
-            let scaledWidth = rectMM.width * thumbScaleValue
-            let scaledHeight = rectMM.height * thumbScaleValue
-            let distanceFromOuter = rectMM.minX - thumbOuterEdgeX
-            let scaledMinX = thumbOuterEdgeX + distanceFromOuter * thumbScaleValue
-            let originY = rectMM.midY - scaledHeight / 2.0
-            return CGRect(
-                x: scaledMinX * scaleX,
-                y: originY * scaleY,
-                width: scaledWidth * scaleX,
-                height: scaledHeight * scaleY
-            )
-        }
-
         let offsetX = keyOffsetMM.x * scaleX
         let offsetY = keyOffsetMM.y * scaleY
         if mirrored {
@@ -624,27 +602,17 @@ struct ContentView: View {
                     )
                 }
             }
-            let mirroredThumbRects = thumbRects.map { rect in
-                CGRect(
-                    x: size.width - rect.maxX,
-                    y: rect.minY,
-                    width: rect.width,
-                    height: rect.height
-                )
-            }
             return ContentViewModel.Layout(
                 keyRects: mirroredKeyRects.map { row in
                     row.map { rect in rect.offsetBy(dx: offsetX, dy: offsetY) }
-                },
-                thumbRects: mirroredThumbRects
+                }
             )
         }
 
         return ContentViewModel.Layout(
             keyRects: keyRects.map { row in
                 row.map { rect in rect.offsetBy(dx: offsetX, dy: offsetY) }
-            },
-            thumbRects: thumbRects
+            }
         )
     }
 
@@ -773,7 +741,6 @@ struct ContentView: View {
             keyWidth: Self.baseKeyWidthMM,
             keyHeight: Self.baseKeyHeightMM,
             keyScale: keyScale,
-            thumbScale: thumbScale,
             labels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
             widthScaleByLabel: Self.outerKeyWidthByLabel(pinkyScale: pinkyScale),
             columns: 6,
@@ -781,7 +748,6 @@ struct ContentView: View {
             trackpadWidth: Self.trackpadWidthMM,
             trackpadHeight: Self.trackpadHeightMM,
             columnAnchorsMM: Self.ColumnAnchorsMM,
-            thumbAnchorsMM: Self.ThumbAnchorsMM,
             keyOffsetMM: CGPoint(x: keyOffsetX, y: keyOffsetY),
             mirrored: true
         )
@@ -790,7 +756,6 @@ struct ContentView: View {
             keyWidth: Self.baseKeyWidthMM,
             keyHeight: Self.baseKeyHeightMM,
             keyScale: keyScale,
-            thumbScale: thumbScale,
             labels: ContentViewModel.rightGridLabels,
             widthScaleByLabel: Self.outerKeyWidthByLabel(pinkyScale: pinkyScale),
             columns: 6,
@@ -798,7 +763,6 @@ struct ContentView: View {
             trackpadWidth: Self.trackpadWidthMM,
             trackpadHeight: Self.trackpadHeightMM,
             columnAnchorsMM: Self.ColumnAnchorsMM,
-            thumbAnchorsMM: Self.ThumbAnchorsMM,
             keyOffsetMM: CGPoint(x: -keyOffsetX, y: keyOffsetY)
         )
         viewModel.configureLayouts(
@@ -872,7 +836,7 @@ struct ContentView: View {
         let newButton = CustomButton(
             id: UUID(),
             side: side,
-            rect: nextAvailableButtonRect(for: side),
+            rect: defaultNewButtonRect(),
             action: action
         )
         customButtons.append(newButton)
@@ -891,54 +855,19 @@ struct ContentView: View {
         update(&customButtons[index])
     }
 
-    private func defaultNewButtonRect(for side: TrackpadSide) -> NormalizedRect {
-        let x: CGFloat = side == .left ? 0.1 : 0.75
-        let rect = NormalizedRect(x: x, y: 0.7, width: 0.15, height: 0.12)
+    private func defaultNewButtonRect() -> NormalizedRect {
+        let width: CGFloat = 0.18
+        let height: CGFloat = 0.14
+        let rect = NormalizedRect(
+            x: 0.5 - width / 2.0,
+            y: 0.5 - height / 2.0,
+            width: width,
+            height: height
+        )
         return rect.clamped(
             minWidth: Self.minCustomButtonSize.width,
             minHeight: Self.minCustomButtonSize.height
         )
-    }
-
-    private func nextAvailableButtonRect(for side: TrackpadSide) -> NormalizedRect {
-        let baseSize = CGSize(width: 0.15, height: 0.12)
-        let xCandidates: [CGFloat]
-        if side == .left {
-            xCandidates = stride(from: 0.05, through: 0.45, by: 0.08).map { $0 }
-        } else {
-            xCandidates = stride(from: 0.55, through: 0.9, by: 0.08).map { $0 }
-        }
-        let yCandidates: [CGFloat] = stride(from: 0.7, through: 0.15, by: -0.15).map { $0 }
-        let existing = customButtons.filter { $0.side == side }.map { $0.rect }
-
-        for y in yCandidates {
-            for x in xCandidates {
-                let candidate = NormalizedRect(
-                    x: x,
-                    y: y,
-                    width: baseSize.width,
-                    height: baseSize.height
-                ).clamped(
-                    minWidth: Self.minCustomButtonSize.width,
-                    minHeight: Self.minCustomButtonSize.height
-                )
-                if !intersects(candidate, existing) {
-                    return candidate
-                }
-            }
-        }
-        return defaultNewButtonRect(for: side)
-    }
-
-    private func intersects(_ rect: NormalizedRect, _ others: [NormalizedRect]) -> Bool {
-        let rectA = CGRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
-        for other in others {
-            let rectB = CGRect(x: other.x, y: other.y, width: other.width, height: other.height)
-            if rectA.intersects(rectB) {
-                return true
-            }
-        }
-        return false
     }
 
     private func customButtonsOverlay(
@@ -946,7 +875,7 @@ struct ContentView: View {
         selectedButtonID: Binding<UUID?>
     ) -> some View {
         ZStack(alignment: .topLeading) {
-            let selectGesture = DragGesture(minimumDistance: 0)
+            let selectGesture = SpatialTapGesture()
                 .onEnded { value in
                     let point = value.location
                     if let matched = buttons.last(where: { button in

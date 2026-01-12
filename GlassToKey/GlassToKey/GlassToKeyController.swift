@@ -55,7 +55,6 @@ final class GlassToKeyController: ObservableObject {
             keyWidth: ContentView.baseKeyWidthMM,
             keyHeight: ContentView.baseKeyHeightMM,
             keyScale: keyScale,
-            thumbScale: thumbScale,
             labels: leftLabels,
             widthScaleByLabel: ContentView.outerKeyWidthByLabel(pinkyScale: pinkyScale),
             columns: 6,
@@ -63,7 +62,6 @@ final class GlassToKeyController: ObservableObject {
             trackpadWidth: ContentView.trackpadWidthMM,
             trackpadHeight: ContentView.trackpadHeightMM,
             columnAnchorsMM: ContentView.ColumnAnchorsMM,
-            thumbAnchorsMM: ContentView.ThumbAnchorsMM,
             keyOffsetMM: CGPoint(x: keyOffsetX, y: keyOffsetY),
             mirrored: true
         )
@@ -72,7 +70,6 @@ final class GlassToKeyController: ObservableObject {
             keyWidth: ContentView.baseKeyWidthMM,
             keyHeight: ContentView.baseKeyHeightMM,
             keyScale: keyScale,
-            thumbScale: thumbScale,
             labels: rightLabels,
             widthScaleByLabel: ContentView.outerKeyWidthByLabel(pinkyScale: pinkyScale),
             columns: 6,
@@ -80,7 +77,6 @@ final class GlassToKeyController: ObservableObject {
             trackpadWidth: ContentView.trackpadWidthMM,
             trackpadHeight: ContentView.trackpadHeightMM,
             columnAnchorsMM: ContentView.ColumnAnchorsMM,
-            thumbAnchorsMM: ContentView.ThumbAnchorsMM,
             keyOffsetMM: CGPoint(x: -keyOffsetX, y: keyOffsetY)
         )
 

@@ -21,7 +21,6 @@ final class ContentViewModel: ObservableObject {
 
     struct Layout {
         let keyRects: [[CGRect]]
-        let thumbRects: [CGRect]
     }
 
     static let leftGridLabels: [[String]] = [
