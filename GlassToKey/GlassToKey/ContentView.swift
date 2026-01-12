@@ -15,27 +15,30 @@ struct ContentView: View {
     @State private var displayTouchData = [OMSTouchData]()
     @State private var visualsEnabled = true
     @State private var keyScale = 1.0
-    @State private var thumbScale = 1.0
     @State private var pinkyScale = 1.2
     @State private var keyOffsetX = 0.0
     @State private var keyOffsetY = 0.0
     @State private var leftLayout: ContentViewModel.Layout
     @State private var rightLayout: ContentViewModel.Layout
+    @State private var customButtons: [CustomButton] = []
+    @State private var selectedButtonID: UUID?
+    @State private var resizeStartRects: [UUID: NormalizedRect] = [:]
     @AppStorage(GlassToKeyDefaultsKeys.leftDeviceID) private var storedLeftDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.rightDeviceID) private var storedRightDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.visualsEnabled) private var storedVisualsEnabled = true
     @AppStorage(GlassToKeyDefaultsKeys.keyScale) private var storedKeyScale = 1.0
-    @AppStorage(GlassToKeyDefaultsKeys.thumbScale) private var storedThumbScale = 1.0
     @AppStorage(GlassToKeyDefaultsKeys.pinkyScale) private var storedPinkyScale = 1.2
     @AppStorage(GlassToKeyDefaultsKeys.keyOffsetX) private var storedKeyOffsetX = 0.0
     @AppStorage(GlassToKeyDefaultsKeys.keyOffsetY) private var storedKeyOffsetY = 0.0
+    @AppStorage(GlassToKeyDefaultsKeys.customButtons) private var storedCustomButtonsData = Data()
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
     static let baseKeyWidthMM: CGFloat = 18.0
     static let baseKeyHeightMM: CGFloat = 17.0
+    static let minCustomButtonSize = CGSize(width: 0.05, height: 0.05)
+    private static let resizeHandleSize: CGFloat = 10.0
     private static let keyScaleRange: ClosedRange<Double> = 0.5...2.0
-    private static let thumbScaleRange: ClosedRange<Double> = 0.5...2.0
     private static let pinkyScaleRange: ClosedRange<Double> = 0.5...2.0
     private static let keyOffsetRange: ClosedRange<Double> = -30.0...30.0
     private static let keyScaleFormatter: NumberFormatter = {
@@ -45,15 +48,6 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 2
         formatter.minimum = NSNumber(value: ContentView.keyScaleRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.keyScaleRange.upperBound)
-        return formatter
-    }()
-    private static let thumbScaleFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 2
-        formatter.minimum = NSNumber(value: ContentView.thumbScaleRange.lowerBound)
-        formatter.maximum = NSNumber(value: ContentView.thumbScaleRange.upperBound)
         return formatter
     }()
     private static let pinkyScaleFormatter: NumberFormatter = {
@@ -91,8 +85,6 @@ struct ContentView: View {
         CGRect(x: 80, y: 85, width: 40, height: 30),
         CGRect(x: 120, y: 85, width: 40, height: 30)
     ]
-    static let typingToggleRectMM = CGRect(x: 135, y: 0, width: 25, height: 75)
-
     private let trackpadSize: CGSize
 
     init(viewModel: ContentViewModel = ContentViewModel()) {
@@ -111,7 +103,6 @@ struct ContentView: View {
             keyWidth: Self.baseKeyWidthMM,
             keyHeight: Self.baseKeyHeightMM,
             keyScale: initialScale,
-            thumbScale: initialScale,
             labels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
             widthScaleByLabel: Self.outerKeyWidthByLabel(pinkyScale: initialPinkyScale),
             columns: 6,
@@ -119,7 +110,6 @@ struct ContentView: View {
             trackpadWidth: Self.trackpadWidthMM,
             trackpadHeight: Self.trackpadHeightMM,
             columnAnchorsMM: Self.ColumnAnchorsMM,
-            thumbAnchorsMM: Self.ThumbAnchorsMM,
             keyOffsetMM: CGPoint(x: initialKeyOffsetX, y: initialKeyOffsetY),
             mirrored: true
         )
@@ -128,7 +118,6 @@ struct ContentView: View {
             keyWidth: Self.baseKeyWidthMM,
             keyHeight: Self.baseKeyHeightMM,
             keyScale: initialScale,
-            thumbScale: initialScale,
             labels: ContentViewModel.rightGridLabels,
             widthScaleByLabel: Self.outerKeyWidthByLabel(pinkyScale: initialPinkyScale),
             columns: 6,
@@ -136,11 +125,9 @@ struct ContentView: View {
             trackpadWidth: Self.trackpadWidthMM,
             trackpadHeight: Self.trackpadHeightMM,
             columnAnchorsMM: Self.ColumnAnchorsMM,
-            thumbAnchorsMM: Self.ThumbAnchorsMM,
             keyOffsetMM: CGPoint(x: -initialKeyOffsetX, y: initialKeyOffsetY)
         )
         _keyScale = State(initialValue: initialScale)
-        _thumbScale = State(initialValue: initialScale)
         _pinkyScale = State(initialValue: initialPinkyScale)
         _keyOffsetX = State(initialValue: initialKeyOffsetX)
         _keyOffsetY = State(initialValue: initialKeyOffsetY)
@@ -165,6 +152,7 @@ struct ContentView: View {
                 if viewModel.isListening {
                     Button("Stop") {
                         viewModel.stop()
+                        visualsEnabled = false
                     }
                     .buttonStyle(.borderedProminent)
                 } else {
@@ -185,20 +173,16 @@ struct ContentView: View {
                             touches: visualsEnabled ? displayLeftTouches : [],
                             mirrored: true,
                             labels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
-                            activeThumbCount: viewModel.leftThumbKeyCount,
-                            visualsEnabled: visualsEnabled,
-                            typingToggleRect: typingToggleRect(isLeft: true),
-                            typingEnabled: viewModel.isTypingEnabled
+                            customButtons: customButtons.filter { $0.side == .left },
+                            visualsEnabled: visualsEnabled
                         )
                         trackpadCanvas(
                             title: "Right Trackpad",
                             touches: visualsEnabled ? displayRightTouches : [],
                             mirrored: false,
                             labels: ContentViewModel.rightGridLabels,
-                            activeThumbCount: viewModel.rightThumbKeyCount,
-                            visualsEnabled: visualsEnabled,
-                            typingToggleRect: typingToggleRect(isLeft: false),
-                            typingEnabled: viewModel.isTypingEnabled
+                            customButtons: customButtons.filter { $0.side == .right },
+                            visualsEnabled: visualsEnabled
                         )
                     }
                 }
@@ -249,102 +233,172 @@ struct ContentView: View {
                             .fill(Color.primary.opacity(0.05))
                     )
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Layout Tuning")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
-                            GridRow {
-                                Text("Offset X")
-                                TextField(
-                                    "0.0",
-                                    value: $keyOffsetX,
-                                    formatter: Self.keyOffsetFormatter
-                                )
-                                .frame(width: 60)
-                                Stepper(
-                                    "",
-                                    value: $keyOffsetX,
-                                    in: Self.keyOffsetRange,
-                                    step: 0.5
-                                )
-                                .labelsHidden()
-                            }
-                            GridRow {
-                                Text("Offset Y")
-                                TextField(
-                                    "0.0",
-                                    value: $keyOffsetY,
-                                    formatter: Self.keyOffsetFormatter
-                                )
-                                .frame(width: 60)
-                                Stepper(
-                                    "",
-                                    value: $keyOffsetY,
-                                    in: Self.keyOffsetRange,
-                                    step: 0.5
-                                )
-                                .labelsHidden()
-                            }
-                            GridRow {
-                                Text("Key scale")
-                                TextField(
-                                    "1.0",
-                                    value: $keyScale,
-                                    formatter: Self.keyScaleFormatter
-                                )
-                                .frame(width: 60)
-                                Stepper(
-                                    "",
-                                    value: $keyScale,
-                                    in: Self.keyScaleRange,
-                                    step: 0.05
-                                )
-                                .labelsHidden()
-                            }
-                            GridRow {
-                                Text("Pinky scale")
-                                TextField(
-                                    "1.2",
-                                    value: $pinkyScale,
-                                    formatter: Self.pinkyScaleFormatter
-                                )
-                                .frame(width: 60)
-                                Stepper(
-                                    "",
-                                    value: $pinkyScale,
-                                    in: Self.pinkyScaleRange,
-                                    step: 0.05
-                                )
-                                .labelsHidden()
-                            }
-                            GridRow {
-                                Text("Thumb scale")
-                                TextField(
-                                    "1.0",
-                                    value: $thumbScale,
-                                    formatter: Self.thumbScaleFormatter
-                                )
-                                .frame(width: 60)
-                                Stepper(
-                                    "",
-                                    value: $thumbScale,
-                                    in: Self.thumbScaleRange,
-                                    step: 0.05
-                                )
-                                .labelsHidden()
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Layout Tuning")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                                GridRow {
+                                    Text("Offset X")
+                                    TextField(
+                                        "0.0",
+                                        value: $keyOffsetX,
+                                        formatter: Self.keyOffsetFormatter
+                                    )
+                                    .frame(width: 60)
+                                    Stepper(
+                                        "",
+                                        value: $keyOffsetX,
+                                        in: Self.keyOffsetRange,
+                                        step: 0.5
+                                    )
+                                    .labelsHidden()
+                                }
+                                GridRow {
+                                    Text("Offset Y")
+                                    TextField(
+                                        "0.0",
+                                        value: $keyOffsetY,
+                                        formatter: Self.keyOffsetFormatter
+                                    )
+                                    .frame(width: 60)
+                                    Stepper(
+                                        "",
+                                        value: $keyOffsetY,
+                                        in: Self.keyOffsetRange,
+                                        step: 0.5
+                                    )
+                                    .labelsHidden()
+                                }
+                                GridRow {
+                                    Text("Key scale")
+                                    TextField(
+                                        "1.0",
+                                        value: $keyScale,
+                                        formatter: Self.keyScaleFormatter
+                                    )
+                                    .frame(width: 60)
+                                    Stepper(
+                                        "",
+                                        value: $keyScale,
+                                        in: Self.keyScaleRange,
+                                        step: 0.05
+                                    )
+                                    .labelsHidden()
+                                }
+                                GridRow {
+                                    Text("Pinky scale")
+                                    TextField(
+                                        "1.2",
+                                        value: $pinkyScale,
+                                        formatter: Self.pinkyScaleFormatter
+                                    )
+                                    .frame(width: 60)
+                                    Stepper(
+                                        "",
+                                        value: $pinkyScale,
+                                        in: Self.pinkyScaleRange,
+                                        step: 0.05
+                                    )
+                                    .labelsHidden()
+                                }
                             }
                         }
-                        Button("Save Layout") {
-                            saveSettings()
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.primary.opacity(0.05))
+                        )
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Custom Buttons")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                Button("Add Left") {
+                                    addCustomButton(side: .left)
+                                }
+                                Spacer()
+                                Button("Add Right") {
+                                    addCustomButton(side: .right)
+                                }
+                            }
+                            if let selectedIndex = customButtons.firstIndex(where: { $0.id == selectedButtonID }) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Picker("Side", selection: $customButtons[selectedIndex].side) {
+                                        ForEach(TrackpadSide.allCases) { side in
+                                            Text(side == .left ? "Left" : "Right")
+                                                .tag(side)
+                                        }
+                                    }
+                                    .pickerStyle(MenuPickerStyle())
+                                    Picker("Action", selection: $customButtons[selectedIndex].action) {
+                                        ForEach(KeyActionCatalog.presets, id: \.self) { action in
+                                            Text(action.label).tag(action)
+                                        }
+                                    }
+                                    .pickerStyle(MenuPickerStyle())
+                                    Grid(alignment: .leading, verticalSpacing: 6) {
+                                        GridRow {
+                                            Text("X (%)")
+                                            let xBinding = positionPercentBinding(
+                                                for: selectedIndex,
+                                                axis: .x
+                                            )
+                                            Slider(
+                                                value: xBinding,
+                                                in: positionPercentRange(
+                                                    for: selectedIndex,
+                                                    axis: .x
+                                                ),
+                                                step: 0.5
+                                            )
+                                            Text(xBinding.wrappedValue, format: .number.precision(.fractionLength(1)))
+                                                .monospacedDigit()
+                                        }
+                                        GridRow {
+                                            Text("Y (%)")
+                                            let yBinding = positionPercentBinding(
+                                                for: selectedIndex,
+                                                axis: .y
+                                            )
+                                            Slider(
+                                                value: yBinding,
+                                                in: positionPercentRange(
+                                                    for: selectedIndex,
+                                                    axis: .y
+                                                ),
+                                                step: 0.5
+                                            )
+                                            Text(yBinding.wrappedValue, format: .number.precision(.fractionLength(1)))
+                                                .monospacedDigit()
+                                        }
+                                    }
+                                    HStack {
+                                        Text("Selected")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Button("Delete") {
+                                            removeCustomButton(id: customButtons[selectedIndex].id)
+                                        }
+                                    }
+                                }
+                            } else {
+                                Text("Select a button on the trackpad to edit.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                        .buttonStyle(.bordered)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.primary.opacity(0.05))
+                        )
                     }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.primary.opacity(0.05))
-                    )
 
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Typing Test")
@@ -364,7 +418,7 @@ struct ContentView: View {
                             .fill(Color.primary.opacity(0.05))
                     )
                 }
-                .frame(width: 320)
+                .frame(width: 420)
             }
         }
         .padding()
@@ -385,22 +439,31 @@ struct ContentView: View {
             displayTouchData = viewModel.snapshotTouchData()
         }
         .onChange(of: visualsEnabled) { enabled in
+            if !enabled {
+                selectedButtonID = nil
+            }
+            saveSettings()
             displayTouchData = enabled ? viewModel.snapshotTouchData() : []
         }
         .onChange(of: keyScale) { newValue in
             applyKeyScale(newValue)
-        }
-        .onChange(of: thumbScale) { newValue in
-            applyThumbScale(newValue)
+            saveSettings()
         }
         .onChange(of: pinkyScale) { newValue in
             applyPinkyScale(newValue)
+            saveSettings()
         }
         .onChange(of: keyOffsetX) { newValue in
             applyKeyOffsetX(newValue)
+            saveSettings()
         }
         .onChange(of: keyOffsetY) { newValue in
             applyKeyOffsetY(newValue)
+            saveSettings()
+        }
+        .onChange(of: customButtons) { newValue in
+            viewModel.updateCustomButtons(newValue)
+            saveCustomButtons(newValue)
         }
         .task {
             for await _ in Timer.publish(
@@ -421,38 +484,25 @@ struct ContentView: View {
         touches: [OMSTouchData],
         mirrored: Bool,
         labels: [[String]],
-        activeThumbCount: Int,
-        visualsEnabled: Bool,
-        typingToggleRect: CGRect?,
-        typingEnabled: Bool
+        customButtons: [CustomButton],
+        visualsEnabled: Bool
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.subheadline)
             Group {
-                if visualsEnabled {
+                if visualsEnabled || selectedButtonID != nil {
                     Canvas { context, _ in
                         let layout = mirrored ? leftLayout : rightLayout
                         drawSensorGrid(context: &context, size: trackpadSize, columns: 30, rows: 22)
                         drawKeyGrid(context: &context, keyRects: layout.keyRects)
-                        drawThumbGrid(
-                            context: &context,
-                            thumbRects: layout.thumbRects,
-                            activeThumbCount: activeThumbCount
-                        )
-                        if let typingToggleRect {
-                            drawTypingToggle(
-                                context: &context,
-                                rect: typingToggleRect,
-                                enabled: typingEnabled
-                            )
-                        }
+                        drawCustomButtons(context: &context, buttons: customButtons)
                         drawGridLabels(context: &context, keyRects: layout.keyRects, labels: labels)
-        touches.forEach { touch in
-            let path = makeEllipse(touch: touch, size: trackpadSize)
-            context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
-        }
-    }
+                        touches.forEach { touch in
+                            let path = makeEllipse(touch: touch, size: trackpadSize)
+                            context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
+                        }
+                    }
                 } else {
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
@@ -460,6 +510,14 @@ struct ContentView: View {
             }
             .frame(width: trackpadSize.width, height: trackpadSize.height)
             .border(Color.primary)
+            .overlay {
+                if visualsEnabled || selectedButtonID != nil {
+                    customButtonsOverlay(
+                        buttons: customButtons,
+                        selectedButtonID: $selectedButtonID
+                    )
+                }
+            }
         }
     }
 
@@ -480,7 +538,6 @@ struct ContentView: View {
         keyWidth: CGFloat,
         keyHeight: CGFloat,
         keyScale: Double,
-        thumbScale: Double,
         labels: [[String]],
         widthScaleByLabel: [String: CGFloat],
         columns: Int,
@@ -488,7 +545,6 @@ struct ContentView: View {
         trackpadWidth: CGFloat,
         trackpadHeight: CGFloat,
         columnAnchorsMM: [CGPoint],
-        thumbAnchorsMM: [CGRect],
         keyOffsetMM: CGPoint = .zero,
         mirrored: Bool = false
     ) -> ContentViewModel.Layout {
@@ -498,7 +554,6 @@ struct ContentView: View {
         let scaledKeyHeight = keyHeight * CGFloat(keyScale)
         let keySize = CGSize(width: scaledKeyWidth * scaleX, height: scaledKeyHeight * scaleY)
         let adjustedAnchorsMM = scaledColumnAnchorsMM(columnAnchorsMM, scale: CGFloat(keyScale))
-        let thumbScaleValue = CGFloat(thumbScale)
 
         var keyRects: [[CGRect]] = Array(
             repeating: Array(repeating: .zero, count: columns),
@@ -522,21 +577,6 @@ struct ContentView: View {
             canvasWidth: size.width
         )
 
-        let thumbOuterEdgeX = thumbAnchorsMM.map { $0.minX }.min() ?? 0
-        let thumbRects = thumbAnchorsMM.map { rectMM in
-            let scaledWidth = rectMM.width * thumbScaleValue
-            let scaledHeight = rectMM.height * thumbScaleValue
-            let distanceFromOuter = rectMM.minX - thumbOuterEdgeX
-            let scaledMinX = thumbOuterEdgeX + distanceFromOuter * thumbScaleValue
-            let originY = rectMM.midY - scaledHeight / 2.0
-            return CGRect(
-                x: scaledMinX * scaleX,
-                y: originY * scaleY,
-                width: scaledWidth * scaleX,
-                height: scaledHeight * scaleY
-            )
-        }
-
         let offsetX = keyOffsetMM.x * scaleX
         let offsetY = keyOffsetMM.y * scaleY
         if mirrored {
@@ -550,27 +590,17 @@ struct ContentView: View {
                     )
                 }
             }
-            let mirroredThumbRects = thumbRects.map { rect in
-                CGRect(
-                    x: size.width - rect.maxX,
-                    y: rect.minY,
-                    width: rect.width,
-                    height: rect.height
-                )
-            }
             return ContentViewModel.Layout(
                 keyRects: mirroredKeyRects.map { row in
                     row.map { rect in rect.offsetBy(dx: offsetX, dy: offsetY) }
-                },
-                thumbRects: mirroredThumbRects
+                }
             )
         }
 
         return ContentViewModel.Layout(
             keyRects: keyRects.map { row in
                 row.map { rect in rect.offsetBy(dx: offsetX, dy: offsetY) }
-            },
-            thumbRects: thumbRects
+            }
         )
     }
 
@@ -636,10 +666,6 @@ struct ContentView: View {
         min(max(value, Self.keyScaleRange.lowerBound), Self.keyScaleRange.upperBound)
     }
 
-    private func normalizedThumbScale(_ value: Double) -> Double {
-        min(max(value, Self.thumbScaleRange.lowerBound), Self.thumbScaleRange.upperBound)
-    }
-
     private func normalizedPinkyScale(_ value: Double) -> Double {
         min(max(value, Self.pinkyScaleRange.lowerBound), Self.pinkyScaleRange.upperBound)
     }
@@ -652,15 +678,6 @@ struct ContentView: View {
         let normalized = normalizedKeyScale(value)
         if normalized != value {
             keyScale = normalized
-            return
-        }
-        rebuildLayouts()
-    }
-
-    private func applyThumbScale(_ value: Double) {
-        let normalized = normalizedThumbScale(value)
-        if normalized != value {
-            thumbScale = normalized
             return
         }
         rebuildLayouts()
@@ -699,7 +716,6 @@ struct ContentView: View {
             keyWidth: Self.baseKeyWidthMM,
             keyHeight: Self.baseKeyHeightMM,
             keyScale: keyScale,
-            thumbScale: thumbScale,
             labels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
             widthScaleByLabel: Self.outerKeyWidthByLabel(pinkyScale: pinkyScale),
             columns: 6,
@@ -707,7 +723,6 @@ struct ContentView: View {
             trackpadWidth: Self.trackpadWidthMM,
             trackpadHeight: Self.trackpadHeightMM,
             columnAnchorsMM: Self.ColumnAnchorsMM,
-            thumbAnchorsMM: Self.ThumbAnchorsMM,
             keyOffsetMM: CGPoint(x: keyOffsetX, y: keyOffsetY),
             mirrored: true
         )
@@ -716,7 +731,6 @@ struct ContentView: View {
             keyWidth: Self.baseKeyWidthMM,
             keyHeight: Self.baseKeyHeightMM,
             keyScale: keyScale,
-            thumbScale: thumbScale,
             labels: ContentViewModel.rightGridLabels,
             widthScaleByLabel: Self.outerKeyWidthByLabel(pinkyScale: pinkyScale),
             columns: 6,
@@ -724,7 +738,6 @@ struct ContentView: View {
             trackpadWidth: Self.trackpadWidthMM,
             trackpadHeight: Self.trackpadHeightMM,
             columnAnchorsMM: Self.ColumnAnchorsMM,
-            thumbAnchorsMM: Self.ThumbAnchorsMM,
             keyOffsetMM: CGPoint(x: -keyOffsetX, y: keyOffsetY)
         )
         viewModel.configureLayouts(
@@ -732,8 +745,6 @@ struct ContentView: View {
             rightLayout: rightLayout,
             leftLabels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
             rightLabels: ContentViewModel.rightGridLabels,
-            leftTypingToggleRect: typingToggleRect(isLeft: true),
-            rightTypingToggleRect: typingToggleRect(isLeft: false),
             trackpadSize: trackpadSize
         )
     }
@@ -741,12 +752,11 @@ struct ContentView: View {
     private func applySavedSettings() {
         visualsEnabled = storedVisualsEnabled
         keyScale = storedKeyScale
-        thumbScale = storedThumbScale
         pinkyScale = storedPinkyScale
         keyOffsetX = storedKeyOffsetX
         keyOffsetY = storedKeyOffsetY
+        loadCustomButtons()
         applyKeyScale(keyScale)
-        applyThumbScale(thumbScale)
         applyPinkyScale(pinkyScale)
         applyKeyOffsetX(keyOffsetX)
         applyKeyOffsetY(keyOffsetY)
@@ -763,29 +773,211 @@ struct ContentView: View {
         storedRightDeviceID = viewModel.rightDevice?.deviceID ?? ""
         storedVisualsEnabled = visualsEnabled
         storedKeyScale = keyScale
-        storedThumbScale = thumbScale
         storedPinkyScale = pinkyScale
         storedKeyOffsetX = keyOffsetX
         storedKeyOffsetY = keyOffsetY
     }
 
+    private func loadCustomButtons() {
+        if let decoded = CustomButtonStore.decode(storedCustomButtonsData),
+           !decoded.isEmpty {
+            customButtons = decoded
+        } else {
+            customButtons = CustomButtonDefaults.defaultButtons(
+                trackpadWidth: Self.trackpadWidthMM,
+                trackpadHeight: Self.trackpadHeightMM,
+                thumbAnchorsMM: Self.ThumbAnchorsMM
+            )
+            saveCustomButtons(customButtons)
+        }
+        viewModel.updateCustomButtons(customButtons)
+    }
+
+    private func saveCustomButtons(_ buttons: [CustomButton]) {
+        storedCustomButtonsData = CustomButtonStore.encode(buttons) ?? Data()
+    }
+
+    private func addCustomButton(side: TrackpadSide) {
+        if !visualsEnabled {
+            visualsEnabled = true
+        }
+        let action = KeyActionCatalog.action(for: "Space") ?? KeyActionCatalog.presets.first
+        guard let action else { return }
+        let newButton = CustomButton(
+            id: UUID(),
+            side: side,
+            rect: defaultNewButtonRect(),
+            action: action
+        )
+        customButtons.append(newButton)
+        selectedButtonID = newButton.id
+    }
+
+    private func removeCustomButton(id: UUID) {
+        customButtons.removeAll { $0.id == id }
+        if selectedButtonID == id {
+            selectedButtonID = nil
+        }
+    }
+
+    private func updateCustomButton(id: UUID, update: (inout CustomButton) -> Void) {
+        guard let index = customButtons.firstIndex(where: { $0.id == id }) else { return }
+        update(&customButtons[index])
+    }
+
+    private func defaultNewButtonRect() -> NormalizedRect {
+        let width: CGFloat = 0.18
+        let height: CGFloat = 0.14
+        let rect = NormalizedRect(
+            x: 0.5 - width / 2.0,
+            y: 0.5 - height / 2.0,
+            width: width,
+            height: height
+        )
+        return rect.clamped(
+            minWidth: Self.minCustomButtonSize.width,
+            minHeight: Self.minCustomButtonSize.height
+        )
+    }
+
+    private func customButtonsOverlay(
+        buttons: [CustomButton],
+        selectedButtonID: Binding<UUID?>
+    ) -> some View {
+        ZStack(alignment: .topLeading) {
+            let selectGesture = SpatialTapGesture()
+                .onEnded { value in
+                    let point = value.location
+                    if let matched = buttons.last(where: { button in
+                        button.rect.rect(in: trackpadSize).contains(point)
+                    }) {
+                        selectedButtonID.wrappedValue = matched.id
+                    }
+                }
+            Color.clear
+                .frame(width: trackpadSize.width, height: trackpadSize.height)
+                .contentShape(Rectangle())
+                .simultaneousGesture(selectGesture)
+            ForEach(buttons) { button in
+                let rect = button.rect.rect(in: trackpadSize)
+                let isSelected = button.id == selectedButtonID.wrappedValue
+
+                let baseButton = RoundedRectangle(cornerRadius: 4)
+                    .stroke(
+                        isSelected ? Color.accentColor.opacity(0.9) : Color.clear,
+                        lineWidth: 1.5
+                    )
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.accentColor.opacity(isSelected ? 0.08 : 0.02))
+                    )
+                    .frame(width: rect.width, height: rect.height)
+                    .offset(x: rect.minX, y: rect.minY)
+                    .contentShape(Rectangle())
+
+                baseButton
+                if isSelected {
+                    Text(button.action.label)
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(width: rect.width, height: rect.height)
+                        .offset(x: rect.minX, y: rect.minY)
+                        .allowsHitTesting(false)
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(
+                            width: Self.resizeHandleSize,
+                            height: Self.resizeHandleSize
+                        )
+                        .offset(
+                            x: rect.maxX - Self.resizeHandleSize / 2.0,
+                            y: rect.maxY - Self.resizeHandleSize / 2.0
+                        )
+                        .gesture(
+                            DragGesture()
+                                .onChanged { value in
+                                    let start = resizeStartRects[button.id] ?? button.rect
+                                    resizeStartRects[button.id] = start
+                                    let dw = value.translation.width / trackpadSize.width
+                                    let dh = value.translation.height / trackpadSize.height
+                                    let maxWidth = 1.0 - start.x
+                                    let maxHeight = 1.0 - start.y
+                                    let width = min(
+                                        maxWidth,
+                                        max(Self.minCustomButtonSize.width, start.width + dw)
+                                    )
+                                    let height = min(
+                                        maxHeight,
+                                        max(Self.minCustomButtonSize.height, start.height + dh)
+                                    )
+                                    let updated = NormalizedRect(
+                                        x: start.x,
+                                        y: start.y,
+                                        width: width,
+                                        height: height
+                                    )
+                                    updateCustomButton(id: button.id) { $0.rect = updated }
+                                }
+                                .onEnded { _ in
+                                    resizeStartRects.removeValue(forKey: button.id)
+                                }
+                        )
+                }
+            }
+        }
+    }
+
+    private enum CustomButtonAxis {
+        case x
+        case y
+    }
+
+    private func positionPercentBinding(
+        for index: Int,
+        axis: CustomButtonAxis
+    ) -> Binding<Double> {
+        Binding(
+            get: {
+                let rect = customButtons[index].rect
+                let value = axis == .x ? rect.x : rect.y
+                return Double(value * 100.0)
+            },
+            set: { newValue in
+                let rect = customButtons[index].rect
+                let maxNormalized = axis == .x
+                    ? (1.0 - rect.width)
+                    : (1.0 - rect.height)
+                let upper = max(0.0, Double(maxNormalized))
+                let normalized = min(max(newValue / 100.0, 0.0), upper)
+                var updated = rect
+                if axis == .x {
+                    updated.x = CGFloat(normalized)
+                } else {
+                    updated.y = CGFloat(normalized)
+                }
+                customButtons[index].rect = updated.clamped(
+                    minWidth: Self.minCustomButtonSize.width,
+                    minHeight: Self.minCustomButtonSize.height
+                )
+            }
+        )
+    }
+
+    private func positionPercentRange(
+        for index: Int,
+        axis: CustomButtonAxis
+    ) -> ClosedRange<Double> {
+        let rect = customButtons[index].rect
+        let maxNormalized = axis == .x
+            ? (1.0 - rect.width)
+            : (1.0 - rect.height)
+        let upper = max(0.0, Double(maxNormalized)) * 100.0
+        return 0.0...upper
+    }
+
     private func deviceForID(_ deviceID: String) -> OMSDeviceInfo? {
         guard !deviceID.isEmpty else { return nil }
         return viewModel.availableDevices.first { $0.deviceID == deviceID }
-    }
-
-    private func typingToggleRect(isLeft: Bool) -> CGRect {
-        let scaleX = trackpadSize.width / Self.trackpadWidthMM
-        let scaleY = trackpadSize.height / Self.trackpadHeightMM
-        let originXMM = isLeft
-            ? Self.typingToggleRectMM.origin.x
-            : Self.trackpadWidthMM - Self.typingToggleRectMM.maxX
-        return CGRect(
-            x: originXMM * scaleX,
-            y: Self.typingToggleRectMM.origin.y * scaleY,
-            width: Self.typingToggleRectMM.width * scaleX,
-            height: Self.typingToggleRectMM.height * scaleY
-        )
     }
 
     private func drawSensorGrid(
@@ -827,27 +1019,20 @@ struct ContentView: View {
         }
     }
 
-    private func drawThumbGrid(
+    private func drawCustomButtons(
         context: inout GraphicsContext,
-        thumbRects: [CGRect],
-        activeThumbCount: Int
+        buttons: [CustomButton]
     ) {
-        for (index, rect) in thumbRects.enumerated() {
-            if index < activeThumbCount {
-                context.fill(Path(rect), with: .color(Color.blue.opacity(0.15)))
-            }
+        let textStyle = Font.system(size: 10, weight: .semibold, design: .monospaced)
+        for button in buttons {
+            let rect = button.rect.rect(in: trackpadSize)
+            context.fill(Path(rect), with: .color(Color.blue.opacity(0.12)))
             context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
+            let label = Text(button.action.label)
+                .font(textStyle)
+                .foregroundColor(.secondary)
+            context.draw(label, at: CGPoint(x: rect.midX, y: rect.midY))
         }
-    }
-
-    private func drawTypingToggle(
-        context: inout GraphicsContext,
-        rect: CGRect,
-        enabled: Bool
-    ) {
-        let fillColor = enabled ? Color.green.opacity(0.15) : Color.red.opacity(0.15)
-        context.fill(Path(rect), with: .color(fillColor))
-        context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
     }
 
     private func drawGridLabels(

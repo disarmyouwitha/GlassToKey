@@ -62,6 +62,7 @@
 - No notes left
 
 ## TODO
+- add config to splay columns based on config settings
 - Layers I need to add a layer key I can add to the thumb cluster like MOmentary layer switching 
 - Make status light blue on layer change
 - Ask me for arrow keys + Num pad layout for the new layer
@@ -71,4 +72,5 @@
 ## FUTURE
 - add config to splay columns based on your touch
 - make buttons addable through gui, set position by dragging into place. set action through gui (that saves to the keymap)
- 
+- Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight
+- can we round the corners to give the visuals a softer look?GlassToKey/GlassToKey/GlassToKeyDefaultsKeys.swiftGlassToKey/GlassToKey/GlassToKeyDefaultsKeys.swift

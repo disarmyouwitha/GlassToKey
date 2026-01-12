@@ -25,10 +25,6 @@ final class GlassToKeyController: ObservableObject {
             forKey: GlassToKeyDefaultsKeys.keyScale,
             defaultValue: 1.0
         )
-        let thumbScale = doubleValue(
-            forKey: GlassToKeyDefaultsKeys.thumbScale,
-            defaultValue: 1.0
-        )
         let pinkyScale = doubleValue(
             forKey: GlassToKeyDefaultsKeys.pinkyScale,
             defaultValue: 1.2
@@ -55,7 +51,6 @@ final class GlassToKeyController: ObservableObject {
             keyWidth: ContentView.baseKeyWidthMM,
             keyHeight: ContentView.baseKeyHeightMM,
             keyScale: keyScale,
-            thumbScale: thumbScale,
             labels: leftLabels,
             widthScaleByLabel: ContentView.outerKeyWidthByLabel(pinkyScale: pinkyScale),
             columns: 6,
@@ -63,7 +58,6 @@ final class GlassToKeyController: ObservableObject {
             trackpadWidth: ContentView.trackpadWidthMM,
             trackpadHeight: ContentView.trackpadHeightMM,
             columnAnchorsMM: ContentView.ColumnAnchorsMM,
-            thumbAnchorsMM: ContentView.ThumbAnchorsMM,
             keyOffsetMM: CGPoint(x: keyOffsetX, y: keyOffsetY),
             mirrored: true
         )
@@ -72,7 +66,6 @@ final class GlassToKeyController: ObservableObject {
             keyWidth: ContentView.baseKeyWidthMM,
             keyHeight: ContentView.baseKeyHeightMM,
             keyScale: keyScale,
-            thumbScale: thumbScale,
             labels: rightLabels,
             widthScaleByLabel: ContentView.outerKeyWidthByLabel(pinkyScale: pinkyScale),
             columns: 6,
@@ -80,7 +73,6 @@ final class GlassToKeyController: ObservableObject {
             trackpadWidth: ContentView.trackpadWidthMM,
             trackpadHeight: ContentView.trackpadHeightMM,
             columnAnchorsMM: ContentView.ColumnAnchorsMM,
-            thumbAnchorsMM: ContentView.ThumbAnchorsMM,
             keyOffsetMM: CGPoint(x: -keyOffsetX, y: keyOffsetY)
         )
 
@@ -89,10 +81,11 @@ final class GlassToKeyController: ObservableObject {
             rightLayout: rightLayout,
             leftLabels: leftLabels,
             rightLabels: rightLabels,
-            leftTypingToggleRect: typingToggleRect(isLeft: true, trackpadSize: trackpadSize),
-            rightTypingToggleRect: typingToggleRect(isLeft: false, trackpadSize: trackpadSize),
             trackpadSize: trackpadSize
         )
+
+        let customButtons = loadCustomButtons()
+        viewModel.updateCustomButtons(customButtons)
 
         let leftDeviceID = stringValue(forKey: GlassToKeyDefaultsKeys.leftDeviceID)
         let rightDeviceID = stringValue(forKey: GlassToKeyDefaultsKeys.rightDeviceID)
@@ -104,23 +97,23 @@ final class GlassToKeyController: ObservableObject {
         }
     }
 
-    private func typingToggleRect(isLeft: Bool, trackpadSize: CGSize) -> CGRect {
-        let scaleX = trackpadSize.width / ContentView.trackpadWidthMM
-        let scaleY = trackpadSize.height / ContentView.trackpadHeightMM
-        let originXMM = isLeft
-            ? ContentView.typingToggleRectMM.origin.x
-            : ContentView.trackpadWidthMM - ContentView.typingToggleRectMM.maxX
-        return CGRect(
-            x: originXMM * scaleX,
-            y: ContentView.typingToggleRectMM.origin.y * scaleY,
-            width: ContentView.typingToggleRectMM.width * scaleX,
-            height: ContentView.typingToggleRectMM.height * scaleY
-        )
-    }
-
     private func deviceForID(_ deviceID: String) -> OMSDeviceInfo? {
         guard !deviceID.isEmpty else { return nil }
         return viewModel.availableDevices.first { $0.deviceID == deviceID }
+    }
+
+    private func loadCustomButtons() -> [CustomButton] {
+        let defaults = UserDefaults.standard
+        if let data = defaults.data(forKey: GlassToKeyDefaultsKeys.customButtons),
+           let decoded = CustomButtonStore.decode(data),
+           !decoded.isEmpty {
+            return decoded
+        }
+        return CustomButtonDefaults.defaultButtons(
+            trackpadWidth: ContentView.trackpadWidthMM,
+            trackpadHeight: ContentView.trackpadHeightMM,
+            thumbAnchorsMM: ContentView.ThumbAnchorsMM
+        )
     }
 
     private func doubleValue(forKey key: String, defaultValue: Double) -> Double {
