@@ -14,7 +14,6 @@ struct ContentView: View {
     @State private var testText = ""
     @State private var displayTouchData = [OMSTouchData]()
     @State private var visualsEnabled = true
-    @State private var isEditingButtons = false
     @State private var keyScale = 1.0
     @State private var thumbScale = 1.0
     @State private var pinkyScale = 1.2
@@ -23,6 +22,7 @@ struct ContentView: View {
     @State private var leftLayout: ContentViewModel.Layout
     @State private var rightLayout: ContentViewModel.Layout
     @State private var customButtons: [CustomButton] = []
+    @State private var selectedButtonID: UUID?
     @State private var dragStartRects: [UUID: NormalizedRect] = [:]
     @State private var resizeStartRects: [UUID: NormalizedRect] = [:]
     @AppStorage(GlassToKeyDefaultsKeys.leftDeviceID) private var storedLeftDeviceID = ""
@@ -167,6 +167,10 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button("Save Layout") {
+                    saveSettings()
+                }
+                .buttonStyle(.bordered)
                 Toggle("Visuals", isOn: $visualsEnabled)
                     .toggleStyle(SwitchToggleStyle())
                 if viewModel.isListening {
@@ -194,7 +198,6 @@ struct ContentView: View {
                             labels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
                             customButtons: customButtons.filter { $0.side == .left },
                             visualsEnabled: visualsEnabled,
-                            isEditingButtons: isEditingButtons,
                             typingToggleRect: typingToggleRect(isLeft: true),
                             typingEnabled: viewModel.isTypingEnabled
                         )
@@ -205,7 +208,6 @@ struct ContentView: View {
                             labels: ContentViewModel.rightGridLabels,
                             customButtons: customButtons.filter { $0.side == .right },
                             visualsEnabled: visualsEnabled,
-                            isEditingButtons: isEditingButtons,
                             typingToggleRect: typingToggleRect(isLeft: false),
                             typingEnabled: viewModel.isTypingEnabled
                         )
@@ -258,153 +260,176 @@ struct ContentView: View {
                             .fill(Color.primary.opacity(0.05))
                     )
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Layout Tuning")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
-                            GridRow {
-                                Text("Offset X")
-                                TextField(
-                                    "0.0",
-                                    value: $keyOffsetX,
-                                    formatter: Self.keyOffsetFormatter
-                                )
-                                .frame(width: 60)
-                                Stepper(
-                                    "",
-                                    value: $keyOffsetX,
-                                    in: Self.keyOffsetRange,
-                                    step: 0.5
-                                )
-                                .labelsHidden()
-                            }
-                            GridRow {
-                                Text("Offset Y")
-                                TextField(
-                                    "0.0",
-                                    value: $keyOffsetY,
-                                    formatter: Self.keyOffsetFormatter
-                                )
-                                .frame(width: 60)
-                                Stepper(
-                                    "",
-                                    value: $keyOffsetY,
-                                    in: Self.keyOffsetRange,
-                                    step: 0.5
-                                )
-                                .labelsHidden()
-                            }
-                            GridRow {
-                                Text("Key scale")
-                                TextField(
-                                    "1.0",
-                                    value: $keyScale,
-                                    formatter: Self.keyScaleFormatter
-                                )
-                                .frame(width: 60)
-                                Stepper(
-                                    "",
-                                    value: $keyScale,
-                                    in: Self.keyScaleRange,
-                                    step: 0.05
-                                )
-                                .labelsHidden()
-                            }
-                            GridRow {
-                                Text("Pinky scale")
-                                TextField(
-                                    "1.2",
-                                    value: $pinkyScale,
-                                    formatter: Self.pinkyScaleFormatter
-                                )
-                                .frame(width: 60)
-                                Stepper(
-                                    "",
-                                    value: $pinkyScale,
-                                    in: Self.pinkyScaleRange,
-                                    step: 0.05
-                                )
-                                .labelsHidden()
-                            }
-                            GridRow {
-                                Text("Thumb scale")
-                                TextField(
-                                    "1.0",
-                                    value: $thumbScale,
-                                    formatter: Self.thumbScaleFormatter
-                                )
-                                .frame(width: 60)
-                                Stepper(
-                                    "",
-                                    value: $thumbScale,
-                                    in: Self.thumbScaleRange,
-                                    step: 0.05
-                                )
-                                .labelsHidden()
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Layout Tuning")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                                GridRow {
+                                    Text("Offset X")
+                                    TextField(
+                                        "0.0",
+                                        value: $keyOffsetX,
+                                        formatter: Self.keyOffsetFormatter
+                                    )
+                                    .frame(width: 60)
+                                    Stepper(
+                                        "",
+                                        value: $keyOffsetX,
+                                        in: Self.keyOffsetRange,
+                                        step: 0.5
+                                    )
+                                    .labelsHidden()
+                                }
+                                GridRow {
+                                    Text("Offset Y")
+                                    TextField(
+                                        "0.0",
+                                        value: $keyOffsetY,
+                                        formatter: Self.keyOffsetFormatter
+                                    )
+                                    .frame(width: 60)
+                                    Stepper(
+                                        "",
+                                        value: $keyOffsetY,
+                                        in: Self.keyOffsetRange,
+                                        step: 0.5
+                                    )
+                                    .labelsHidden()
+                                }
+                                GridRow {
+                                    Text("Key scale")
+                                    TextField(
+                                        "1.0",
+                                        value: $keyScale,
+                                        formatter: Self.keyScaleFormatter
+                                    )
+                                    .frame(width: 60)
+                                    Stepper(
+                                        "",
+                                        value: $keyScale,
+                                        in: Self.keyScaleRange,
+                                        step: 0.05
+                                    )
+                                    .labelsHidden()
+                                }
+                                GridRow {
+                                    Text("Pinky scale")
+                                    TextField(
+                                        "1.2",
+                                        value: $pinkyScale,
+                                        formatter: Self.pinkyScaleFormatter
+                                    )
+                                    .frame(width: 60)
+                                    Stepper(
+                                        "",
+                                        value: $pinkyScale,
+                                        in: Self.pinkyScaleRange,
+                                        step: 0.05
+                                    )
+                                    .labelsHidden()
+                                }
+                                GridRow {
+                                    Text("Thumb scale")
+                                    TextField(
+                                        "1.0",
+                                        value: $thumbScale,
+                                        formatter: Self.thumbScaleFormatter
+                                    )
+                                    .frame(width: 60)
+                                    Stepper(
+                                        "",
+                                        value: $thumbScale,
+                                        in: Self.thumbScaleRange,
+                                        step: 0.05
+                                    )
+                                    .labelsHidden()
+                                }
                             }
                         }
-                        Button("Save Layout") {
-                            saveSettings()
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.primary.opacity(0.05))
-                    )
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.primary.opacity(0.05))
+                        )
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Custom Buttons")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Toggle("Edit on trackpad", isOn: $isEditingButtons)
-                        HStack(spacing: 8) {
-                            Button("Add Left") {
-                                addCustomButton(side: .left)
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Custom Buttons")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                Button("Add Left") {
+                                    addCustomButton(side: .left)
+                                }
+                                Button("Add Right") {
+                                    addCustomButton(side: .right)
+                                }
                             }
-                            Button("Add Right") {
-                                addCustomButton(side: .right)
-                            }
-                        }
-                        ForEach($customButtons) { $button in
                             VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text(button.action.label)
+                                ForEach(customButtons) { button in
+                                    Button {
+                                        selectedButtonID = button.id
+                                    } label: {
+                                        HStack {
+                                            Text(button.action.label)
+                                            Spacer()
+                                            Text(button.side == .left ? "L" : "R")
+                                                .foregroundStyle(.secondary)
+                                        }
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    Spacer()
-                                    Button("Delete") {
-                                        removeCustomButton(id: button.id)
                                     }
+                                    .buttonStyle(.plain)
+                                    .padding(.vertical, 2)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .fill(
+                                                button.id == selectedButtonID
+                                                    ? Color.accentColor.opacity(0.15)
+                                                    : Color.clear
+                                            )
+                                    )
                                 }
-                                Picker("Side", selection: $button.side) {
-                                    ForEach(TrackpadSide.allCases) { side in
-                                        Text(side == .left ? "Left" : "Right")
-                                            .tag(side)
-                                    }
-                                }
-                                .pickerStyle(MenuPickerStyle())
-                                Picker("Action", selection: $button.action) {
-                                    ForEach(KeyActionCatalog.presets, id: \.self) { action in
-                                        Text(action.label).tag(action)
-                                    }
-                                }
-                                .pickerStyle(MenuPickerStyle())
                             }
-                            .padding(8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.primary.opacity(0.05))
-                            )
+                            if let selectedIndex = customButtons.firstIndex(where: { $0.id == selectedButtonID }) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        Text("Selected")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Button("Delete") {
+                                            removeCustomButton(id: customButtons[selectedIndex].id)
+                                        }
+                                    }
+                                    Picker("Side", selection: $customButtons[selectedIndex].side) {
+                                        ForEach(TrackpadSide.allCases) { side in
+                                            Text(side == .left ? "Left" : "Right")
+                                                .tag(side)
+                                        }
+                                    }
+                                    .pickerStyle(MenuPickerStyle())
+                                    Picker("Action", selection: $customButtons[selectedIndex].action) {
+                                        ForEach(KeyActionCatalog.presets, id: \.self) { action in
+                                            Text(action.label).tag(action)
+                                        }
+                                    }
+                                    .pickerStyle(MenuPickerStyle())
+                                }
+                            } else {
+                                Text("Select a button to edit.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.primary.opacity(0.05))
+                        )
                     }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.primary.opacity(0.05))
-                    )
 
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Typing Test")
@@ -424,7 +449,7 @@ struct ContentView: View {
                             .fill(Color.primary.opacity(0.05))
                     )
                 }
-                .frame(width: 320)
+                .frame(width: 420)
             }
         }
         .padding()
@@ -487,7 +512,6 @@ struct ContentView: View {
         labels: [[String]],
         customButtons: [CustomButton],
         visualsEnabled: Bool,
-        isEditingButtons: Bool,
         typingToggleRect: CGRect?,
         typingEnabled: Bool
     ) -> some View {
@@ -495,7 +519,7 @@ struct ContentView: View {
             Text(title)
                 .font(.subheadline)
             Group {
-                if visualsEnabled || isEditingButtons {
+                if visualsEnabled || selectedButtonID != nil {
                     Canvas { context, _ in
                         let layout = mirrored ? leftLayout : rightLayout
                         drawSensorGrid(context: &context, size: trackpadSize, columns: 30, rows: 22)
@@ -522,8 +546,11 @@ struct ContentView: View {
             .frame(width: trackpadSize.width, height: trackpadSize.height)
             .border(Color.primary)
             .overlay {
-                if isEditingButtons {
-                    customButtonsOverlay(buttons: customButtons)
+                if visualsEnabled || selectedButtonID != nil {
+                    customButtonsOverlay(
+                        buttons: customButtons,
+                        selectedButtonID: $selectedButtonID
+                    )
                 }
             }
         }
@@ -856,18 +883,26 @@ struct ContentView: View {
     }
 
     private func addCustomButton(side: TrackpadSide) {
+        if !visualsEnabled {
+            visualsEnabled = true
+        }
         let action = KeyActionCatalog.action(for: "Space") ?? KeyActionCatalog.presets.first
         guard let action else { return }
-        customButtons.append(CustomButton(
+        let newButton = CustomButton(
             id: UUID(),
             side: side,
             rect: defaultNewButtonRect(for: side),
             action: action
-        ))
+        )
+        customButtons.append(newButton)
+        selectedButtonID = newButton.id
     }
 
     private func removeCustomButton(id: UUID) {
         customButtons.removeAll { $0.id == id }
+        if selectedButtonID == id {
+            selectedButtonID = nil
+        }
     }
 
     private func updateCustomButton(id: UUID, update: (inout CustomButton) -> Void) {
@@ -884,21 +919,34 @@ struct ContentView: View {
         )
     }
 
-    private func customButtonsOverlay(buttons: [CustomButton]) -> some View {
+    private func customButtonsOverlay(
+        buttons: [CustomButton],
+        selectedButtonID: Binding<UUID?>
+    ) -> some View {
         ZStack {
             ForEach(buttons) { button in
                 let rect = button.rect.rect(in: trackpadSize)
+                let isSelected = button.id == selectedButtonID.wrappedValue
+
                 RoundedRectangle(cornerRadius: 4)
-                    .stroke(Color.accentColor.opacity(0.9), lineWidth: 1.5)
+                    .stroke(
+                        isSelected ? Color.accentColor.opacity(0.9) : Color.clear,
+                        lineWidth: 1.5
+                    )
                     .background(
                         RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.accentColor.opacity(0.08))
+                            .fill(Color.accentColor.opacity(isSelected ? 0.08 : 0.02))
                     )
                     .frame(width: rect.width, height: rect.height)
                     .position(x: rect.midX, y: rect.midY)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedButtonID.wrappedValue = button.id
+                    }
                     .gesture(
                         DragGesture()
                             .onChanged { value in
+                                guard isSelected else { return }
                                 let start = dragStartRects[button.id] ?? button.rect
                                 dragStartRects[button.id] = start
                                 let dx = value.translation.width / trackpadSize.width
@@ -918,46 +966,48 @@ struct ContentView: View {
                                 dragStartRects.removeValue(forKey: button.id)
                             }
                     )
-                Text(button.action.label)
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .position(x: rect.midX, y: rect.midY)
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(
-                        width: Self.resizeHandleSize,
-                        height: Self.resizeHandleSize
-                    )
-                    .position(x: rect.maxX, y: rect.maxY)
-                    .gesture(
-                        DragGesture()
-                            .onChanged { value in
-                                let start = resizeStartRects[button.id] ?? button.rect
-                                resizeStartRects[button.id] = start
-                                let dw = value.translation.width / trackpadSize.width
-                                let dh = value.translation.height / trackpadSize.height
-                                let maxWidth = 1.0 - start.x
-                                let maxHeight = 1.0 - start.y
-                                let width = min(
-                                    maxWidth,
-                                    max(Self.minCustomButtonSize.width, start.width + dw)
-                                )
-                                let height = min(
-                                    maxHeight,
-                                    max(Self.minCustomButtonSize.height, start.height + dh)
-                                )
-                                let updated = NormalizedRect(
-                                    x: start.x,
-                                    y: start.y,
-                                    width: width,
-                                    height: height
-                                )
-                                updateCustomButton(id: button.id) { $0.rect = updated }
-                            }
-                            .onEnded { _ in
-                                resizeStartRects.removeValue(forKey: button.id)
-                            }
-                    )
+                if isSelected {
+                    Text(button.action.label)
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .position(x: rect.midX, y: rect.midY)
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(
+                            width: Self.resizeHandleSize,
+                            height: Self.resizeHandleSize
+                        )
+                        .position(x: rect.maxX, y: rect.maxY)
+                        .gesture(
+                            DragGesture()
+                                .onChanged { value in
+                                    let start = resizeStartRects[button.id] ?? button.rect
+                                    resizeStartRects[button.id] = start
+                                    let dw = value.translation.width / trackpadSize.width
+                                    let dh = value.translation.height / trackpadSize.height
+                                    let maxWidth = 1.0 - start.x
+                                    let maxHeight = 1.0 - start.y
+                                    let width = min(
+                                        maxWidth,
+                                        max(Self.minCustomButtonSize.width, start.width + dw)
+                                    )
+                                    let height = min(
+                                        maxHeight,
+                                        max(Self.minCustomButtonSize.height, start.height + dh)
+                                    )
+                                    let updated = NormalizedRect(
+                                        x: start.x,
+                                        y: start.y,
+                                        width: width,
+                                        height: height
+                                    )
+                                    updateCustomButton(id: button.id) { $0.rect = updated }
+                                }
+                                .onEnded { _ in
+                                    resizeStartRects.removeValue(forKey: button.id)
+                                }
+                        )
+                }
             }
         }
     }
