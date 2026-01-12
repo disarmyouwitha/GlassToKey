@@ -25,10 +25,6 @@ final class GlassToKeyController: ObservableObject {
             forKey: GlassToKeyDefaultsKeys.keyScale,
             defaultValue: 1.0
         )
-        let thumbScale = doubleValue(
-            forKey: GlassToKeyDefaultsKeys.thumbScale,
-            defaultValue: 1.0
-        )
         let pinkyScale = doubleValue(
             forKey: GlassToKeyDefaultsKeys.pinkyScale,
             defaultValue: 1.2
@@ -85,8 +81,6 @@ final class GlassToKeyController: ObservableObject {
             rightLayout: rightLayout,
             leftLabels: leftLabels,
             rightLabels: rightLabels,
-            leftTypingToggleRect: typingToggleRect(isLeft: true, trackpadSize: trackpadSize),
-            rightTypingToggleRect: typingToggleRect(isLeft: false, trackpadSize: trackpadSize),
             trackpadSize: trackpadSize
         )
 
@@ -101,20 +95,6 @@ final class GlassToKeyController: ObservableObject {
         if let rightDevice = deviceForID(rightDeviceID) {
             viewModel.selectRightDevice(rightDevice)
         }
-    }
-
-    private func typingToggleRect(isLeft: Bool, trackpadSize: CGSize) -> CGRect {
-        let scaleX = trackpadSize.width / ContentView.trackpadWidthMM
-        let scaleY = trackpadSize.height / ContentView.trackpadHeightMM
-        let originXMM = isLeft
-            ? ContentView.typingToggleRectMM.origin.x
-            : ContentView.trackpadWidthMM - ContentView.typingToggleRectMM.maxX
-        return CGRect(
-            x: originXMM * scaleX,
-            y: ContentView.typingToggleRectMM.origin.y * scaleY,
-            width: ContentView.typingToggleRectMM.width * scaleX,
-            height: ContentView.typingToggleRectMM.height * scaleY
-        )
     }
 
     private func deviceForID(_ deviceID: String) -> OMSDeviceInfo? {

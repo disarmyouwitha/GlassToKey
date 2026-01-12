@@ -15,7 +15,6 @@ struct ContentView: View {
     @State private var displayTouchData = [OMSTouchData]()
     @State private var visualsEnabled = true
     @State private var keyScale = 1.0
-    @State private var thumbScale = 1.0
     @State private var pinkyScale = 1.2
     @State private var keyOffsetX = 0.0
     @State private var keyOffsetY = 0.0
@@ -23,13 +22,11 @@ struct ContentView: View {
     @State private var rightLayout: ContentViewModel.Layout
     @State private var customButtons: [CustomButton] = []
     @State private var selectedButtonID: UUID?
-    @State private var dragStartRects: [UUID: NormalizedRect] = [:]
     @State private var resizeStartRects: [UUID: NormalizedRect] = [:]
     @AppStorage(GlassToKeyDefaultsKeys.leftDeviceID) private var storedLeftDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.rightDeviceID) private var storedRightDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.visualsEnabled) private var storedVisualsEnabled = true
     @AppStorage(GlassToKeyDefaultsKeys.keyScale) private var storedKeyScale = 1.0
-    @AppStorage(GlassToKeyDefaultsKeys.thumbScale) private var storedThumbScale = 1.0
     @AppStorage(GlassToKeyDefaultsKeys.pinkyScale) private var storedPinkyScale = 1.2
     @AppStorage(GlassToKeyDefaultsKeys.keyOffsetX) private var storedKeyOffsetX = 0.0
     @AppStorage(GlassToKeyDefaultsKeys.keyOffsetY) private var storedKeyOffsetY = 0.0
@@ -42,7 +39,6 @@ struct ContentView: View {
     static let minCustomButtonSize = CGSize(width: 0.05, height: 0.05)
     private static let resizeHandleSize: CGFloat = 10.0
     private static let keyScaleRange: ClosedRange<Double> = 0.5...2.0
-    private static let thumbScaleRange: ClosedRange<Double> = 0.5...2.0
     private static let pinkyScaleRange: ClosedRange<Double> = 0.5...2.0
     private static let keyOffsetRange: ClosedRange<Double> = -30.0...30.0
     private static let keyScaleFormatter: NumberFormatter = {
@@ -52,15 +48,6 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 2
         formatter.minimum = NSNumber(value: ContentView.keyScaleRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.keyScaleRange.upperBound)
-        return formatter
-    }()
-    private static let thumbScaleFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 2
-        formatter.minimum = NSNumber(value: ContentView.thumbScaleRange.lowerBound)
-        formatter.maximum = NSNumber(value: ContentView.thumbScaleRange.upperBound)
         return formatter
     }()
     private static let pinkyScaleFormatter: NumberFormatter = {
@@ -107,8 +94,6 @@ struct ContentView: View {
         CGRect(x: 80, y: 85, width: 40, height: 30),
         CGRect(x: 120, y: 85, width: 40, height: 30)
     ]
-    static let typingToggleRectMM = CGRect(x: 135, y: 0, width: 25, height: 75)
-
     private let trackpadSize: CGSize
 
     init(viewModel: ContentViewModel = ContentViewModel()) {
@@ -152,7 +137,6 @@ struct ContentView: View {
             keyOffsetMM: CGPoint(x: -initialKeyOffsetX, y: initialKeyOffsetY)
         )
         _keyScale = State(initialValue: initialScale)
-        _thumbScale = State(initialValue: initialScale)
         _pinkyScale = State(initialValue: initialPinkyScale)
         _keyOffsetX = State(initialValue: initialKeyOffsetX)
         _keyOffsetY = State(initialValue: initialKeyOffsetY)
@@ -199,9 +183,7 @@ struct ContentView: View {
                             mirrored: true,
                             labels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
                             customButtons: customButtons.filter { $0.side == .left },
-                            visualsEnabled: visualsEnabled,
-                            typingToggleRect: typingToggleRect(isLeft: true),
-                            typingEnabled: viewModel.isTypingEnabled
+                            visualsEnabled: visualsEnabled
                         )
                         trackpadCanvas(
                             title: "Right Trackpad",
@@ -209,9 +191,7 @@ struct ContentView: View {
                             mirrored: false,
                             labels: ContentViewModel.rightGridLabels,
                             customButtons: customButtons.filter { $0.side == .right },
-                            visualsEnabled: visualsEnabled,
-                            typingToggleRect: typingToggleRect(isLeft: false),
-                            typingEnabled: viewModel.isTypingEnabled
+                            visualsEnabled: visualsEnabled
                         )
                     }
                 }
@@ -328,22 +308,6 @@ struct ContentView: View {
                                         "",
                                         value: $pinkyScale,
                                         in: Self.pinkyScaleRange,
-                                        step: 0.05
-                                    )
-                                    .labelsHidden()
-                                }
-                                GridRow {
-                                    Text("Thumb scale")
-                                    TextField(
-                                        "1.0",
-                                        value: $thumbScale,
-                                        formatter: Self.thumbScaleFormatter
-                                    )
-                                    .frame(width: 60)
-                                    Stepper(
-                                        "",
-                                        value: $thumbScale,
-                                        in: Self.thumbScaleRange,
                                         step: 0.05
                                     )
                                     .labelsHidden()
@@ -505,10 +469,6 @@ struct ContentView: View {
             applyKeyScale(newValue)
             saveSettings()
         }
-        .onChange(of: thumbScale) { newValue in
-            applyThumbScale(newValue)
-            saveSettings()
-        }
         .onChange(of: pinkyScale) { newValue in
             applyPinkyScale(newValue)
             saveSettings()
@@ -545,9 +505,7 @@ struct ContentView: View {
         mirrored: Bool,
         labels: [[String]],
         customButtons: [CustomButton],
-        visualsEnabled: Bool,
-        typingToggleRect: CGRect?,
-        typingEnabled: Bool
+        visualsEnabled: Bool
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
@@ -559,13 +517,6 @@ struct ContentView: View {
                         drawSensorGrid(context: &context, size: trackpadSize, columns: 30, rows: 22)
                         drawKeyGrid(context: &context, keyRects: layout.keyRects)
                         drawCustomButtons(context: &context, buttons: customButtons)
-                        if let typingToggleRect {
-                            drawTypingToggle(
-                                context: &context,
-                                rect: typingToggleRect,
-                                enabled: typingEnabled
-                            )
-                        }
                         drawGridLabels(context: &context, keyRects: layout.keyRects, labels: labels)
                         touches.forEach { touch in
                             let path = makeEllipse(touch: touch, size: trackpadSize)
@@ -735,10 +686,6 @@ struct ContentView: View {
         min(max(value, Self.keyScaleRange.lowerBound), Self.keyScaleRange.upperBound)
     }
 
-    private func normalizedThumbScale(_ value: Double) -> Double {
-        min(max(value, Self.thumbScaleRange.lowerBound), Self.thumbScaleRange.upperBound)
-    }
-
     private func normalizedPinkyScale(_ value: Double) -> Double {
         min(max(value, Self.pinkyScaleRange.lowerBound), Self.pinkyScaleRange.upperBound)
     }
@@ -751,15 +698,6 @@ struct ContentView: View {
         let normalized = normalizedKeyScale(value)
         if normalized != value {
             keyScale = normalized
-            return
-        }
-        rebuildLayouts()
-    }
-
-    private func applyThumbScale(_ value: Double) {
-        let normalized = normalizedThumbScale(value)
-        if normalized != value {
-            thumbScale = normalized
             return
         }
         rebuildLayouts()
@@ -827,8 +765,6 @@ struct ContentView: View {
             rightLayout: rightLayout,
             leftLabels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
             rightLabels: ContentViewModel.rightGridLabels,
-            leftTypingToggleRect: typingToggleRect(isLeft: true),
-            rightTypingToggleRect: typingToggleRect(isLeft: false),
             trackpadSize: trackpadSize
         )
     }
@@ -836,13 +772,11 @@ struct ContentView: View {
     private func applySavedSettings() {
         visualsEnabled = storedVisualsEnabled
         keyScale = storedKeyScale
-        thumbScale = storedThumbScale
         pinkyScale = storedPinkyScale
         keyOffsetX = storedKeyOffsetX
         keyOffsetY = storedKeyOffsetY
         loadCustomButtons()
         applyKeyScale(keyScale)
-        applyThumbScale(thumbScale)
         applyPinkyScale(pinkyScale)
         applyKeyOffsetX(keyOffsetX)
         applyKeyOffsetY(keyOffsetY)
@@ -859,7 +793,6 @@ struct ContentView: View {
         storedRightDeviceID = viewModel.rightDevice?.deviceID ?? ""
         storedVisualsEnabled = visualsEnabled
         storedKeyScale = keyScale
-        storedThumbScale = thumbScale
         storedPinkyScale = pinkyScale
         storedKeyOffsetX = keyOffsetX
         storedKeyOffsetY = keyOffsetY
@@ -949,27 +882,6 @@ struct ContentView: View {
                 let rect = button.rect.rect(in: trackpadSize)
                 let isSelected = button.id == selectedButtonID.wrappedValue
 
-                let dragGesture = DragGesture()
-                    .onChanged { value in
-                        let start = dragStartRects[button.id] ?? button.rect
-                        dragStartRects[button.id] = start
-                        let dx = value.translation.width / trackpadSize.width
-                        let dy = value.translation.height / trackpadSize.height
-                        let updated = NormalizedRect(
-                            x: start.x + dx,
-                            y: start.y + dy,
-                            width: start.width,
-                            height: start.height
-                        ).clamped(
-                            minWidth: Self.minCustomButtonSize.width,
-                            minHeight: Self.minCustomButtonSize.height
-                        )
-                        updateCustomButton(id: button.id) { $0.rect = updated }
-                    }
-                    .onEnded { _ in
-                        dragStartRects.removeValue(forKey: button.id)
-                    }
-
                 let baseButton = RoundedRectangle(cornerRadius: 4)
                     .stroke(
                         isSelected ? Color.accentColor.opacity(0.9) : Color.clear,
@@ -983,13 +895,7 @@ struct ContentView: View {
                     .offset(x: rect.minX, y: rect.minY)
                     .contentShape(Rectangle())
 
-                Group {
-                    if isSelected {
-                        baseButton.gesture(dragGesture)
-                    } else {
-                        baseButton
-                    }
-                }
+                baseButton
                 if isSelected {
                     Text(button.action.label)
                         .font(.system(size: 10, weight: .semibold, design: .monospaced))
@@ -1094,20 +1000,6 @@ struct ContentView: View {
         return viewModel.availableDevices.first { $0.deviceID == deviceID }
     }
 
-    private func typingToggleRect(isLeft: Bool) -> CGRect {
-        let scaleX = trackpadSize.width / Self.trackpadWidthMM
-        let scaleY = trackpadSize.height / Self.trackpadHeightMM
-        let originXMM = isLeft
-            ? Self.typingToggleRectMM.origin.x
-            : Self.trackpadWidthMM - Self.typingToggleRectMM.maxX
-        return CGRect(
-            x: originXMM * scaleX,
-            y: Self.typingToggleRectMM.origin.y * scaleY,
-            width: Self.typingToggleRectMM.width * scaleX,
-            height: Self.typingToggleRectMM.height * scaleY
-        )
-    }
-
     private func drawSensorGrid(
         context: inout GraphicsContext,
         size: CGSize,
@@ -1161,16 +1053,6 @@ struct ContentView: View {
                 .foregroundColor(.secondary)
             context.draw(label, at: CGPoint(x: rect.midX, y: rect.midY))
         }
-    }
-
-    private func drawTypingToggle(
-        context: inout GraphicsContext,
-        rect: CGRect,
-        enabled: Bool
-    ) {
-        let fillColor = enabled ? Color.green.opacity(0.15) : Color.red.opacity(0.15)
-        context.fill(Path(rect), with: .color(fillColor))
-        context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
     }
 
     private func drawGridLabels(

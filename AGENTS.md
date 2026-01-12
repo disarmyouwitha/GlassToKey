@@ -63,6 +63,7 @@
 
 ## TODO
 - Can't adjust x,y of selected custom buttons. (cant drag into place.) select and move works. Maybe X,Y offset slider if it is too hard to implement dragable?
+- add config to splay columns based on config settings
 - Layers I need to add a layer key I can add to the thumb cluster like MOmentary layer switching 
 - Make status light blue on layer change
 - Ask me for arrow keys + Num pad layout for the new layer
