@@ -945,12 +945,46 @@ struct ContentView: View {
         buttons: [CustomButton],
         selectedButtonID: Binding<UUID?>
     ) -> some View {
-        ZStack {
+        ZStack(alignment: .topLeading) {
+            let selectGesture = DragGesture(minimumDistance: 0)
+                .onEnded { value in
+                    let point = value.location
+                    if let matched = buttons.last(where: { button in
+                        button.rect.rect(in: trackpadSize).contains(point)
+                    }) {
+                        selectedButtonID.wrappedValue = matched.id
+                    }
+                }
+            Color.clear
+                .frame(width: trackpadSize.width, height: trackpadSize.height)
+                .contentShape(Rectangle())
+                .simultaneousGesture(selectGesture)
             ForEach(buttons) { button in
                 let rect = button.rect.rect(in: trackpadSize)
                 let isSelected = button.id == selectedButtonID.wrappedValue
 
-                RoundedRectangle(cornerRadius: 4)
+                let dragGesture = DragGesture()
+                    .onChanged { value in
+                        let start = dragStartRects[button.id] ?? button.rect
+                        dragStartRects[button.id] = start
+                        let dx = value.translation.width / trackpadSize.width
+                        let dy = value.translation.height / trackpadSize.height
+                        let updated = NormalizedRect(
+                            x: start.x + dx,
+                            y: start.y + dy,
+                            width: start.width,
+                            height: start.height
+                        ).clamped(
+                            minWidth: Self.minCustomButtonSize.width,
+                            minHeight: Self.minCustomButtonSize.height
+                        )
+                        updateCustomButton(id: button.id) { $0.rect = updated }
+                    }
+                    .onEnded { _ in
+                        dragStartRects.removeValue(forKey: button.id)
+                    }
+
+                let baseButton = RoundedRectangle(cornerRadius: 4)
                     .stroke(
                         isSelected ? Color.accentColor.opacity(0.9) : Color.clear,
                         lineWidth: 1.5
@@ -960,46 +994,33 @@ struct ContentView: View {
                             .fill(Color.accentColor.opacity(isSelected ? 0.08 : 0.02))
                     )
                     .frame(width: rect.width, height: rect.height)
-                    .position(x: rect.midX, y: rect.midY)
+                    .offset(x: rect.minX, y: rect.minY)
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        selectedButtonID.wrappedValue = button.id
+
+                Group {
+                    if isSelected {
+                        baseButton.gesture(dragGesture)
+                    } else {
+                        baseButton
                     }
-                    .gesture(
-                        DragGesture()
-                            .onChanged { value in
-                                guard isSelected else { return }
-                                let start = dragStartRects[button.id] ?? button.rect
-                                dragStartRects[button.id] = start
-                                let dx = value.translation.width / trackpadSize.width
-                                let dy = value.translation.height / trackpadSize.height
-                                let updated = NormalizedRect(
-                                    x: start.x + dx,
-                                    y: start.y + dy,
-                                    width: start.width,
-                                    height: start.height
-                                ).clamped(
-                                    minWidth: Self.minCustomButtonSize.width,
-                                    minHeight: Self.minCustomButtonSize.height
-                                )
-                                updateCustomButton(id: button.id) { $0.rect = updated }
-                            }
-                            .onEnded { _ in
-                                dragStartRects.removeValue(forKey: button.id)
-                            }
-                    )
+                }
                 if isSelected {
                     Text(button.action.label)
                         .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.secondary)
-                        .position(x: rect.midX, y: rect.midY)
+                        .frame(width: rect.width, height: rect.height)
+                        .offset(x: rect.minX, y: rect.minY)
+                        .allowsHitTesting(false)
                     Circle()
                         .fill(Color.accentColor)
                         .frame(
                             width: Self.resizeHandleSize,
                             height: Self.resizeHandleSize
                         )
-                        .position(x: rect.maxX, y: rect.maxY)
+                        .offset(
+                            x: rect.maxX - Self.resizeHandleSize / 2.0,
+                            y: rect.maxY - Self.resizeHandleSize / 2.0
+                        )
                         .gesture(
                             DragGesture()
                                 .onChanged { value in
