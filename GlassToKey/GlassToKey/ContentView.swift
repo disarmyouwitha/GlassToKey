@@ -68,15 +68,6 @@ struct ContentView: View {
         formatter.maximum = NSNumber(value: ContentView.keyOffsetRange.upperBound)
         return formatter
     }()
-    private static let customButtonPositionFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 1
-        formatter.minimum = 0
-        formatter.maximum = 100
-        return formatter
-    }()
     private let displayRefreshInterval: TimeInterval = 1.0 / 60.0
     // Per-column anchor positions in trackpad mm (top key origin).
     static let ColumnAnchorsMM: [CGPoint] = [
@@ -356,14 +347,7 @@ struct ContentView: View {
                                                 for: selectedIndex,
                                                 axis: .x
                                             )
-                                            TextField(
-                                                "0",
-                                                value: xBinding,
-                                                formatter: Self.customButtonPositionFormatter
-                                            )
-                                            .frame(width: 60)
-                                            Stepper(
-                                                "",
+                                            Slider(
                                                 value: xBinding,
                                                 in: positionPercentRange(
                                                     for: selectedIndex,
@@ -371,7 +355,8 @@ struct ContentView: View {
                                                 ),
                                                 step: 0.5
                                             )
-                                            .labelsHidden()
+                                            Text(xBinding.wrappedValue, format: .number.precision(.fractionLength(1)))
+                                                .monospacedDigit()
                                         }
                                         GridRow {
                                             Text("Y (%)")
@@ -379,14 +364,7 @@ struct ContentView: View {
                                                 for: selectedIndex,
                                                 axis: .y
                                             )
-                                            TextField(
-                                                "0",
-                                                value: yBinding,
-                                                formatter: Self.customButtonPositionFormatter
-                                            )
-                                            .frame(width: 60)
-                                            Stepper(
-                                                "",
+                                            Slider(
                                                 value: yBinding,
                                                 in: positionPercentRange(
                                                     for: selectedIndex,
@@ -394,7 +372,8 @@ struct ContentView: View {
                                                 ),
                                                 step: 0.5
                                             )
-                                            .labelsHidden()
+                                            Text(yBinding.wrappedValue, format: .number.precision(.fractionLength(1)))
+                                                .monospacedDigit()
                                         }
                                     }
                                     HStack {
