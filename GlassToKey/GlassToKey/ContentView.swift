@@ -37,6 +37,7 @@ struct ContentView: View {
     private static let resizeHandleSize: CGFloat = 10.0
     private static let columnScaleRange: ClosedRange<Double> = ColumnLayoutDefaults.scaleRange
     private static let columnOffsetPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.offsetPercentRange
+    static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
     private static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -55,6 +56,15 @@ struct ContentView: View {
         formatter.maximum = NSNumber(value: ContentView.columnOffsetPercentRange.upperBound)
         return formatter
     }()
+    private static let rowSpacingFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 1
+        formatter.minimum = NSNumber(value: ContentView.rowSpacingPercentRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.rowSpacingPercentRange.upperBound)
+        return formatter
+    }()
     private let displayRefreshInterval: TimeInterval = 1.0 / 60.0
     // Per-column anchor positions in trackpad mm (top key origin).
     static let ColumnAnchorsMM: [CGPoint] = [
@@ -68,6 +78,7 @@ struct ContentView: View {
     private static let legacyKeyScaleKey = "GlassToKey.keyScale"
     private static let legacyKeyOffsetXKey = "GlassToKey.keyOffsetX"
     private static let legacyKeyOffsetYKey = "GlassToKey.keyOffsetY"
+    private static let legacyRowSpacingPercentKey = "GlassToKey.rowSpacingPercent"
 
     static let ThumbAnchorsMM: [CGRect] = [
         CGRect(x: 0, y: 75, width: 40, height: 40),
@@ -215,7 +226,7 @@ struct ContentView: View {
 
                     HStack(alignment: .top, spacing: 12) {
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("Layout Tuning")
+                            Text("Column Tuning")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                             if let selectedColumn,
@@ -225,7 +236,7 @@ struct ContentView: View {
                                     .foregroundStyle(.secondary)
                                 Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
                                     GridRow {
-                                        Text("Column scale")
+                                        Text("Scale")
                                         let scaleBinding = columnScaleBinding(for: selectedColumn)
                                         TextField(
                                             "1.0",
@@ -277,6 +288,23 @@ struct ContentView: View {
                                             "",
                                             value: offsetBinding,
                                             in: Self.columnOffsetPercentRange,
+                                            step: 0.5
+                                        )
+                                        .labelsHidden()
+                                    }
+                                    GridRow {
+                                        Text("Spacing (%)")
+                                        let spacingBinding = columnRowSpacingBinding(for: selectedColumn)
+                                        TextField(
+                                            "0.0",
+                                            value: spacingBinding,
+                                            formatter: Self.rowSpacingFormatter
+                                        )
+                                        .frame(width: 60)
+                                        Stepper(
+                                            "",
+                                            value: spacingBinding,
+                                            in: Self.rowSpacingPercentRange,
                                             step: 0.5
                                         )
                                         .labelsHidden()
@@ -548,9 +576,11 @@ struct ContentView: View {
                     width: keyWidth * scale * scaleX,
                     height: keyHeight * scale * scaleY
                 )
+                let rowSpacingPercent = resolvedSettings[col].rowSpacingPercent
+                let rowSpacing = keySize.height * CGFloat(rowSpacingPercent / 100.0)
                 keyRects[row][col] = CGRect(
                     x: anchorMM.x * scaleX,
-                    y: anchorMM.y * scaleY + CGFloat(row) * keySize.height,
+                    y: anchorMM.y * scaleY + CGFloat(row) * (keySize.height + rowSpacing),
                     width: keySize.width,
                     height: keySize.height
                 )
@@ -575,7 +605,10 @@ struct ContentView: View {
                 }
             }
             var adjusted = mirroredKeyRects
-            applyColumnOffsets(keyRects: &adjusted, columnOffsets: columnOffsets)
+            let mirroredOffsets = columnOffsets.map { offset in
+                CGSize(width: -offset.width, height: offset.height)
+            }
+            applyColumnOffsets(keyRects: &adjusted, columnOffsets: mirroredOffsets)
             return ContentViewModel.Layout(keyRects: adjusted)
         }
 
@@ -627,6 +660,10 @@ struct ContentView: View {
             max(value, Self.columnOffsetPercentRange.lowerBound),
             Self.columnOffsetPercentRange.upperBound
         )
+    }
+
+    private func normalizedRowSpacingPercent(_ value: Double) -> Double {
+        min(max(value, Self.rowSpacingPercentRange.lowerBound), Self.rowSpacingPercentRange.upperBound)
     }
 
     private func updateColumnSetting(
@@ -714,7 +751,8 @@ struct ContentView: View {
         let hasLegacyScale = defaults.object(forKey: Self.legacyKeyScaleKey) != nil
         let hasLegacyOffsetX = defaults.object(forKey: Self.legacyKeyOffsetXKey) != nil
         let hasLegacyOffsetY = defaults.object(forKey: Self.legacyKeyOffsetYKey) != nil
-        if hasLegacyScale || hasLegacyOffsetX || hasLegacyOffsetY {
+        let hasLegacyRowSpacing = defaults.object(forKey: Self.legacyRowSpacingPercentKey) != nil
+        if hasLegacyScale || hasLegacyOffsetX || hasLegacyOffsetY || hasLegacyRowSpacing {
             let keyScale = hasLegacyScale
                 ? defaults.double(forKey: Self.legacyKeyScaleKey)
                 : 1.0
@@ -724,13 +762,17 @@ struct ContentView: View {
             let offsetY = hasLegacyOffsetY
                 ? defaults.double(forKey: Self.legacyKeyOffsetYKey)
                 : 0.0
+            let rowSpacingPercent = hasLegacyRowSpacing
+                ? defaults.double(forKey: Self.legacyRowSpacingPercentKey)
+                : 0.0
             let offsetXPercent = offsetX / Double(Self.trackpadWidthMM) * 100.0
             let offsetYPercent = offsetY / Double(Self.trackpadHeightMM) * 100.0
             let migrated = ColumnLayoutDefaults.defaultSettings(columns: Self.columnCount).map { _ in
                 ColumnLayoutSettings(
                     scale: keyScale,
                     offsetXPercent: offsetXPercent,
-                    offsetYPercent: offsetYPercent
+                    offsetYPercent: offsetYPercent,
+                    rowSpacingPercent: rowSpacingPercent
                 )
             }
             return Self.normalizedColumnSettings(migrated, columns: Self.columnCount)
@@ -819,7 +861,7 @@ struct ContentView: View {
                         selectedColumn.wrappedValue = nil
                         return
                     }
-                    selectedButtonID.wrappedValue = nil
+                        selectedButtonID.wrappedValue = nil
                     if let columnIndex = columnRects.firstIndex(where: { $0.contains(point) }) {
                         selectedColumn.wrappedValue = columnIndex
                     } else {
@@ -937,6 +979,21 @@ struct ContentView: View {
                     } else {
                         setting.offsetYPercent = normalized
                     }
+                }
+            }
+        )
+    }
+
+    private func columnRowSpacingBinding(for index: Int) -> Binding<Double> {
+        Binding(
+            get: {
+                columnSettings.indices.contains(index)
+                    ? columnSettings[index].rowSpacingPercent
+                    : 0.0
+            },
+            set: { newValue in
+                updateColumnSetting(index: index) { setting in
+                    setting.rowSpacingPercent = normalizedRowSpacingPercent(newValue)
                 }
             }
         )
@@ -1085,7 +1142,6 @@ struct ContentView: View {
         }
         return rects
     }
-
     private func drawGridLabels(
         context: inout GraphicsContext,
         keyRects: [[CGRect]],

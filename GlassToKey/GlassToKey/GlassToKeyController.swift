@@ -8,6 +8,7 @@ final class GlassToKeyController: ObservableObject {
     private let legacyKeyScaleKey = "GlassToKey.keyScale"
     private let legacyKeyOffsetXKey = "GlassToKey.keyOffsetX"
     private let legacyKeyOffsetYKey = "GlassToKey.keyOffsetY"
+    private let legacyRowSpacingPercentKey = "GlassToKey.rowSpacingPercent"
 
     init(viewModel: ContentViewModel = ContentViewModel()) {
         self.viewModel = viewModel
@@ -108,17 +109,22 @@ final class GlassToKeyController: ObservableObject {
         let hasLegacyScale = defaults.object(forKey: legacyKeyScaleKey) != nil
         let hasLegacyOffsetX = defaults.object(forKey: legacyKeyOffsetXKey) != nil
         let hasLegacyOffsetY = defaults.object(forKey: legacyKeyOffsetYKey) != nil
-        if hasLegacyScale || hasLegacyOffsetX || hasLegacyOffsetY {
+        let hasLegacyRowSpacing = defaults.object(forKey: legacyRowSpacingPercentKey) != nil
+        if hasLegacyScale || hasLegacyOffsetX || hasLegacyOffsetY || hasLegacyRowSpacing {
             let keyScale = hasLegacyScale ? defaults.double(forKey: legacyKeyScaleKey) : 1.0
             let offsetX = hasLegacyOffsetX ? defaults.double(forKey: legacyKeyOffsetXKey) : 0.0
             let offsetY = hasLegacyOffsetY ? defaults.double(forKey: legacyKeyOffsetYKey) : 0.0
+            let rowSpacingPercent = hasLegacyRowSpacing
+                ? defaults.double(forKey: legacyRowSpacingPercentKey)
+                : 0.0
             let offsetXPercent = offsetX / Double(ContentView.trackpadWidthMM) * 100.0
             let offsetYPercent = offsetY / Double(ContentView.trackpadHeightMM) * 100.0
             let migrated = ColumnLayoutDefaults.defaultSettings(columns: ContentView.columnCount).map { _ in
                 ColumnLayoutSettings(
                     scale: keyScale,
                     offsetXPercent: offsetXPercent,
-                    offsetYPercent: offsetYPercent
+                    offsetYPercent: offsetYPercent,
+                    rowSpacingPercent: rowSpacingPercent
                 )
             }
             return ColumnLayoutDefaults.normalizedSettings(
