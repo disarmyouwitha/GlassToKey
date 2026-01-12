@@ -19,6 +19,9 @@ Clicking the indicator light will allow you to view the Config or Quit the progr
 If you hold any key for longer than 200ms I have a whole hidden tap-hold layer. <br>
 (Sorry it is not more user friendly at this point)
 
+## Known Bugs
+In Config, when selecting columns use the Right-Hand-Side. LHS cannot select Columns 5,6
+
 ## TODO
 
 This repo is not really in shape for users, but a developer could definitely get in and modify the keymap, etc. 
@@ -35,7 +38,7 @@ This library refers the following frameworks very much. Special Thanks!
 - [mhuusko5/M5MultitouchSupport](https://github.com/mhuusko5/M5MultitouchSupport)
 - [calftrail/Touch](https://github.com/calftrail/Touch/blob/master/TouchSynthesis/MultitouchSupport.h)
 - [KrishKrosh/OpenMultitouchSupport](https://github.com/KrishKrosh/OpenMultitouchSupport)
-
+$,m@$@
 ## Requirements
 
 - Development with Xcode 16.0+

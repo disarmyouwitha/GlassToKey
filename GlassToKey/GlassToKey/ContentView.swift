@@ -324,7 +324,7 @@ struct ContentView: View {
                         )
 
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("Custom Buttons")
+                            Text("Button Tuning")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                             HStack(spacing: 8) {
