@@ -14,58 +14,45 @@ struct ContentView: View {
     @State private var testText = ""
     @State private var displayTouchData = [OMSTouchData]()
     @State private var visualsEnabled = true
-    @State private var keyScale = 1.0
-    @State private var pinkyScale = 1.2
-    @State private var keyOffsetX = 0.0
-    @State private var keyOffsetY = 0.0
+    @State private var columnSettings: [ColumnLayoutSettings]
     @State private var leftLayout: ContentViewModel.Layout
     @State private var rightLayout: ContentViewModel.Layout
     @State private var customButtons: [CustomButton] = []
     @State private var selectedButtonID: UUID?
+    @State private var selectedColumn: Int?
     @State private var resizeStartRects: [UUID: NormalizedRect] = [:]
     @AppStorage(GlassToKeyDefaultsKeys.leftDeviceID) private var storedLeftDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.rightDeviceID) private var storedRightDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.visualsEnabled) private var storedVisualsEnabled = true
-    @AppStorage(GlassToKeyDefaultsKeys.keyScale) private var storedKeyScale = 1.0
-    @AppStorage(GlassToKeyDefaultsKeys.pinkyScale) private var storedPinkyScale = 1.2
-    @AppStorage(GlassToKeyDefaultsKeys.keyOffsetX) private var storedKeyOffsetX = 0.0
-    @AppStorage(GlassToKeyDefaultsKeys.keyOffsetY) private var storedKeyOffsetY = 0.0
+    @AppStorage(GlassToKeyDefaultsKeys.columnSettings) private var storedColumnSettingsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.customButtons) private var storedCustomButtonsData = Data()
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
     static let baseKeyWidthMM: CGFloat = 18.0
     static let baseKeyHeightMM: CGFloat = 17.0
+    static let columnCount: Int = 6
+    static let rowCount: Int = 3
     static let minCustomButtonSize = CGSize(width: 0.05, height: 0.05)
     private static let resizeHandleSize: CGFloat = 10.0
-    private static let keyScaleRange: ClosedRange<Double> = 0.5...2.0
-    private static let pinkyScaleRange: ClosedRange<Double> = 0.5...2.0
-    private static let keyOffsetRange: ClosedRange<Double> = -30.0...30.0
-    private static let keyScaleFormatter: NumberFormatter = {
+    private static let columnScaleRange: ClosedRange<Double> = ColumnLayoutDefaults.scaleRange
+    private static let columnOffsetPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.offsetPercentRange
+    private static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.minimumFractionDigits = 0
         formatter.maximumFractionDigits = 2
-        formatter.minimum = NSNumber(value: ContentView.keyScaleRange.lowerBound)
-        formatter.maximum = NSNumber(value: ContentView.keyScaleRange.upperBound)
+        formatter.minimum = NSNumber(value: ContentView.columnScaleRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.columnScaleRange.upperBound)
         return formatter
     }()
-    private static let pinkyScaleFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 2
-        formatter.minimum = NSNumber(value: ContentView.pinkyScaleRange.lowerBound)
-        formatter.maximum = NSNumber(value: ContentView.pinkyScaleRange.upperBound)
-        return formatter
-    }()
-    private static let keyOffsetFormatter: NumberFormatter = {
+    private static let columnOffsetFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.minimumFractionDigits = 0
         formatter.maximumFractionDigits = 1
-        formatter.minimum = NSNumber(value: ContentView.keyOffsetRange.lowerBound)
-        formatter.maximum = NSNumber(value: ContentView.keyOffsetRange.upperBound)
+        formatter.minimum = NSNumber(value: ContentView.columnOffsetPercentRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.columnOffsetPercentRange.upperBound)
         return formatter
     }()
     private let displayRefreshInterval: TimeInterval = 1.0 / 60.0
@@ -78,6 +65,9 @@ struct ContentView: View {
         CGPoint(x: 107.0, y: 22.6),
         CGPoint(x: 125.0, y: 22.6)
     ]
+    private static let legacyKeyScaleKey = "GlassToKey.keyScale"
+    private static let legacyKeyOffsetXKey = "GlassToKey.keyOffsetX"
+    private static let legacyKeyOffsetYKey = "GlassToKey.keyOffsetY"
 
     static let ThumbAnchorsMM: [CGRect] = [
         CGRect(x: 0, y: 75, width: 40, height: 40),
@@ -94,43 +84,33 @@ struct ContentView: View {
             height: Self.trackpadHeightMM * Self.displayScale
         )
         trackpadSize = size
-        let initialScale = 1.0
-        let initialPinkyScale = 1.2
-        let initialKeyOffsetX = 0.0
-        let initialKeyOffsetY = 0.0
+        let initialColumnSettings = ColumnLayoutDefaults.defaultSettings(
+            columns: Self.columnCount
+        )
         let initialLeftLayout = ContentView.makeKeyLayout(
             size: size,
             keyWidth: Self.baseKeyWidthMM,
             keyHeight: Self.baseKeyHeightMM,
-            keyScale: initialScale,
-            labels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
-            widthScaleByLabel: Self.outerKeyWidthByLabel(pinkyScale: initialPinkyScale),
-            columns: 6,
-            rows: 3,
+            columns: Self.columnCount,
+            rows: Self.rowCount,
             trackpadWidth: Self.trackpadWidthMM,
             trackpadHeight: Self.trackpadHeightMM,
             columnAnchorsMM: Self.ColumnAnchorsMM,
-            keyOffsetMM: CGPoint(x: initialKeyOffsetX, y: initialKeyOffsetY),
+            columnSettings: initialColumnSettings,
             mirrored: true
         )
         let initialRightLayout = ContentView.makeKeyLayout(
             size: size,
             keyWidth: Self.baseKeyWidthMM,
             keyHeight: Self.baseKeyHeightMM,
-            keyScale: initialScale,
-            labels: ContentViewModel.rightGridLabels,
-            widthScaleByLabel: Self.outerKeyWidthByLabel(pinkyScale: initialPinkyScale),
-            columns: 6,
-            rows: 3,
+            columns: Self.columnCount,
+            rows: Self.rowCount,
             trackpadWidth: Self.trackpadWidthMM,
             trackpadHeight: Self.trackpadHeightMM,
             columnAnchorsMM: Self.ColumnAnchorsMM,
-            keyOffsetMM: CGPoint(x: -initialKeyOffsetX, y: initialKeyOffsetY)
+            columnSettings: initialColumnSettings
         )
-        _keyScale = State(initialValue: initialScale)
-        _pinkyScale = State(initialValue: initialPinkyScale)
-        _keyOffsetX = State(initialValue: initialKeyOffsetX)
-        _keyOffsetY = State(initialValue: initialKeyOffsetY)
+        _columnSettings = State(initialValue: initialColumnSettings)
         _leftLayout = State(initialValue: initialLeftLayout)
         _rightLayout = State(initialValue: initialRightLayout)
     }
@@ -238,71 +218,74 @@ struct ContentView: View {
                             Text("Layout Tuning")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
-                            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
-                                GridRow {
-                                    Text("Offset X")
-                                    TextField(
-                                        "0.0",
-                                        value: $keyOffsetX,
-                                        formatter: Self.keyOffsetFormatter
-                                    )
-                                    .frame(width: 60)
-                                    Stepper(
-                                        "",
-                                        value: $keyOffsetX,
-                                        in: Self.keyOffsetRange,
-                                        step: 0.5
-                                    )
-                                    .labelsHidden()
+                            if let selectedColumn,
+                               columnSettings.indices.contains(selectedColumn) {
+                                Text("Selected column \(selectedColumn + 1)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                                    GridRow {
+                                        Text("Column scale")
+                                        let scaleBinding = columnScaleBinding(for: selectedColumn)
+                                        TextField(
+                                            "1.0",
+                                            value: scaleBinding,
+                                            formatter: Self.columnScaleFormatter
+                                        )
+                                        .frame(width: 60)
+                                        Stepper(
+                                            "",
+                                            value: scaleBinding,
+                                            in: Self.columnScaleRange,
+                                            step: 0.05
+                                        )
+                                        .labelsHidden()
+                                    }
+                                    GridRow {
+                                        Text("Offset X (%)")
+                                        let offsetBinding = columnOffsetBinding(
+                                            for: selectedColumn,
+                                            axis: .x
+                                        )
+                                        TextField(
+                                            "0.0",
+                                            value: offsetBinding,
+                                            formatter: Self.columnOffsetFormatter
+                                        )
+                                        .frame(width: 60)
+                                        Stepper(
+                                            "",
+                                            value: offsetBinding,
+                                            in: Self.columnOffsetPercentRange,
+                                            step: 0.5
+                                        )
+                                        .labelsHidden()
+                                    }
+                                    GridRow {
+                                        Text("Offset Y (%)")
+                                        let offsetBinding = columnOffsetBinding(
+                                            for: selectedColumn,
+                                            axis: .y
+                                        )
+                                        TextField(
+                                            "0.0",
+                                            value: offsetBinding,
+                                            formatter: Self.columnOffsetFormatter
+                                        )
+                                        .frame(width: 60)
+                                        Stepper(
+                                            "",
+                                            value: offsetBinding,
+                                            in: Self.columnOffsetPercentRange,
+                                            step: 0.5
+                                        )
+                                        .labelsHidden()
+                                    }
                                 }
-                                GridRow {
-                                    Text("Offset Y")
-                                    TextField(
-                                        "0.0",
-                                        value: $keyOffsetY,
-                                        formatter: Self.keyOffsetFormatter
-                                    )
-                                    .frame(width: 60)
-                                    Stepper(
-                                        "",
-                                        value: $keyOffsetY,
-                                        in: Self.keyOffsetRange,
-                                        step: 0.5
-                                    )
-                                    .labelsHidden()
-                                }
-                                GridRow {
-                                    Text("Key scale")
-                                    TextField(
-                                        "1.0",
-                                        value: $keyScale,
-                                        formatter: Self.keyScaleFormatter
-                                    )
-                                    .frame(width: 60)
-                                    Stepper(
-                                        "",
-                                        value: $keyScale,
-                                        in: Self.keyScaleRange,
-                                        step: 0.05
-                                    )
-                                    .labelsHidden()
-                                }
-                                GridRow {
-                                    Text("Pinky scale")
-                                    TextField(
-                                        "1.2",
-                                        value: $pinkyScale,
-                                        formatter: Self.pinkyScaleFormatter
-                                    )
-                                    .frame(width: 60)
-                                    Stepper(
-                                        "",
-                                        value: $pinkyScale,
-                                        in: Self.pinkyScaleRange,
-                                        step: 0.05
-                                    )
-                                    .labelsHidden()
-                                }
+                            } else {
+                                Text("Select a column on the trackpad to edit.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
                         .padding(12)
@@ -441,24 +424,13 @@ struct ContentView: View {
         .onChange(of: visualsEnabled) { enabled in
             if !enabled {
                 selectedButtonID = nil
+                selectedColumn = nil
             }
             saveSettings()
             displayTouchData = enabled ? viewModel.snapshotTouchData() : []
         }
-        .onChange(of: keyScale) { newValue in
-            applyKeyScale(newValue)
-            saveSettings()
-        }
-        .onChange(of: pinkyScale) { newValue in
-            applyPinkyScale(newValue)
-            saveSettings()
-        }
-        .onChange(of: keyOffsetX) { newValue in
-            applyKeyOffsetX(newValue)
-            saveSettings()
-        }
-        .onChange(of: keyOffsetY) { newValue in
-            applyKeyOffsetY(newValue)
+        .onChange(of: columnSettings) { newValue in
+            applyColumnSettings(newValue)
             saveSettings()
         }
         .onChange(of: customButtons) { newValue in
@@ -495,7 +467,11 @@ struct ContentView: View {
                     Canvas { context, _ in
                         let layout = mirrored ? leftLayout : rightLayout
                         drawSensorGrid(context: &context, size: trackpadSize, columns: 30, rows: 22)
-                        drawKeyGrid(context: &context, keyRects: layout.keyRects)
+                        drawKeyGrid(
+                            context: &context,
+                            keyRects: layout.keyRects,
+                            selectedColumn: selectedColumn
+                        )
                         drawCustomButtons(context: &context, buttons: customButtons)
                         drawGridLabels(context: &context, keyRects: layout.keyRects, labels: labels)
                         touches.forEach { touch in
@@ -512,9 +488,12 @@ struct ContentView: View {
             .border(Color.primary)
             .overlay {
                 if visualsEnabled || selectedButtonID != nil {
+                    let layout = mirrored ? leftLayout : rightLayout
                     customButtonsOverlay(
+                        layout: layout,
                         buttons: customButtons,
-                        selectedButtonID: $selectedButtonID
+                        selectedButtonID: $selectedButtonID,
+                        selectedColumn: $selectedColumn
                     )
                 }
             }
@@ -537,23 +516,25 @@ struct ContentView: View {
         size: CGSize,
         keyWidth: CGFloat,
         keyHeight: CGFloat,
-        keyScale: Double,
-        labels: [[String]],
-        widthScaleByLabel: [String: CGFloat],
         columns: Int,
         rows: Int,
         trackpadWidth: CGFloat,
         trackpadHeight: CGFloat,
         columnAnchorsMM: [CGPoint],
-        keyOffsetMM: CGPoint = .zero,
+        columnSettings: [ColumnLayoutSettings],
         mirrored: Bool = false
     ) -> ContentViewModel.Layout {
         let scaleX = size.width / trackpadWidth
         let scaleY = size.height / trackpadHeight
-        let scaledKeyWidth = keyWidth * CGFloat(keyScale)
-        let scaledKeyHeight = keyHeight * CGFloat(keyScale)
-        let keySize = CGSize(width: scaledKeyWidth * scaleX, height: scaledKeyHeight * scaleY)
-        let adjustedAnchorsMM = scaledColumnAnchorsMM(columnAnchorsMM, scale: CGFloat(keyScale))
+        let resolvedSettings = normalizedColumnSettings(
+            columnSettings,
+            columns: columns
+        )
+        let columnScales = resolvedSettings.map { CGFloat($0.scale) }
+        let adjustedAnchorsMM = scaledColumnAnchorsMM(
+            columnAnchorsMM,
+            columnScales: columnScales
+        )
 
         var keyRects: [[CGRect]] = Array(
             repeating: Array(repeating: .zero, count: columns),
@@ -562,6 +543,11 @@ struct ContentView: View {
         for row in 0..<rows {
             for col in 0..<columns {
                 let anchorMM = adjustedAnchorsMM[col]
+                let scale = columnScales[col]
+                let keySize = CGSize(
+                    width: keyWidth * scale * scaleX,
+                    height: keyHeight * scale * scaleY
+                )
                 keyRects[row][col] = CGRect(
                     x: anchorMM.x * scaleX,
                     y: anchorMM.y * scaleY + CGFloat(row) * keySize.height,
@@ -570,15 +556,13 @@ struct ContentView: View {
                 )
             }
         }
-        applyWidthScale(
-            keyRects: &keyRects,
-            labels: labels,
-            widthScaleByLabel: widthScaleByLabel,
-            canvasWidth: size.width
-        )
 
-        let offsetX = keyOffsetMM.x * scaleX
-        let offsetY = keyOffsetMM.y * scaleY
+        let columnOffsets = resolvedSettings.map { setting in
+            CGSize(
+                width: size.width * CGFloat(setting.offsetXPercent / 100.0),
+                height: size.height * CGFloat(setting.offsetYPercent / 100.0)
+            )
+        }
         if mirrored {
             let mirroredKeyRects = keyRects.map { row in
                 row.map { rect in
@@ -590,121 +574,78 @@ struct ContentView: View {
                     )
                 }
             }
-            return ContentViewModel.Layout(
-                keyRects: mirroredKeyRects.map { row in
-                    row.map { rect in rect.offsetBy(dx: offsetX, dy: offsetY) }
-                }
-            )
+            var adjusted = mirroredKeyRects
+            applyColumnOffsets(keyRects: &adjusted, columnOffsets: columnOffsets)
+            return ContentViewModel.Layout(keyRects: adjusted)
         }
 
-        return ContentViewModel.Layout(
-            keyRects: keyRects.map { row in
-                row.map { rect in rect.offsetBy(dx: offsetX, dy: offsetY) }
-            }
-        )
-    }
-
-    private static func applyWidthScale(
-        keyRects: inout [[CGRect]],
-        labels: [[String]],
-        widthScaleByLabel: [String: CGFloat],
-        canvasWidth: CGFloat
-    ) {
-        let midline = canvasWidth / 2.0
-        for row in 0..<keyRects.count {
-            for col in 0..<keyRects[row].count {
-                guard row < labels.count,
-                      col < labels[row].count else { continue }
-                let label = labels[row][col]
-                guard let scale = widthScaleByLabel[label],
-                      scale != 1.0 else { continue }
-                let rect = keyRects[row][col]
-                let extraWidth = rect.width * (scale - 1.0)
-                if rect.midX < midline {
-                    keyRects[row][col] = CGRect(
-                        x: rect.minX - extraWidth,
-                        y: rect.minY,
-                        width: rect.width + extraWidth,
-                        height: rect.height
-                    )
-                } else {
-                    keyRects[row][col] = CGRect(
-                        x: rect.minX,
-                        y: rect.minY,
-                        width: rect.width + extraWidth,
-                        height: rect.height
-                    )
-                }
-            }
-        }
+        applyColumnOffsets(keyRects: &keyRects, columnOffsets: columnOffsets)
+        return ContentViewModel.Layout(keyRects: keyRects)
     }
 
     private static func scaledColumnAnchorsMM(
         _ anchors: [CGPoint],
-        scale: CGFloat
+        columnScales: [CGFloat]
     ) -> [CGPoint] {
         guard let originX = anchors.first?.x else { return anchors }
-        return anchors.map { anchor in
+        return anchors.enumerated().map { index, anchor in
+            let scale = columnScales.indices.contains(index) ? columnScales[index] : 1.0
             let offsetX = anchor.x - originX
             return CGPoint(x: originX + offsetX * scale, y: anchor.y)
         }
     }
 
-    static func outerKeyWidthByLabel(pinkyScale: Double) -> [String: CGFloat] {
-        let scale = CGFloat(pinkyScale)
-        return [
-            "Esc": scale,
-            "Ctrl": scale,
-            "Shift": scale,
-            "Back": scale,
-            "Ret": scale,
-            "Tab": scale
-        ]
-    }
-
-    private func normalizedKeyScale(_ value: Double) -> Double {
-        min(max(value, Self.keyScaleRange.lowerBound), Self.keyScaleRange.upperBound)
-    }
-
-    private func normalizedPinkyScale(_ value: Double) -> Double {
-        min(max(value, Self.pinkyScaleRange.lowerBound), Self.pinkyScaleRange.upperBound)
-    }
-
-    private func normalizedKeyOffset(_ value: Double) -> Double {
-        min(max(value, Self.keyOffsetRange.lowerBound), Self.keyOffsetRange.upperBound)
-    }
-
-    private func applyKeyScale(_ value: Double) {
-        let normalized = normalizedKeyScale(value)
-        if normalized != value {
-            keyScale = normalized
-            return
+    private static func applyColumnOffsets(
+        keyRects: inout [[CGRect]],
+        columnOffsets: [CGSize]
+    ) {
+        guard !columnOffsets.isEmpty else { return }
+        for rowIndex in 0..<keyRects.count {
+            for colIndex in 0..<keyRects[rowIndex].count {
+                let offset = columnOffsets.indices.contains(colIndex)
+                    ? columnOffsets[colIndex]
+                    : .zero
+                keyRects[rowIndex][colIndex] = keyRects[rowIndex][colIndex]
+                    .offsetBy(dx: offset.width, dy: offset.height)
+            }
         }
-        rebuildLayouts()
     }
 
-    private func applyPinkyScale(_ value: Double) {
-        let normalized = normalizedPinkyScale(value)
-        if normalized != value {
-            pinkyScale = normalized
-            return
-        }
-        rebuildLayouts()
+    private static func normalizedColumnSettings(
+        _ settings: [ColumnLayoutSettings],
+        columns: Int
+    ) -> [ColumnLayoutSettings] {
+        ColumnLayoutDefaults.normalizedSettings(settings, columns: columns)
     }
 
-    private func applyKeyOffsetX(_ value: Double) {
-        let normalized = normalizedKeyOffset(value)
-        if normalized != value {
-            keyOffsetX = normalized
-            return
-        }
-        rebuildLayouts()
+    private func normalizedColumnScale(_ value: Double) -> Double {
+        min(max(value, Self.columnScaleRange.lowerBound), Self.columnScaleRange.upperBound)
     }
 
-    private func applyKeyOffsetY(_ value: Double) {
-        let normalized = normalizedKeyOffset(value)
-        if normalized != value {
-            keyOffsetY = normalized
+    private func normalizedColumnOffsetPercent(_ value: Double) -> Double {
+        min(
+            max(value, Self.columnOffsetPercentRange.lowerBound),
+            Self.columnOffsetPercentRange.upperBound
+        )
+    }
+
+    private func updateColumnSetting(
+        index: Int,
+        update: (inout ColumnLayoutSettings) -> Void
+    ) {
+        guard columnSettings.indices.contains(index) else { return }
+        var setting = columnSettings[index]
+        update(&setting)
+        columnSettings[index] = setting
+    }
+
+    private func applyColumnSettings(_ settings: [ColumnLayoutSettings]) {
+        let normalized = Self.normalizedColumnSettings(
+            settings,
+            columns: Self.columnCount
+        )
+        if normalized != settings {
+            columnSettings = normalized
             return
         }
         rebuildLayouts()
@@ -715,30 +656,24 @@ struct ContentView: View {
             size: trackpadSize,
             keyWidth: Self.baseKeyWidthMM,
             keyHeight: Self.baseKeyHeightMM,
-            keyScale: keyScale,
-            labels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
-            widthScaleByLabel: Self.outerKeyWidthByLabel(pinkyScale: pinkyScale),
-            columns: 6,
-            rows: 3,
+            columns: Self.columnCount,
+            rows: Self.rowCount,
             trackpadWidth: Self.trackpadWidthMM,
             trackpadHeight: Self.trackpadHeightMM,
             columnAnchorsMM: Self.ColumnAnchorsMM,
-            keyOffsetMM: CGPoint(x: keyOffsetX, y: keyOffsetY),
+            columnSettings: columnSettings,
             mirrored: true
         )
         rightLayout = ContentView.makeKeyLayout(
             size: trackpadSize,
             keyWidth: Self.baseKeyWidthMM,
             keyHeight: Self.baseKeyHeightMM,
-            keyScale: keyScale,
-            labels: ContentViewModel.rightGridLabels,
-            widthScaleByLabel: Self.outerKeyWidthByLabel(pinkyScale: pinkyScale),
-            columns: 6,
-            rows: 3,
+            columns: Self.columnCount,
+            rows: Self.rowCount,
             trackpadWidth: Self.trackpadWidthMM,
             trackpadHeight: Self.trackpadHeightMM,
             columnAnchorsMM: Self.ColumnAnchorsMM,
-            keyOffsetMM: CGPoint(x: -keyOffsetX, y: keyOffsetY)
+            columnSettings: columnSettings
         )
         viewModel.configureLayouts(
             leftLayout: leftLayout,
@@ -751,15 +686,9 @@ struct ContentView: View {
 
     private func applySavedSettings() {
         visualsEnabled = storedVisualsEnabled
-        keyScale = storedKeyScale
-        pinkyScale = storedPinkyScale
-        keyOffsetX = storedKeyOffsetX
-        keyOffsetY = storedKeyOffsetY
+        columnSettings = resolvedStoredColumnSettings()
         loadCustomButtons()
-        applyKeyScale(keyScale)
-        applyPinkyScale(pinkyScale)
-        applyKeyOffsetX(keyOffsetX)
-        applyKeyOffsetY(keyOffsetY)
+        applyColumnSettings(columnSettings)
         if let leftDevice = deviceForID(storedLeftDeviceID) {
             viewModel.selectLeftDevice(leftDevice)
         }
@@ -772,10 +701,42 @@ struct ContentView: View {
         storedLeftDeviceID = viewModel.leftDevice?.deviceID ?? ""
         storedRightDeviceID = viewModel.rightDevice?.deviceID ?? ""
         storedVisualsEnabled = visualsEnabled
-        storedKeyScale = keyScale
-        storedPinkyScale = pinkyScale
-        storedKeyOffsetX = keyOffsetX
-        storedKeyOffsetY = keyOffsetY
+        storedColumnSettingsData = ColumnLayoutStore.encode(columnSettings) ?? Data()
+    }
+
+    private func resolvedStoredColumnSettings() -> [ColumnLayoutSettings] {
+        if let decoded = ColumnLayoutStore.decode(storedColumnSettingsData),
+           decoded.count == Self.columnCount {
+            return Self.normalizedColumnSettings(decoded, columns: Self.columnCount)
+        }
+
+        let defaults = UserDefaults.standard
+        let hasLegacyScale = defaults.object(forKey: Self.legacyKeyScaleKey) != nil
+        let hasLegacyOffsetX = defaults.object(forKey: Self.legacyKeyOffsetXKey) != nil
+        let hasLegacyOffsetY = defaults.object(forKey: Self.legacyKeyOffsetYKey) != nil
+        if hasLegacyScale || hasLegacyOffsetX || hasLegacyOffsetY {
+            let keyScale = hasLegacyScale
+                ? defaults.double(forKey: Self.legacyKeyScaleKey)
+                : 1.0
+            let offsetX = hasLegacyOffsetX
+                ? defaults.double(forKey: Self.legacyKeyOffsetXKey)
+                : 0.0
+            let offsetY = hasLegacyOffsetY
+                ? defaults.double(forKey: Self.legacyKeyOffsetYKey)
+                : 0.0
+            let offsetXPercent = offsetX / Double(Self.trackpadWidthMM) * 100.0
+            let offsetYPercent = offsetY / Double(Self.trackpadHeightMM) * 100.0
+            let migrated = ColumnLayoutDefaults.defaultSettings(columns: Self.columnCount).map { _ in
+                ColumnLayoutSettings(
+                    scale: keyScale,
+                    offsetXPercent: offsetXPercent,
+                    offsetYPercent: offsetYPercent
+                )
+            }
+            return Self.normalizedColumnSettings(migrated, columns: Self.columnCount)
+        }
+
+        return ColumnLayoutDefaults.defaultSettings(columns: Self.columnCount)
     }
 
     private func loadCustomButtons() {
@@ -841,10 +802,13 @@ struct ContentView: View {
     }
 
     private func customButtonsOverlay(
+        layout: ContentViewModel.Layout,
         buttons: [CustomButton],
-        selectedButtonID: Binding<UUID?>
+        selectedButtonID: Binding<UUID?>,
+        selectedColumn: Binding<Int?>
     ) -> some View {
         ZStack(alignment: .topLeading) {
+            let columnRects = columnRects(for: layout.keyRects)
             let selectGesture = SpatialTapGesture()
                 .onEnded { value in
                     let point = value.location
@@ -852,6 +816,14 @@ struct ContentView: View {
                         button.rect.rect(in: trackpadSize).contains(point)
                     }) {
                         selectedButtonID.wrappedValue = matched.id
+                        selectedColumn.wrappedValue = nil
+                        return
+                    }
+                    selectedButtonID.wrappedValue = nil
+                    if let columnIndex = columnRects.firstIndex(where: { $0.contains(point) }) {
+                        selectedColumn.wrappedValue = columnIndex
+                    } else {
+                        selectedColumn.wrappedValue = nil
                     }
                 }
             Color.clear
@@ -925,6 +897,49 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private enum ColumnAxis {
+        case x
+        case y
+    }
+
+    private func columnScaleBinding(for index: Int) -> Binding<Double> {
+        Binding(
+            get: {
+                columnSettings.indices.contains(index)
+                    ? columnSettings[index].scale
+                    : 1.0
+            },
+            set: { newValue in
+                updateColumnSetting(index: index) { setting in
+                    setting.scale = normalizedColumnScale(newValue)
+                }
+            }
+        )
+    }
+
+    private func columnOffsetBinding(
+        for index: Int,
+        axis: ColumnAxis
+    ) -> Binding<Double> {
+        Binding(
+            get: {
+                guard columnSettings.indices.contains(index) else { return 0.0 }
+                let setting = columnSettings[index]
+                return axis == .x ? setting.offsetXPercent : setting.offsetYPercent
+            },
+            set: { newValue in
+                updateColumnSetting(index: index) { setting in
+                    let normalized = normalizedColumnOffsetPercent(newValue)
+                    if axis == .x {
+                        setting.offsetXPercent = normalized
+                    } else {
+                        setting.offsetYPercent = normalized
+                    }
+                }
+            }
+        )
     }
 
     private enum CustomButtonAxis {
@@ -1011,10 +1026,30 @@ struct ContentView: View {
         }
     }
 
-    private func drawKeyGrid(context: inout GraphicsContext, keyRects: [[CGRect]]) {
+    private func drawKeyGrid(
+        context: inout GraphicsContext,
+        keyRects: [[CGRect]],
+        selectedColumn: Int?
+    ) {
+        if let selectedColumn,
+           keyRects.first?.indices.contains(selectedColumn) == true {
+            for row in keyRects {
+                let rect = row[selectedColumn]
+                context.fill(Path(rect), with: .color(Color.accentColor.opacity(0.12)))
+            }
+        }
+
         for row in keyRects {
             for rect in row {
                 context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
+            }
+        }
+
+        if let selectedColumn,
+           keyRects.first?.indices.contains(selectedColumn) == true {
+            for row in keyRects {
+                let rect = row[selectedColumn]
+                context.stroke(Path(rect), with: .color(Color.accentColor.opacity(0.8)), lineWidth: 1.5)
             }
         }
     }
@@ -1033,6 +1068,22 @@ struct ContentView: View {
                 .foregroundColor(.secondary)
             context.draw(label, at: CGPoint(x: rect.midX, y: rect.midY))
         }
+    }
+
+    private func columnRects(for keyRects: [[CGRect]]) -> [CGRect] {
+        guard let columnCount = keyRects.first?.count else { return [] }
+        var rects = Array(repeating: CGRect.null, count: columnCount)
+        for row in keyRects {
+            for col in 0..<columnCount {
+                let rect = row[col]
+                if rects[col].isNull {
+                    rects[col] = rect
+                } else {
+                    rects[col] = rects[col].union(rect)
+                }
+            }
+        }
+        return rects
     }
 
     private func drawGridLabels(

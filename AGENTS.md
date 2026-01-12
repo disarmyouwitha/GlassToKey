@@ -33,7 +33,10 @@
 - When a new TODO task is started always offer to create a new branch (auto generate the name for the user silently).
 - When user says to create a PR you should fill out the name and the description automatically.
 - ALWAYS run `xcodebuild` after finishing changes to check for build errors.
-- GlassToKey build command: `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
+<!-- 
+-GlassToKey build command: `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
+- If build fails due to target let user know so they can add to build target
+-->
 - Call out testing gaps when relevant.
 
 ## Common workflows
@@ -62,7 +65,7 @@
 - No notes left
 
 ## TODO
-- add config to splay columns based on config settings
+- add config to splay columns based on config settings: ask me what I want
 - Layers I need to add a layer key I can add to the thumb cluster like MOmentary layer switching 
 - Make status light blue on layer change
 - Ask me for arrow keys + Num pad layout for the new layer
