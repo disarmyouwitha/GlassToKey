@@ -167,15 +167,12 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Save Layout") {
-                    saveSettings()
-                }
-                .buttonStyle(.bordered)
                 Toggle("Visuals", isOn: $visualsEnabled)
                     .toggleStyle(SwitchToggleStyle())
                 if viewModel.isListening {
                     Button("Stop") {
                         viewModel.stop()
+                        visualsEnabled = false
                     }
                     .buttonStyle(.borderedProminent)
                 } else {
@@ -363,46 +360,13 @@ struct ContentView: View {
                                 Button("Add Left") {
                                     addCustomButton(side: .left)
                                 }
+                                Spacer()
                                 Button("Add Right") {
                                     addCustomButton(side: .right)
                                 }
                             }
-                            VStack(alignment: .leading, spacing: 6) {
-                                ForEach(customButtons) { button in
-                                    Button {
-                                        selectedButtonID = button.id
-                                    } label: {
-                                        HStack {
-                                            Text(button.action.label)
-                                            Spacer()
-                                            Text(button.side == .left ? "L" : "R")
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        .font(.caption)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .padding(.vertical, 2)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .fill(
-                                                button.id == selectedButtonID
-                                                    ? Color.accentColor.opacity(0.15)
-                                                    : Color.clear
-                                            )
-                                    )
-                                }
-                            }
                             if let selectedIndex = customButtons.firstIndex(where: { $0.id == selectedButtonID }) {
                                 VStack(alignment: .leading, spacing: 6) {
-                                    HStack {
-                                        Text("Selected")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                        Spacer()
-                                        Button("Delete") {
-                                            removeCustomButton(id: customButtons[selectedIndex].id)
-                                        }
-                                    }
                                     Picker("Side", selection: $customButtons[selectedIndex].side) {
                                         ForEach(TrackpadSide.allCases) { side in
                                             Text(side == .left ? "Left" : "Right")
@@ -416,9 +380,18 @@ struct ContentView: View {
                                         }
                                     }
                                     .pickerStyle(MenuPickerStyle())
+                                    HStack {
+                                        Text("Selected")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Button("Delete") {
+                                            removeCustomButton(id: customButtons[selectedIndex].id)
+                                        }
+                                    }
                                 }
                             } else {
-                                Text("Select a button to edit.")
+                                Text("Select a button on the trackpad to edit.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -469,23 +442,31 @@ struct ContentView: View {
             applySavedSettings()
             displayTouchData = viewModel.snapshotTouchData()
         }
+        .onChange(of: visualsEnabled) { _ in
+            saveSettings()
+        }
         .onChange(of: visualsEnabled) { enabled in
             displayTouchData = enabled ? viewModel.snapshotTouchData() : []
         }
         .onChange(of: keyScale) { newValue in
             applyKeyScale(newValue)
+            saveSettings()
         }
         .onChange(of: thumbScale) { newValue in
             applyThumbScale(newValue)
+            saveSettings()
         }
         .onChange(of: pinkyScale) { newValue in
             applyPinkyScale(newValue)
+            saveSettings()
         }
         .onChange(of: keyOffsetX) { newValue in
             applyKeyOffsetX(newValue)
+            saveSettings()
         }
         .onChange(of: keyOffsetY) { newValue in
             applyKeyOffsetY(newValue)
+            saveSettings()
         }
         .onChange(of: customButtons) { newValue in
             viewModel.updateCustomButtons(newValue)

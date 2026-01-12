@@ -72,3 +72,4 @@
 - add config to splay columns based on your touch
 - make buttons addable through gui, set position by dragging into place. set action through gui (that saves to the keymap)
 - Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight
+- can we round the corners to give the visuals a softer look?
