@@ -30,7 +30,7 @@
 - Keep framework changes in `Framework/OpenMultitouchSupportXCF/`.
 - Treat `OpenMultitouchSupportXCF.xcframework` as generated output (rebuild instead of hand-editing).
 - Call out testing gaps when relevant.
-- GlassToKey build command (ask): `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
+- GlassToKey build command .^(ask): `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
 
 ## Common workflows
 ### Swift wrapper changes only
@@ -41,9 +41,9 @@
 - No notes left
 
 ## TODO
-- Bug in splay-columns-config. LHS and RHS can't detect clicks on first 90px on left side.
-- Layers I need to add a layer key I can add to the thumb cluster like MOmentary layer switching 
-- Make status light blue on layer change
+- Next up: Layers! I need you to re-think our keymap code to use layers. I need you to treat the current keymap as Layer0, and I want you to duplicate it as Layer1. You should add 2 Actions: Momentary layer while held and an action that toggles the layer, like MO(1) or TO(1). When on the second layer the status light should turn blue
+- Make status light blue on layer changem
 - Ask me for arrow keys + Num pad layout for the new layer
 - Possible to turn on/off OSX single-finger tap with typing mode??
 - can we devise a keymap layout config we can save and let ppl edit & the program uses that to map keys?
+- option to enable 6x4, 6x3, 5x4, 5x3 columns layout

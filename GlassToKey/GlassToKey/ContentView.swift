@@ -10,6 +10,21 @@ import OpenMultitouchSupport
 import SwiftUI
 
 struct ContentView: View {
+    private struct SelectedGridKey: Equatable {
+        let row: Int
+        let column: Int
+        let label: String
+        let side: TrackpadSide
+
+        var position: GridKeyPosition {
+            GridKeyPosition(side: side, row: row, column: column)
+        }
+
+        var storageKey: String {
+            position.storageKey
+        }
+    }
+
     @StateObject private var viewModel: ContentViewModel
     @State private var testText = ""
     @State private var displayTouchData = [OMSTouchData]()
@@ -20,12 +35,15 @@ struct ContentView: View {
     @State private var customButtons: [CustomButton] = []
     @State private var selectedButtonID: UUID?
     @State private var selectedColumn: Int?
+    @State private var selectedGridKey: SelectedGridKey?
     @State private var resizeStartRects: [UUID: NormalizedRect] = [:]
+    @State private var keyMappings: [String: KeyMapping] = [:]
     @AppStorage(GlassToKeyDefaultsKeys.leftDeviceID) private var storedLeftDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.rightDeviceID) private var storedRightDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.visualsEnabled) private var storedVisualsEnabled = true
     @AppStorage(GlassToKeyDefaultsKeys.columnSettings) private var storedColumnSettingsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.customButtons) private var storedCustomButtonsData = Data()
+    @AppStorage(GlassToKeyDefaultsKeys.keyMappings) private var storedKeyMappingsData = Data()
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -161,6 +179,7 @@ struct ContentView: View {
                     HStack(alignment: .top, spacing: 16) {
                         trackpadCanvas(
                             title: "Left Trackpad",
+                            side: .left,
                             touches: visualsEnabled ? displayLeftTouches : [],
                             mirrored: true,
                             labels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
@@ -169,6 +188,7 @@ struct ContentView: View {
                         )
                         trackpadCanvas(
                             title: "Right Trackpad",
+                            side: .right,
                             touches: visualsEnabled ? displayRightTouches : [],
                             mirrored: false,
                             labels: ContentViewModel.rightGridLabels,
@@ -346,8 +366,15 @@ struct ContentView: View {
                                     }
                                     .pickerStyle(MenuPickerStyle())
                                     Picker("Action", selection: $customButtons[selectedIndex].action) {
-                                        ForEach(KeyActionCatalog.presets, id: \.self) { action in
-                                            Text(action.label).tag(action)
+                                        ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
+                                            pickerLabel(for: action).tag(action)
+                                        }
+                                    }
+                                    .pickerStyle(MenuPickerStyle())
+                                    Picker("Hold Action", selection: customButtonHoldBinding(for: selectedIndex)) {
+                                        Text("None").tag(nil as KeyAction?)
+                                        ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
+                                            pickerLabel(for: action).tag(action as KeyAction?)
                                         }
                                     }
                                     .pickerStyle(MenuPickerStyle())
@@ -358,7 +385,14 @@ struct ContentView: View {
                                                 for: selectedIndex,
                                                 axis: .x
                                             )
-                                            Slider(
+                                            TextField(
+                                                "0.0",
+                                                value: xBinding,
+                                                formatter: Self.columnOffsetFormatter
+                                            )
+                                            .frame(width: 60)
+                                            Stepper(
+                                                "",
                                                 value: xBinding,
                                                 in: positionPercentRange(
                                                     for: selectedIndex,
@@ -366,8 +400,7 @@ struct ContentView: View {
                                                 ),
                                                 step: 0.5
                                             )
-                                            Text(xBinding.wrappedValue, format: .number.precision(.fractionLength(1)))
-                                                .monospacedDigit()
+                                            .labelsHidden()
                                         }
                                         GridRow {
                                             Text("Y (%)")
@@ -375,7 +408,14 @@ struct ContentView: View {
                                                 for: selectedIndex,
                                                 axis: .y
                                             )
-                                            Slider(
+                                            TextField(
+                                                "0.0",
+                                                value: yBinding,
+                                                formatter: Self.columnOffsetFormatter
+                                            )
+                                            .frame(width: 60)
+                                            Stepper(
+                                                "",
                                                 value: yBinding,
                                                 in: positionPercentRange(
                                                     for: selectedIndex,
@@ -383,8 +423,7 @@ struct ContentView: View {
                                                 ),
                                                 step: 0.5
                                             )
-                                            Text(yBinding.wrappedValue, format: .number.precision(.fractionLength(1)))
-                                                .monospacedDigit()
+                                            .labelsHidden()
                                         }
                                     }
                                     HStack {
@@ -397,8 +436,27 @@ struct ContentView: View {
                                         }
                                     }
                                 }
+                            } else if let gridKey = selectedGridKey {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Selected key: \(gridKey.label)")
+                                        .font(.subheadline)
+                                        .bold()
+                                    Picker("Action", selection: keyActionBinding(for: gridKey)) {
+                                        ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
+                                            pickerLabel(for: action).tag(action)
+                                        }
+                                    }
+                                    .pickerStyle(MenuPickerStyle())
+                                    Picker("Hold Action", selection: holdActionBinding(for: gridKey)) {
+                                        Text("None").tag(nil as KeyAction?)
+                                        ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
+                                            pickerLabel(for: action).tag(action as KeyAction?)
+                                        }
+                                    }
+                                    .pickerStyle(MenuPickerStyle())
+                                }
                             } else {
-                                Text("Select a button on the trackpad to edit.")
+                                Text("Select a button or key on the trackpad to edit.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -453,6 +511,7 @@ struct ContentView: View {
             if !enabled {
                 selectedButtonID = nil
                 selectedColumn = nil
+                selectedGridKey = nil
             }
             saveSettings()
             displayTouchData = enabled ? viewModel.snapshotTouchData() : []
@@ -464,6 +523,10 @@ struct ContentView: View {
         .onChange(of: customButtons) { newValue in
             viewModel.updateCustomButtons(newValue)
             saveCustomButtons(newValue)
+        }
+        .onChange(of: keyMappings) { newValue in
+            viewModel.updateKeyMappings(newValue)
+            saveKeyMappings(newValue)
         }
         .task {
             for await _ in Timer.publish(
@@ -481,13 +544,15 @@ struct ContentView: View {
 
     private func trackpadCanvas(
         title: String,
+        side: TrackpadSide,
         touches: [OMSTouchData],
         mirrored: Bool,
         labels: [[String]],
         customButtons: [CustomButton],
         visualsEnabled: Bool
     ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let labelProvider = labelInfoProvider(for: labels, side: side)
+        return VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.subheadline)
             Group {
@@ -495,13 +560,20 @@ struct ContentView: View {
                     Canvas { context, _ in
                         let layout = mirrored ? leftLayout : rightLayout
                         drawSensorGrid(context: &context, size: trackpadSize, columns: 30, rows: 22)
+                        let selectedKeyForCanvas = selectedGridKey?.side == side ? selectedGridKey : nil
                         drawKeyGrid(
                             context: &context,
                             keyRects: layout.keyRects,
-                            selectedColumn: selectedColumn
+                            selectedColumn: selectedColumn,
+                            selectedKey: selectedKeyForCanvas
                         )
                         drawCustomButtons(context: &context, buttons: customButtons)
-                        drawGridLabels(context: &context, keyRects: layout.keyRects, labels: labels)
+                        drawGridLabels(
+                            context: &context,
+                            keyRects: layout.keyRects,
+                            labels: labels,
+                            labelProvider: labelProvider
+                        )
                         touches.forEach { touch in
                             let path = makeEllipse(touch: touch, size: trackpadSize)
                             context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
@@ -518,10 +590,13 @@ struct ContentView: View {
                 if visualsEnabled || selectedButtonID != nil {
                     let layout = mirrored ? leftLayout : rightLayout
                     customButtonsOverlay(
+                        side: side,
                         layout: layout,
                         buttons: customButtons,
                         selectedButtonID: $selectedButtonID,
-                        selectedColumn: $selectedColumn
+                        selectedColumn: $selectedColumn,
+                        selectedGridKey: $selectedGridKey,
+                        gridLabels: labels
                     )
                 }
             }
@@ -725,6 +800,7 @@ struct ContentView: View {
         visualsEnabled = storedVisualsEnabled
         columnSettings = resolvedStoredColumnSettings()
         loadCustomButtons()
+        loadKeyMappings()
         applyColumnSettings(columnSettings)
         if let leftDevice = deviceForID(storedLeftDeviceID) {
             viewModel.selectLeftDevice(leftDevice)
@@ -796,6 +872,19 @@ struct ContentView: View {
         viewModel.updateCustomButtons(customButtons)
     }
 
+    private func loadKeyMappings() {
+        if let decoded = KeyActionMappingStore.decode(storedKeyMappingsData) {
+            keyMappings = decoded
+        } else {
+            keyMappings = [:]
+        }
+        viewModel.updateKeyMappings(keyMappings)
+    }
+
+    private func saveKeyMappings(_ mappings: [String: KeyMapping]) {
+        storedKeyMappingsData = KeyActionMappingStore.encode(mappings) ?? Data()
+    }
+
     private func saveCustomButtons(_ buttons: [CustomButton]) {
         storedCustomButtonsData = CustomButtonStore.encode(buttons) ?? Data()
     }
@@ -811,9 +900,23 @@ struct ContentView: View {
             side: side,
             rect: defaultNewButtonRect(),
             action: action
+            ,
+            hold: nil
         )
         customButtons.append(newButton)
         selectedButtonID = newButton.id
+    }
+
+    private func customButtonHoldBinding(for index: Int) -> Binding<KeyAction?> {
+        Binding(
+            get: {
+                customButtons.indices.contains(index) ? customButtons[index].hold : nil
+            },
+            set: { newValue in
+                guard customButtons.indices.contains(index) else { return }
+                customButtons[index].hold = newValue
+            }
+        )
     }
 
     private func removeCustomButton(id: UUID) {
@@ -844,10 +947,13 @@ struct ContentView: View {
     }
 
     private func customButtonsOverlay(
+        side: TrackpadSide,
         layout: ContentViewModel.Layout,
         buttons: [CustomButton],
         selectedButtonID: Binding<UUID?>,
-        selectedColumn: Binding<Int?>
+        selectedColumn: Binding<Int?>,
+        selectedGridKey: Binding<SelectedGridKey?>,
+        gridLabels: [[String]]
     ) -> some View {
         ZStack(alignment: .topLeading) {
             let columnRects = columnRects(for: layout.keyRects, trackpadSize: trackpadSize)
@@ -859,9 +965,16 @@ struct ContentView: View {
                     }) {
                         selectedButtonID.wrappedValue = matched.id
                         selectedColumn.wrappedValue = nil
+                        selectedGridKey.wrappedValue = nil
                         return
                     }
                     selectedButtonID.wrappedValue = nil
+                    if let key = gridKey(at: point, keyRects: layout.keyRects, labels: gridLabels, side: side) {
+                        selectedGridKey.wrappedValue = key
+                        selectedColumn.wrappedValue = key.column
+                        return
+                    }
+                    selectedGridKey.wrappedValue = nil
                     let resolvedColumnIndex = columnIndex(for: point, columnRects: columnRects)
                     #if DEBUG
                     logColumnSelection(
@@ -900,12 +1013,19 @@ struct ContentView: View {
 
                 baseButton
                 if isSelected {
-                    Text(button.action.label)
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .frame(width: rect.width, height: rect.height)
-                        .offset(x: rect.minX, y: rect.minY)
-                        .allowsHitTesting(false)
+                    VStack(spacing: 2) {
+                        Text(button.action.label)
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        if let holdLabel = button.hold?.label {
+                            Text(holdLabel)
+                                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(.secondary.opacity(0.7))
+                        }
+                    }
+                    .frame(width: rect.width, height: rect.height)
+                    .offset(x: rect.minX, y: rect.minY)
+                    .allowsHitTesting(false)
                     Circle()
                         .fill(Color.accentColor)
                         .frame(
@@ -1095,7 +1215,8 @@ struct ContentView: View {
     private func drawKeyGrid(
         context: inout GraphicsContext,
         keyRects: [[CGRect]],
-        selectedColumn: Int?
+        selectedColumn: Int?,
+        selectedKey: SelectedGridKey?
     ) {
         if let selectedColumn,
            keyRects.first?.indices.contains(selectedColumn) == true {
@@ -1103,6 +1224,13 @@ struct ContentView: View {
                 let rect = row[selectedColumn]
                 context.fill(Path(rect), with: .color(Color.accentColor.opacity(0.12)))
             }
+        }
+
+        if let key = selectedKey,
+           keyRects.indices.contains(key.row),
+           keyRects[key.row].indices.contains(key.column) {
+            let rect = keyRects[key.row][key.column]
+            context.fill(Path(rect), with: .color(Color.accentColor.opacity(0.18)))
         }
 
         for row in keyRects {
@@ -1118,21 +1246,37 @@ struct ContentView: View {
                 context.stroke(Path(rect), with: .color(Color.accentColor.opacity(0.8)), lineWidth: 1.5)
             }
         }
+
+        if let key = selectedKey,
+           keyRects.indices.contains(key.row),
+           keyRects[key.row].indices.contains(key.column) {
+            let rect = keyRects[key.row][key.column]
+            context.stroke(Path(rect), with: .color(Color.accentColor.opacity(0.9)), lineWidth: 1.5)
+        }
     }
 
     private func drawCustomButtons(
         context: inout GraphicsContext,
         buttons: [CustomButton]
     ) {
-        let textStyle = Font.system(size: 10, weight: .semibold, design: .monospaced)
+        let primaryStyle = Font.system(size: 10, weight: .semibold, design: .monospaced)
+        let holdStyle = Font.system(size: 8, weight: .semibold, design: .monospaced)
         for button in buttons {
             let rect = button.rect.rect(in: trackpadSize)
             context.fill(Path(rect), with: .color(Color.blue.opacity(0.12)))
             context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
-            let label = Text(button.action.label)
-                .font(textStyle)
+            let center = CGPoint(x: rect.midX, y: rect.midY)
+            let primaryText = Text(button.action.label)
+                .font(primaryStyle)
                 .foregroundColor(.secondary)
-            context.draw(label, at: CGPoint(x: rect.midX, y: rect.midY))
+            let primaryY = center.y - (button.hold != nil ? 4 : 0)
+            context.draw(primaryText, at: CGPoint(x: center.x, y: primaryY))
+            if let holdLabel = button.hold?.label {
+                let holdText = Text(holdLabel)
+                    .font(holdStyle)
+                    .foregroundColor(.secondary.opacity(0.7))
+                context.draw(holdText, at: CGPoint(x: center.x, y: center.y + 6))
+            }
         }
     }
 
@@ -1190,6 +1334,113 @@ struct ContentView: View {
         return expandedRects
     }
 
+    private func gridKey(
+        at point: CGPoint,
+        keyRects: [[CGRect]],
+        labels: [[String]],
+        side: TrackpadSide
+    ) -> SelectedGridKey? {
+        for rowIndex in 0..<keyRects.count {
+            guard rowIndex < labels.count else { continue }
+            for colIndex in 0..<keyRects[rowIndex].count {
+                guard colIndex < labels[rowIndex].count else { continue }
+                let rect = keyRects[rowIndex][colIndex]
+                if rect.contains(point) {
+                    return SelectedGridKey(
+                        row: rowIndex,
+                        column: colIndex,
+                        label: labels[rowIndex][colIndex],
+                        side: side
+                    )
+                }
+            }
+        }
+        return nil
+    }
+
+    private func labelInfo(for key: SelectedGridKey) -> (primary: String, hold: String?) {
+        let mapping = effectiveKeyMapping(for: key)
+        return (primary: mapping.primary.label, hold: mapping.hold?.label)
+    }
+
+    private func pickerLabel(for action: KeyAction) -> some View {
+        let label = action.kind == .typingToggle
+            ? KeyActionCatalog.typingToggleDisplayLabel
+            : action.label
+        return Text(label)
+            .multilineTextAlignment(.center)
+    }
+
+    private func effectiveKeyMapping(for key: SelectedGridKey) -> KeyMapping {
+        if let mapping = keyMappings[key.storageKey] {
+            return mapping
+        }
+        if let mapping = keyMappings[key.label] {
+            return mapping
+        }
+        return defaultKeyMapping(for: key.label) ?? KeyMapping(primary: KeyAction(label: key.label, keyCode: 0, flags: 0), hold: nil)
+    }
+
+    private func updateKeyMapping(
+        for key: SelectedGridKey,
+        _ update: (inout KeyMapping) -> Void
+    ) {
+        var mapping = keyMappings[key.storageKey]
+            ?? keyMappings[key.label]
+            ?? defaultKeyMapping(for: key.label)
+            ?? KeyMapping(primary: KeyAction(label: key.label, keyCode: 0, flags: 0), hold: nil)
+        update(&mapping)
+        if let defaultMapping = defaultKeyMapping(for: key.label),
+           defaultMapping == mapping {
+            keyMappings.removeValue(forKey: key.storageKey)
+            keyMappings.removeValue(forKey: key.label)
+            return
+        }
+        keyMappings[key.storageKey] = mapping
+        keyMappings.removeValue(forKey: key.label)
+    }
+
+    private func defaultKeyMapping(for label: String) -> KeyMapping? {
+        guard let primary = KeyActionCatalog.action(for: label) else { return nil }
+        return KeyMapping(primary: primary, hold: KeyActionCatalog.holdAction(for: label))
+    }
+
+    private func labelInfoProvider(
+        for labels: [[String]],
+        side: TrackpadSide
+    ) -> (Int, Int) -> (primary: String, hold: String?) {
+        { row, col in
+            guard row < labels.count,
+                  col < labels[row].count else {
+                return (primary: "", hold: nil)
+            }
+            let key = SelectedGridKey(row: row, column: col, label: labels[row][col], side: side)
+            return labelInfo(for: key)
+        }
+    }
+
+    private func keyActionBinding(for key: SelectedGridKey) -> Binding<KeyAction> {
+        Binding(
+            get: {
+                effectiveKeyMapping(for: key).primary
+            },
+            set: { newValue in
+                updateKeyMapping(for: key) { $0.primary = newValue }
+            }
+        )
+    }
+
+    private func holdActionBinding(for key: SelectedGridKey) -> Binding<KeyAction?> {
+        Binding(
+            get: {
+                effectiveKeyMapping(for: key).hold
+            },
+            set: { newValue in
+                updateKeyMapping(for: key) { $0.hold = newValue }
+            }
+        )
+    }
+
     private func columnIndex(
         for point: CGPoint,
         columnRects: [CGRect]
@@ -1228,7 +1479,8 @@ struct ContentView: View {
     private func drawGridLabels(
         context: inout GraphicsContext,
         keyRects: [[CGRect]],
-        labels: [[String]]
+        labels: [[String]],
+        labelProvider: (Int, Int) -> (primary: String, hold: String?)
     ) {
         let textStyle = Font.system(size: 10, weight: .semibold, design: .monospaced)
 
@@ -1238,10 +1490,17 @@ struct ContentView: View {
                       col < labels[row].count else { continue }
                 let rect = keyRects[row][col]
                 let center = CGPoint(x: rect.midX, y: rect.midY)
-                let text = Text(labels[row][col])
+                let provided = labelProvider(row, col)
+                let primaryText = Text(provided.primary)
                     .font(textStyle)
                     .foregroundColor(.secondary)
-                context.draw(text, at: center)
+                context.draw(primaryText, at: CGPoint(x: center.x, y: center.y - 4))
+                if let holdLabel = provided.hold {
+                    let holdText = Text(holdLabel)
+                        .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.7))
+                    context.draw(holdText, at: CGPoint(x: center.x, y: center.y + 6))
+                }
             }
         }
     }

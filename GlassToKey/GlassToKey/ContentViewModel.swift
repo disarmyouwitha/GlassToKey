@@ -10,6 +10,43 @@ import CoreGraphics
 import OpenMultitouchSupport
 import SwiftUI
 
+enum TrackpadSide: String, Codable, CaseIterable, Identifiable {
+    case left
+    case right
+
+    var id: String { rawValue }
+}
+
+struct GridKeyPosition: Codable, Hashable {
+    let side: TrackpadSide
+    let row: Int
+    let column: Int
+
+    init(side: TrackpadSide, row: Int, column: Int) {
+        self.side = side
+        self.row = row
+        self.column = column
+    }
+
+    private static let separator = ":"
+
+    var storageKey: String {
+        "\(side.rawValue)\(Self.separator)\(row)\(Self.separator)\(column)"
+    }
+
+    static func from(storageKey: String) -> GridKeyPosition? {
+        guard let separatorChar = separator.first else { return nil }
+        let components = storageKey.split(separator: separatorChar)
+        guard components.count == 3,
+              let side = TrackpadSide(rawValue: String(components[0])),
+              let row = Int(components[1]),
+              let column = Int(components[2]) else {
+            return nil
+        }
+        return GridKeyPosition(side: side, row: row, column: column)
+    }
+}
+
 @MainActor
 final class ContentViewModel: ObservableObject {
     enum KeyBindingAction: Sendable {
@@ -21,6 +58,8 @@ final class ContentViewModel: ObservableObject {
         let rect: CGRect
         let label: String
         let action: KeyBindingAction
+        let position: GridKeyPosition?
+        let holdAction: KeyAction?
     }
 
     struct Layout {
@@ -52,12 +91,15 @@ final class ContentViewModel: ObservableObject {
         let id: Int32
     }
     private var customButtons: [CustomButton] = []
+    private var customKeyMappings: [String: KeyMapping] = [:]
 
     private var activeTouches: [TouchKey: ActiveTouch] = [:]
     private var pendingTouches: [TouchKey: PendingTouch] = [:]
     private var disqualifiedTouches: Set<TouchKey> = []
     private var leftShiftTouchCount = 0
     private var controlTouchCount = 0
+    private var optionTouchCount = 0
+    private var commandTouchCount = 0
     private var repeatTasks: [TouchKey: Task<Void, Never>] = [:]
     private var toggleTouchStarts: [TouchKey: Date] = [:]
     private let tapMaxDuration: TimeInterval = 0.2
@@ -66,38 +108,6 @@ final class ContentViewModel: ObservableObject {
     private let dragCancelDistance: CGFloat = 5.0
     private let repeatInitialDelay: UInt64 = 350_000_000
     private let repeatInterval: UInt64 = 50_000_000
-    private let holdBindingsByLabel: [String: (CGKeyCode, CGEventFlags)] = [
-        "Esc": (CGKeyCode(kVK_Escape), []),
-        "Q": (CGKeyCode(kVK_ANSI_LeftBracket), []),
-        "W": (CGKeyCode(kVK_ANSI_RightBracket), []),
-        "E": (CGKeyCode(kVK_ANSI_LeftBracket), .maskShift),
-        "R": (CGKeyCode(kVK_ANSI_RightBracket), .maskShift),
-        "T": (CGKeyCode(kVK_ANSI_Quote), []),
-        "Y": (CGKeyCode(kVK_ANSI_Minus), []),
-        "U": (CGKeyCode(kVK_ANSI_7), .maskShift),
-        "I": (CGKeyCode(kVK_ANSI_8), .maskShift),
-        "O": (CGKeyCode(kVK_ANSI_F), .maskCommand),
-        "P": (CGKeyCode(kVK_ANSI_R), .maskCommand),
-        "A": (CGKeyCode(kVK_ANSI_A), .maskCommand),
-        "S": (CGKeyCode(kVK_ANSI_S), .maskCommand),
-        "D": (CGKeyCode(kVK_ANSI_9), .maskShift),
-        "F": (CGKeyCode(kVK_ANSI_0), .maskShift),
-        "G": (CGKeyCode(kVK_ANSI_Quote), .maskShift),
-        "H": (CGKeyCode(kVK_ANSI_Minus), .maskShift),
-        "J": (CGKeyCode(kVK_ANSI_1), .maskShift),
-        "K": (CGKeyCode(kVK_ANSI_3), .maskShift),
-        "L": (CGKeyCode(kVK_ANSI_Grave), .maskShift),
-        "Z": (CGKeyCode(kVK_ANSI_Z), .maskCommand),
-        "X": (CGKeyCode(kVK_ANSI_X), .maskCommand),
-        "C": (CGKeyCode(kVK_ANSI_C), .maskCommand),
-        "V": (CGKeyCode(kVK_ANSI_V), .maskCommand),
-        //"B": (CGKeyCode(kVK_Control), []),
-        "N": (CGKeyCode(kVK_ANSI_Equal), []),
-        "M": (CGKeyCode(kVK_ANSI_2), .maskShift),
-        ",": (CGKeyCode(kVK_ANSI_4), .maskShift),
-        ".": (CGKeyCode(kVK_ANSI_6), .maskShift),
-        "/": (CGKeyCode(kVK_ANSI_Backslash), [])
-    ]
     private var leftLayout: Layout?
     private var rightLayout: Layout?
     private var leftLabels: [[String]] = []
@@ -204,6 +214,10 @@ final class ContentViewModel: ObservableObject {
         customButtons = buttons
     }
 
+    func updateKeyMappings(_ actions: [String: KeyMapping]) {
+        customKeyMappings = actions
+    }
+
     func snapshotTouchData() -> [OMSTouchData] {
         latestTouchData
     }
@@ -220,6 +234,8 @@ final class ContentViewModel: ObservableObject {
     private enum ModifierKey {
         case shift
         case control
+        case option
+        case command
     }
 
     private struct ActiveTouch {
@@ -253,7 +269,8 @@ final class ContentViewModel: ObservableObject {
             keyRects: keyRects,
             labels: labels,
             customButtons: customButtons.filter { $0.side == side },
-            canvasSize: canvasSize
+            canvasSize: canvasSize,
+            side: side
         )
 
         for touch in touches {
@@ -429,7 +446,8 @@ final class ContentViewModel: ObservableObject {
         keyRects: [[CGRect]],
         labels: [[String]],
         customButtons: [CustomButton],
-        canvasSize: CGSize
+        canvasSize: CGSize,
+        side: TrackpadSide
     ) -> [KeyBinding] {
         var bindings: [KeyBinding] = []
         for row in 0..<keyRects.count {
@@ -437,7 +455,8 @@ final class ContentViewModel: ObservableObject {
                 guard row < labels.count,
                       col < labels[row].count else { continue }
                 let label = labels[row][col]
-                guard let binding = bindingForLabel(label, rect: keyRects[row][col]) else { continue }
+                let position = GridKeyPosition(side: side, row: row, column: col)
+                guard let binding = bindingForLabel(label, rect: keyRects[row][col], position: position) else { continue }
                 bindings.append(binding)
             }
         }
@@ -457,16 +476,65 @@ final class ContentViewModel: ObservableObject {
             bindings.append(KeyBinding(
                 rect: rect,
                 label: button.action.label,
-                action: action
+                action: action,
+                position: nil,
+                holdAction: button.hold
             ))
         }
 
         return bindings
     }
 
-    private func bindingForLabel(_ label: String, rect: CGRect) -> KeyBinding? {
-        guard let (code, flags) = KeyActionCatalog.bindingsByLabel[label] else { return nil }
-        return KeyBinding(rect: rect, label: label, action: .key(code: code, flags: flags))
+    private func bindingForLabel(_ label: String, rect: CGRect, position: GridKeyPosition) -> KeyBinding? {
+        guard let action = keyAction(for: position, label: label) else { return nil }
+        return makeBinding(for: action, rect: rect, position: position)
+    }
+
+    private func keyAction(for position: GridKeyPosition, label: String) -> KeyAction? {
+        if let mapping = customKeyMappings[position.storageKey] {
+            return mapping.primary
+        }
+        if let mapping = customKeyMappings[label] {
+            return mapping.primary
+        }
+        return KeyActionCatalog.action(for: label)
+    }
+
+    private func holdAction(for position: GridKeyPosition?, label: String) -> KeyAction? {
+        if let position, let mapping = customKeyMappings[position.storageKey] {
+            if let hold = mapping.hold { return hold }
+        }
+        if let mapping = customKeyMappings[label], let hold = mapping.hold {
+            return hold
+        }
+        return KeyActionCatalog.holdAction(for: label)
+    }
+
+    private func makeBinding(
+        for action: KeyAction,
+        rect: CGRect,
+        position: GridKeyPosition?,
+        holdAction: KeyAction? = nil
+    ) -> KeyBinding? {
+        switch action.kind {
+        case .key:
+            let flags = CGEventFlags(rawValue: action.flags)
+            return KeyBinding(
+                rect: rect,
+                label: action.label,
+                action: .key(code: CGKeyCode(action.keyCode), flags: flags),
+                position: position,
+                holdAction: holdAction
+            )
+        case .typingToggle:
+            return KeyBinding(
+                rect: rect,
+                label: action.label,
+                action: .typingToggle,
+                position: position,
+                holdAction: holdAction
+            )
+        }
     }
 
     private func binding(at point: CGPoint, bindings: [KeyBinding]) -> KeyBinding? {
@@ -505,6 +573,12 @@ final class ContentViewModel: ObservableObject {
         if code == CGKeyCode(kVK_Control) {
             return .control
         }
+        if code == CGKeyCode(kVK_Option) {
+            return .option
+        }
+        if code == CGKeyCode(kVK_Command) {
+            return .command
+        }
         return nil
     }
 
@@ -514,11 +588,19 @@ final class ContentViewModel: ObservableObject {
     }
 
     private func holdBinding(for binding: KeyBinding) -> KeyBinding? {
-        guard let (code, flags) = holdBindingsByLabel[binding.label] else { return nil }
-        return KeyBinding(
+        if let holdAction = binding.holdAction {
+            return makeBinding(
+                for: holdAction,
+                rect: binding.rect,
+                position: binding.position,
+                holdAction: binding.holdAction
+            )
+        }
+        guard let action = holdAction(for: binding.position, label: binding.label) else { return nil }
+        return makeBinding(
+            for: action,
             rect: binding.rect,
-            label: binding.label,
-            action: .key(code: code, flags: flags)
+            position: binding.position
         )
     }
 
@@ -540,6 +622,12 @@ final class ContentViewModel: ObservableObject {
         }
         if controlTouchCount > 0 {
             modifierFlags.insert(.maskControl)
+        }
+        if optionTouchCount > 0 {
+            modifierFlags.insert(.maskAlternate)
+        }
+        if commandTouchCount > 0 {
+            modifierFlags.insert(.maskCommand)
         }
         guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true),
               let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false) else {
@@ -583,6 +671,16 @@ final class ContentViewModel: ObservableObject {
                 postKey(binding: binding, keyDown: true)
             }
             controlTouchCount += 1
+        case .option:
+            if optionTouchCount == 0 {
+                postKey(binding: binding, keyDown: true)
+            }
+            optionTouchCount += 1
+        case .command:
+            if commandTouchCount == 0 {
+                postKey(binding: binding, keyDown: true)
+            }
+            commandTouchCount += 1
         }
     }
 
@@ -596,6 +694,16 @@ final class ContentViewModel: ObservableObject {
         case .control:
             controlTouchCount = max(0, controlTouchCount - 1)
             if controlTouchCount == 0 {
+                postKey(binding: binding, keyDown: false)
+            }
+        case .option:
+            optionTouchCount = max(0, optionTouchCount - 1)
+            if optionTouchCount == 0 {
+                postKey(binding: binding, keyDown: false)
+            }
+        case .command:
+            commandTouchCount = max(0, commandTouchCount - 1)
+            if commandTouchCount == 0 {
                 postKey(binding: binding, keyDown: false)
             }
         }
@@ -619,7 +727,9 @@ final class ContentViewModel: ObservableObject {
             let shiftBinding = KeyBinding(
                 rect: .zero,
                 label: "Shift",
-                action: .key(code: CGKeyCode(kVK_Shift), flags: [])
+                action: .key(code: CGKeyCode(kVK_Shift), flags: []),
+                position: nil,
+                holdAction: nil
             )
             postKey(binding: shiftBinding, keyDown: false)
             leftShiftTouchCount = 0
@@ -628,10 +738,34 @@ final class ContentViewModel: ObservableObject {
             let controlBinding = KeyBinding(
                 rect: .zero,
                 label: "Ctrl",
-                action: .key(code: CGKeyCode(kVK_Control), flags: [])
+                action: .key(code: CGKeyCode(kVK_Control), flags: []),
+                position: nil,
+                holdAction: nil
             )
             postKey(binding: controlBinding, keyDown: false)
             controlTouchCount = 0
+        }
+        if optionTouchCount > 0 {
+            let optionBinding = KeyBinding(
+                rect: .zero,
+                label: "Option",
+                action: .key(code: CGKeyCode(kVK_Option), flags: []),
+                position: nil,
+                holdAction: nil
+            )
+            postKey(binding: optionBinding, keyDown: false)
+            optionTouchCount = 0
+        }
+        if commandTouchCount > 0 {
+            let commandBinding = KeyBinding(
+                rect: .zero,
+                label: "Cmd",
+                action: .key(code: CGKeyCode(kVK_Command), flags: []),
+                position: nil,
+                holdAction: nil
+            )
+            postKey(binding: commandBinding, keyDown: false)
+            commandTouchCount = 0
         }
         for touchKey in activeTouches.keys {
             stopRepeat(for: touchKey)
@@ -659,13 +793,6 @@ final class ContentViewModel: ObservableObject {
         let dy = end.y - start.y
         return (dx * dx + dy * dy).squareRoot()
     }
-}
-
-enum TrackpadSide: String, Codable, CaseIterable, Identifiable {
-    case left
-    case right
-
-    var id: String { rawValue }
 }
 
 struct NormalizedRect: Codable, Hashable {
@@ -732,11 +859,17 @@ struct KeyAction: Codable, Hashable {
     }
 }
 
+struct KeyMapping: Codable, Hashable {
+    var primary: KeyAction
+    var hold: KeyAction?
+}
+
 struct CustomButton: Identifiable, Codable, Hashable {
     var id: UUID
     var side: TrackpadSide
     var rect: NormalizedRect
     var action: KeyAction
+    var hold: KeyAction?
 }
 
 enum CustomButtonStore {
@@ -793,6 +926,8 @@ enum CustomButtonDefaults {
                     side: .left,
                     rect: normalized.mirroredHorizontally(),
                     action: leftActions[index]
+                    ,
+                    hold: nil
                 ))
             }
             if index < rightActions.count {
@@ -801,6 +936,8 @@ enum CustomButtonDefaults {
                     side: .right,
                     rect: normalized,
                     action: rightActions[index]
+                    ,
+                    hold: nil
                 ))
             }
         }
@@ -810,10 +947,42 @@ enum CustomButtonDefaults {
 
 enum KeyActionCatalog {
     static let typingToggleLabel = "Typing Toggle"
+    static let typingToggleDisplayLabel = "Typing\nToggle"
     static let legacyTypingToggleLabel = "Typing Mode Toggle"
+    static let holdBindingsByLabel: [String: (CGKeyCode, CGEventFlags)] = [
+        "Esc": (CGKeyCode(kVK_Escape), []),
+        "Q": (CGKeyCode(kVK_ANSI_LeftBracket), []),
+        "W": (CGKeyCode(kVK_ANSI_RightBracket), []),
+        "E": (CGKeyCode(kVK_ANSI_LeftBracket), .maskShift),
+        "R": (CGKeyCode(kVK_ANSI_RightBracket), .maskShift),
+        "T": (CGKeyCode(kVK_ANSI_Quote), []),
+        "Y": (CGKeyCode(kVK_ANSI_Minus), []),
+        "U": (CGKeyCode(kVK_ANSI_7), .maskShift),
+        "I": (CGKeyCode(kVK_ANSI_8), .maskShift),
+        "O": (CGKeyCode(kVK_ANSI_F), .maskCommand),
+        "P": (CGKeyCode(kVK_ANSI_R), .maskCommand),
+        "A": (CGKeyCode(kVK_ANSI_A), .maskCommand),
+        "S": (CGKeyCode(kVK_ANSI_S), .maskCommand),
+        "D": (CGKeyCode(kVK_ANSI_9), .maskShift),
+        "F": (CGKeyCode(kVK_ANSI_0), .maskShift),
+        "G": (CGKeyCode(kVK_ANSI_Quote), .maskShift),
+        "H": (CGKeyCode(kVK_ANSI_Minus), .maskShift),
+        "J": (CGKeyCode(kVK_ANSI_1), .maskShift),
+        "K": (CGKeyCode(kVK_ANSI_3), .maskShift),
+        "L": (CGKeyCode(kVK_ANSI_Grave), .maskShift),
+        "Z": (CGKeyCode(kVK_ANSI_Z), .maskCommand),
+        "X": (CGKeyCode(kVK_ANSI_X), .maskCommand),
+        "C": (CGKeyCode(kVK_ANSI_C), .maskCommand),
+        "V": (CGKeyCode(kVK_ANSI_V), .maskCommand),
+        //"B": (CGKeyCode(kVK_Control), []),
+        "N": (CGKeyCode(kVK_ANSI_Equal), []),
+        "M": (CGKeyCode(kVK_ANSI_2), .maskShift),
+        ",": (CGKeyCode(kVK_ANSI_4), .maskShift),
+        ".": (CGKeyCode(kVK_ANSI_6), .maskShift),
+        "/": (CGKeyCode(kVK_ANSI_Backslash), [])
+    ]
     static let bindingsByLabel: [String: (CGKeyCode, CGEventFlags)] = [
-        "Esc": (CGKeyCode(kVK_Tab), []),
-        "Escape": (CGKeyCode(kVK_Escape), []),
+        "Esc": (CGKeyCode(kVK_Escape), []),
         "Tab": (CGKeyCode(kVK_Tab), []),
         "Q": (CGKeyCode(kVK_ANSI_Q), []),
         "W": (CGKeyCode(kVK_ANSI_W), []),
@@ -839,14 +1008,12 @@ enum KeyActionCatalog {
         "O": (CGKeyCode(kVK_ANSI_O), []),
         "P": (CGKeyCode(kVK_ANSI_P), []),
         "Back": (CGKeyCode(kVK_Delete), []),
-        "Backspace": (CGKeyCode(kVK_Delete), []),
         "H": (CGKeyCode(kVK_ANSI_H), []),
         "J": (CGKeyCode(kVK_ANSI_J), []),
         "K": (CGKeyCode(kVK_ANSI_K), []),
         "L": (CGKeyCode(kVK_ANSI_L), []),
         ";": (CGKeyCode(kVK_ANSI_Semicolon), []),
         "Ret": (CGKeyCode(kVK_Return), []),
-        "Return": (CGKeyCode(kVK_Return), []),
         "N": (CGKeyCode(kVK_ANSI_N), []),
         "M": (CGKeyCode(kVK_ANSI_M), []),
         ",": (CGKeyCode(kVK_ANSI_Comma), []),
@@ -857,15 +1024,68 @@ enum KeyActionCatalog {
         "Space": (CGKeyCode(kVK_Space), [])
     ]
 
-    static let presets: [KeyAction] = {
-        var items: [KeyAction] = []
-        for (label, binding) in bindingsByLabel {
-            items.append(KeyAction(
-                label: label,
+    private struct ActionIdentifier: Hashable {
+        let keyCode: UInt16
+        let flags: UInt64
+    }
+
+    private static let duplicateLabelOverrides: [String: String] = [
+        "Escape": "Esc",
+        "Return": "Ret"
+    ]
+
+    private static func uniqueActions(from entries: [String: (CGKeyCode, CGEventFlags)]) -> [KeyAction] {
+        var actionsById: [ActionIdentifier: KeyAction] = [:]
+        for label in entries.keys.sorted() {
+            guard let binding = entries[label] else { continue }
+            let identifier = ActionIdentifier(
                 keyCode: UInt16(binding.0),
                 flags: binding.1.rawValue
-            ))
+            )
+            guard actionsById[identifier] == nil else { continue }
+            let displayLabel = duplicateLabelOverrides[label] ?? label
+            actionsById[identifier] = KeyAction(
+                label: displayLabel,
+                keyCode: identifier.keyCode,
+                flags: identifier.flags
+            )
         }
+        return actionsById.values.sorted { $0.label < $1.label }
+    }
+
+    static let holdLabelOverridesByLabel: [String: String] = [
+        "Q": "[",
+        "W": "]",
+        "E": "{",
+        "R": "}",
+        "T": "'",
+        "Y": "-",
+        "U": "&",
+        "I": "*",
+        "O": "Cmd+F",
+        "P": "Cmd+R",
+        "A": "Cmd+A",
+        "S": "Cmd+S",
+        "D": "(",
+        "F": ")",
+        "G": "\"",
+        "H": "_",
+        "J": "!",
+        "K": "#",
+        "L": "~",
+        "Z": "Cmd+Z",
+        "X": "Cmd+X",
+        "C": "Cmd+C",
+        "V": "Cmd+V",
+        "N": "=",
+        "M": "@",
+        ",": "$",
+        ".": "^",
+        "/": "\\"
+    ]
+
+    static let presets: [KeyAction] = {
+        var items = uniqueActions(from: bindingsByLabel)
         items.append(KeyAction(
             label: typingToggleLabel,
             keyCode: 0,
@@ -873,6 +1093,32 @@ enum KeyActionCatalog {
             kind: .typingToggle
         ))
         return items.sorted { $0.label < $1.label }
+    }()
+
+    static let holdPresets: [KeyAction] = {
+        var actions = uniqueActions(from: bindingsByLabel)
+        var identifiers = Set(actions.map { ActionIdentifier(keyCode: $0.keyCode, flags: $0.flags) })
+        for (label, binding) in holdBindingsByLabel {
+            let identifier = ActionIdentifier(
+                keyCode: UInt16(binding.0),
+                flags: binding.1.rawValue
+            )
+            guard !identifiers.contains(identifier) else { continue }
+            let holdLabel = holdLabelOverridesByLabel[label] ?? "Hold \(label)"
+            actions.append(KeyAction(
+                label: holdLabel,
+                keyCode: identifier.keyCode,
+                flags: identifier.flags
+            ))
+            identifiers.insert(identifier)
+        }
+        actions.append(KeyAction(
+            label: typingToggleLabel,
+            keyCode: 0,
+            flags: 0,
+            kind: .typingToggle
+        ))
+        return actions.sorted { $0.label < $1.label }
     }()
 
     static func action(for label: String) -> KeyAction? {
@@ -890,5 +1136,47 @@ enum KeyActionCatalog {
             keyCode: UInt16(binding.0),
             flags: binding.1.rawValue
         )
+    }
+    static func holdAction(for label: String) -> KeyAction? {
+        guard let binding = holdBindingsByLabel[label] else { return nil }
+        if let preset = action(
+            forCode: UInt16(binding.0),
+            flags: binding.1
+        ) {
+            return preset
+        }
+        let holdLabel = holdLabelOverridesByLabel[label] ?? "Hold \(label)"
+        return KeyAction(
+            label: holdLabel,
+            keyCode: UInt16(binding.0),
+            flags: binding.1.rawValue
+        )
+    }
+
+    static func action(
+        forCode keyCode: UInt16,
+        flags: CGEventFlags
+    ) -> KeyAction? {
+        presets.first { $0.keyCode == keyCode && $0.flags == flags.rawValue }
+    }
+}
+
+enum KeyActionMappingStore {
+    static func decode(_ data: Data) -> [String: KeyMapping]? {
+        guard !data.isEmpty else { return nil }
+        do {
+            return try JSONDecoder().decode([String: KeyMapping].self, from: data)
+        } catch {
+            return nil
+        }
+    }
+
+    static func encode(_ mappings: [String: KeyMapping]) -> Data? {
+        guard !mappings.isEmpty else { return nil }
+        do {
+            return try JSONEncoder().encode(mappings)
+        } catch {
+            return nil
+        }
     }
 }

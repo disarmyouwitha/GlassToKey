@@ -6,4 +6,5 @@ enum GlassToKeyDefaultsKeys {
     static let visualsEnabled = "GlassToKey.visualsEnabled"
     static let columnSettings = "GlassToKey.columnSettings"
     static let customButtons = "GlassToKey.customButtons"
+    static let keyMappings = "GlassToKey.keyMappings"
 }
