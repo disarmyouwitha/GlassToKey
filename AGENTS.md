@@ -41,9 +41,8 @@
 - No notes left
 
 ## TODO
-- Can we add Hold Action to  Button Tuning
-- Layers I need to add a layer key I can add to the thumb cluster like MOmentary layer switching 
-- Make status light blue on layer change
+- Next up: Layers! I need you to re-think our keymap code to use layers. I need you to treat the current keymap as Layer0, and I want you to duplicate it as Layer1. You should add 2 Actions: Momentary layer while held and an action that toggles the layer, like MO(1) or TO(1). When on the second layer the status light should turn blue
+- Make status light blue on layer changem
 - Ask me for arrow keys + Num pad layout for the new layer
 - Possible to turn on/off OSX single-finger tap with typing mode??
 - can we devise a keymap layout config we can save and let ppl edit & the program uses that to map keys?

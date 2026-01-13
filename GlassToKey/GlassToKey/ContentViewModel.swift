@@ -982,8 +982,7 @@ enum KeyActionCatalog {
         "/": (CGKeyCode(kVK_ANSI_Backslash), [])
     ]
     static let bindingsByLabel: [String: (CGKeyCode, CGEventFlags)] = [
-        "Esc": (CGKeyCode(kVK_Tab), []),
-        "Escape": (CGKeyCode(kVK_Escape), []),
+        "Esc": (CGKeyCode(kVK_Escape), []),
         "Tab": (CGKeyCode(kVK_Tab), []),
         "Q": (CGKeyCode(kVK_ANSI_Q), []),
         "W": (CGKeyCode(kVK_ANSI_W), []),
@@ -1009,14 +1008,12 @@ enum KeyActionCatalog {
         "O": (CGKeyCode(kVK_ANSI_O), []),
         "P": (CGKeyCode(kVK_ANSI_P), []),
         "Back": (CGKeyCode(kVK_Delete), []),
-        "Backspace": (CGKeyCode(kVK_Delete), []),
         "H": (CGKeyCode(kVK_ANSI_H), []),
         "J": (CGKeyCode(kVK_ANSI_J), []),
         "K": (CGKeyCode(kVK_ANSI_K), []),
         "L": (CGKeyCode(kVK_ANSI_L), []),
         ";": (CGKeyCode(kVK_ANSI_Semicolon), []),
         "Ret": (CGKeyCode(kVK_Return), []),
-        "Return": (CGKeyCode(kVK_Return), []),
         "N": (CGKeyCode(kVK_ANSI_N), []),
         "M": (CGKeyCode(kVK_ANSI_M), []),
         ",": (CGKeyCode(kVK_ANSI_Comma), []),
