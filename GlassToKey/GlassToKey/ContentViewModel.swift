@@ -910,6 +910,50 @@ enum KeyActionCatalog {
         return items.sorted { $0.label < $1.label }
     }()
 
+    static let holdLabelOverridesByLabel: [String: String] = [
+        "Q": "[",
+        "W": "]",
+        "E": "{",
+        "R": "}",
+        "T": "'",
+        "Y": "-",
+        "U": "&",
+        "I": "*",
+        "O": "Cmd+F",
+        "P": "Cmd+R",
+        "A": "Cmd+A",
+        "S": "Cmd+S",
+        "D": "(",
+        "F": ")",
+        "G": "\"",
+        "H": "_",
+        "J": "!",
+        "K": "#",
+        "L": "~",
+        "Z": "Cmd+Z",
+        "X": "Cmd+X",
+        "C": "Cmd+C",
+        "V": "Cmd+V",
+        "N": "=",
+        "M": "@",
+        ",": "$",
+        ".": "^",
+        "/": "\\"
+    ]
+
+    static let holdPresets: [KeyAction] = {
+        var items = Set(presets)
+        for (label, binding) in holdBindingsByLabel {
+            let holdLabel = holdLabelOverridesByLabel[label] ?? "Hold \(label)"
+            items.insert(KeyAction(
+                label: holdLabel,
+                keyCode: UInt16(binding.0),
+                flags: binding.1.rawValue
+            ))
+        }
+        return items.sorted { $0.label < $1.label }
+    }()
+
     static func action(for label: String) -> KeyAction? {
         if label == typingToggleLabel || label == legacyTypingToggleLabel {
             return KeyAction(
@@ -934,8 +978,9 @@ enum KeyActionCatalog {
         ) {
             return preset
         }
+        let holdLabel = holdLabelOverridesByLabel[label] ?? "Hold \(label)"
         return KeyAction(
-            label: "Hold \(label)",
+            label: holdLabel,
             keyCode: UInt16(binding.0),
             flags: binding.1.rawValue
         )

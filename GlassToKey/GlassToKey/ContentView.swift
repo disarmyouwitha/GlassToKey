@@ -419,7 +419,7 @@ struct ContentView: View {
                                     .pickerStyle(MenuPickerStyle())
                                     Picker("Hold Action", selection: holdActionBinding(for: gridKey.label)) {
                                         Text("None").tag(nil as KeyAction?)
-                                        ForEach(KeyActionCatalog.presets, id: \.self) { action in
+                                        ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
                                             Text(action.label).tag(action as KeyAction?)
                                         }
                                     }
