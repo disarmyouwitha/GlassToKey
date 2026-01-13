@@ -30,6 +30,7 @@
 - Keep framework changes in `Framework/OpenMultitouchSupportXCF/`.
 - Treat `OpenMultitouchSupportXCF.xcframework` as generated output (rebuild instead of hand-editing).
 - Call out testing gaps when relevant.
+- GlassToKey build command (ask): `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
 
 ## Common workflows
 ### Swift wrapper changes only
