@@ -15,6 +15,14 @@ struct ContentView: View {
         let column: Int
         let label: String
         let side: TrackpadSide
+
+        var position: GridKeyPosition {
+            GridKeyPosition(side: side, row: row, column: column)
+        }
+
+        var storageKey: String {
+            position.storageKey
+        }
     }
 
     @StateObject private var viewModel: ContentViewModel
@@ -426,13 +434,13 @@ struct ContentView: View {
                                     Text("Selected key: \(gridKey.label)")
                                         .font(.subheadline)
                                         .bold()
-                                    Picker("Action", selection: keyActionBinding(for: gridKey.label)) {
+                                    Picker("Action", selection: keyActionBinding(for: gridKey)) {
                                         ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
                                             pickerLabel(for: action).tag(action)
                                         }
                                     }
                                     .pickerStyle(MenuPickerStyle())
-                                    Picker("Hold Action", selection: holdActionBinding(for: gridKey.label)) {
+                                    Picker("Hold Action", selection: holdActionBinding(for: gridKey)) {
                                         Text("None").tag(nil as KeyAction?)
                                         ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
                                             pickerLabel(for: action).tag(action as KeyAction?)
@@ -536,7 +544,7 @@ struct ContentView: View {
         customButtons: [CustomButton],
         visualsEnabled: Bool
     ) -> some View {
-        let labelProvider = labelInfoProvider(for: labels)
+        let labelProvider = labelInfoProvider(for: labels, side: side)
         return VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.subheadline)
@@ -1313,8 +1321,8 @@ struct ContentView: View {
         return nil
     }
 
-    private func labelInfo(for label: String) -> (primary: String, hold: String?) {
-        let mapping = effectiveKeyMapping(for: label)
+    private func labelInfo(for key: SelectedGridKey) -> (primary: String, hold: String?) {
+        let mapping = effectiveKeyMapping(for: key)
         return (primary: mapping.primary.label, hold: mapping.hold?.label)
     }
 
@@ -1326,27 +1334,33 @@ struct ContentView: View {
             .multilineTextAlignment(.center)
     }
 
-    private func effectiveKeyMapping(for label: String) -> KeyMapping {
-        if let mapping = keyMappings[label] {
+    private func effectiveKeyMapping(for key: SelectedGridKey) -> KeyMapping {
+        if let mapping = keyMappings[key.storageKey] {
             return mapping
         }
-        return defaultKeyMapping(for: label) ?? KeyMapping(primary: KeyAction(label: label, keyCode: 0, flags: 0), hold: nil)
+        if let mapping = keyMappings[key.label] {
+            return mapping
+        }
+        return defaultKeyMapping(for: key.label) ?? KeyMapping(primary: KeyAction(label: key.label, keyCode: 0, flags: 0), hold: nil)
     }
 
     private func updateKeyMapping(
-        for label: String,
+        for key: SelectedGridKey,
         _ update: (inout KeyMapping) -> Void
     ) {
-        var mapping = keyMappings[label]
-            ?? defaultKeyMapping(for: label)
-            ?? KeyMapping(primary: KeyAction(label: label, keyCode: 0, flags: 0), hold: nil)
+        var mapping = keyMappings[key.storageKey]
+            ?? keyMappings[key.label]
+            ?? defaultKeyMapping(for: key.label)
+            ?? KeyMapping(primary: KeyAction(label: key.label, keyCode: 0, flags: 0), hold: nil)
         update(&mapping)
-        if let defaultMapping = defaultKeyMapping(for: label),
+        if let defaultMapping = defaultKeyMapping(for: key.label),
            defaultMapping == mapping {
-            keyMappings.removeValue(forKey: label)
+            keyMappings.removeValue(forKey: key.storageKey)
+            keyMappings.removeValue(forKey: key.label)
             return
         }
-        keyMappings[label] = mapping
+        keyMappings[key.storageKey] = mapping
+        keyMappings.removeValue(forKey: key.label)
     }
 
     private func defaultKeyMapping(for label: String) -> KeyMapping? {
@@ -1355,35 +1369,37 @@ struct ContentView: View {
     }
 
     private func labelInfoProvider(
-        for labels: [[String]]
+        for labels: [[String]],
+        side: TrackpadSide
     ) -> (Int, Int) -> (primary: String, hold: String?) {
         { row, col in
             guard row < labels.count,
                   col < labels[row].count else {
                 return (primary: "", hold: nil)
             }
-            return labelInfo(for: labels[row][col])
+            let key = SelectedGridKey(row: row, column: col, label: labels[row][col], side: side)
+            return labelInfo(for: key)
         }
     }
 
-    private func keyActionBinding(for label: String) -> Binding<KeyAction> {
+    private func keyActionBinding(for key: SelectedGridKey) -> Binding<KeyAction> {
         Binding(
             get: {
-                effectiveKeyMapping(for: label).primary
+                effectiveKeyMapping(for: key).primary
             },
             set: { newValue in
-                updateKeyMapping(for: label) { $0.primary = newValue }
+                updateKeyMapping(for: key) { $0.primary = newValue }
             }
         )
     }
 
-    private func holdActionBinding(for label: String) -> Binding<KeyAction?> {
+    private func holdActionBinding(for key: SelectedGridKey) -> Binding<KeyAction?> {
         Binding(
             get: {
-                effectiveKeyMapping(for: label).hold
+                effectiveKeyMapping(for: key).hold
             },
             set: { newValue in
-                updateKeyMapping(for: label) { $0.hold = newValue }
+                updateKeyMapping(for: key) { $0.hold = newValue }
             }
         )
     }
