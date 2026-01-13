@@ -1013,12 +1013,19 @@ struct ContentView: View {
 
                 baseButton
                 if isSelected {
-                    Text(button.action.label)
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .frame(width: rect.width, height: rect.height)
-                        .offset(x: rect.minX, y: rect.minY)
-                        .allowsHitTesting(false)
+                    VStack(spacing: 2) {
+                        Text(button.action.label)
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        if let holdLabel = button.hold?.label {
+                            Text(holdLabel)
+                                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(.secondary.opacity(0.7))
+                        }
+                    }
+                    .frame(width: rect.width, height: rect.height)
+                    .offset(x: rect.minX, y: rect.minY)
+                    .allowsHitTesting(false)
                     Circle()
                         .fill(Color.accentColor)
                         .frame(
@@ -1252,15 +1259,24 @@ struct ContentView: View {
         context: inout GraphicsContext,
         buttons: [CustomButton]
     ) {
-        let textStyle = Font.system(size: 10, weight: .semibold, design: .monospaced)
+        let primaryStyle = Font.system(size: 10, weight: .semibold, design: .monospaced)
+        let holdStyle = Font.system(size: 8, weight: .semibold, design: .monospaced)
         for button in buttons {
             let rect = button.rect.rect(in: trackpadSize)
             context.fill(Path(rect), with: .color(Color.blue.opacity(0.12)))
             context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
-            let label = Text(button.action.label)
-                .font(textStyle)
+            let center = CGPoint(x: rect.midX, y: rect.midY)
+            let primaryText = Text(button.action.label)
+                .font(primaryStyle)
                 .foregroundColor(.secondary)
-            context.draw(label, at: CGPoint(x: rect.midX, y: rect.midY))
+            let primaryY = center.y - (button.hold != nil ? 4 : 0)
+            context.draw(primaryText, at: CGPoint(x: center.x, y: primaryY))
+            if let holdLabel = button.hold?.label {
+                let holdText = Text(holdLabel)
+                    .font(holdStyle)
+                    .foregroundColor(.secondary.opacity(0.7))
+                context.draw(holdText, at: CGPoint(x: center.x, y: center.y + 6))
+            }
         }
     }
 

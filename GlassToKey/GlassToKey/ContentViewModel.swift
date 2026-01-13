@@ -98,6 +98,8 @@ final class ContentViewModel: ObservableObject {
     private var disqualifiedTouches: Set<TouchKey> = []
     private var leftShiftTouchCount = 0
     private var controlTouchCount = 0
+    private var optionTouchCount = 0
+    private var commandTouchCount = 0
     private var repeatTasks: [TouchKey: Task<Void, Never>] = [:]
     private var toggleTouchStarts: [TouchKey: Date] = [:]
     private let tapMaxDuration: TimeInterval = 0.2
@@ -232,6 +234,8 @@ final class ContentViewModel: ObservableObject {
     private enum ModifierKey {
         case shift
         case control
+        case option
+        case command
     }
 
     private struct ActiveTouch {
@@ -569,6 +573,12 @@ final class ContentViewModel: ObservableObject {
         if code == CGKeyCode(kVK_Control) {
             return .control
         }
+        if code == CGKeyCode(kVK_Option) {
+            return .option
+        }
+        if code == CGKeyCode(kVK_Command) {
+            return .command
+        }
         return nil
     }
 
@@ -613,6 +623,12 @@ final class ContentViewModel: ObservableObject {
         if controlTouchCount > 0 {
             modifierFlags.insert(.maskControl)
         }
+        if optionTouchCount > 0 {
+            modifierFlags.insert(.maskAlternate)
+        }
+        if commandTouchCount > 0 {
+            modifierFlags.insert(.maskCommand)
+        }
         guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true),
               let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false) else {
             return
@@ -655,6 +671,16 @@ final class ContentViewModel: ObservableObject {
                 postKey(binding: binding, keyDown: true)
             }
             controlTouchCount += 1
+        case .option:
+            if optionTouchCount == 0 {
+                postKey(binding: binding, keyDown: true)
+            }
+            optionTouchCount += 1
+        case .command:
+            if commandTouchCount == 0 {
+                postKey(binding: binding, keyDown: true)
+            }
+            commandTouchCount += 1
         }
     }
 
@@ -668,6 +694,16 @@ final class ContentViewModel: ObservableObject {
         case .control:
             controlTouchCount = max(0, controlTouchCount - 1)
             if controlTouchCount == 0 {
+                postKey(binding: binding, keyDown: false)
+            }
+        case .option:
+            optionTouchCount = max(0, optionTouchCount - 1)
+            if optionTouchCount == 0 {
+                postKey(binding: binding, keyDown: false)
+            }
+        case .command:
+            commandTouchCount = max(0, commandTouchCount - 1)
+            if commandTouchCount == 0 {
                 postKey(binding: binding, keyDown: false)
             }
         }
@@ -708,6 +744,28 @@ final class ContentViewModel: ObservableObject {
             )
             postKey(binding: controlBinding, keyDown: false)
             controlTouchCount = 0
+        }
+        if optionTouchCount > 0 {
+            let optionBinding = KeyBinding(
+                rect: .zero,
+                label: "Option",
+                action: .key(code: CGKeyCode(kVK_Option), flags: []),
+                position: nil,
+                holdAction: nil
+            )
+            postKey(binding: optionBinding, keyDown: false)
+            optionTouchCount = 0
+        }
+        if commandTouchCount > 0 {
+            let commandBinding = KeyBinding(
+                rect: .zero,
+                label: "Cmd",
+                action: .key(code: CGKeyCode(kVK_Command), flags: []),
+                position: nil,
+                holdAction: nil
+            )
+            postKey(binding: commandBinding, keyDown: false)
+            commandTouchCount = 0
         }
         for touchKey in activeTouches.keys {
             stopRepeat(for: touchKey)
