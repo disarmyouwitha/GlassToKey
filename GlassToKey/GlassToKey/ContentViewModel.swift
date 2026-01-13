@@ -813,6 +813,7 @@ enum CustomButtonDefaults {
 
 enum KeyActionCatalog {
     static let typingToggleLabel = "Typing Toggle"
+    static let typingToggleDisplayLabel = "Typing\nToggle"
     static let legacyTypingToggleLabel = "Typing Mode Toggle"
     static let holdBindingsByLabel: [String: (CGKeyCode, CGEventFlags)] = [
         "Esc": (CGKeyCode(kVK_Escape), []),
@@ -892,23 +893,34 @@ enum KeyActionCatalog {
         "Space": (CGKeyCode(kVK_Space), [])
     ]
 
-    static let presets: [KeyAction] = {
-        var items: [KeyAction] = []
-        for (label, binding) in bindingsByLabel {
-            items.append(KeyAction(
-                label: label,
+    private struct ActionIdentifier: Hashable {
+        let keyCode: UInt16
+        let flags: UInt64
+    }
+
+    private static let duplicateLabelOverrides: [String: String] = [
+        "Escape": "Esc",
+        "Return": "Ret"
+    ]
+
+    private static func uniqueActions(from entries: [String: (CGKeyCode, CGEventFlags)]) -> [KeyAction] {
+        var actionsById: [ActionIdentifier: KeyAction] = [:]
+        for label in entries.keys.sorted() {
+            guard let binding = entries[label] else { continue }
+            let identifier = ActionIdentifier(
                 keyCode: UInt16(binding.0),
                 flags: binding.1.rawValue
-            ))
+            )
+            guard actionsById[identifier] == nil else { continue }
+            let displayLabel = duplicateLabelOverrides[label] ?? label
+            actionsById[identifier] = KeyAction(
+                label: displayLabel,
+                keyCode: identifier.keyCode,
+                flags: identifier.flags
+            )
         }
-        items.append(KeyAction(
-            label: typingToggleLabel,
-            keyCode: 0,
-            flags: 0,
-            kind: .typingToggle
-        ))
-        return items.sorted { $0.label < $1.label }
-    }()
+        return actionsById.values.sorted { $0.label < $1.label }
+    }
 
     static let holdLabelOverridesByLabel: [String: String] = [
         "Q": "[",
@@ -941,17 +953,41 @@ enum KeyActionCatalog {
         "/": "\\"
     ]
 
+    static let presets: [KeyAction] = {
+        var items = uniqueActions(from: bindingsByLabel)
+        items.append(KeyAction(
+            label: typingToggleLabel,
+            keyCode: 0,
+            flags: 0,
+            kind: .typingToggle
+        ))
+        return items.sorted { $0.label < $1.label }
+    }()
+
     static let holdPresets: [KeyAction] = {
-        var items = Set(presets)
+        var actions = uniqueActions(from: bindingsByLabel)
+        var identifiers = Set(actions.map { ActionIdentifier(keyCode: $0.keyCode, flags: $0.flags) })
         for (label, binding) in holdBindingsByLabel {
-            let holdLabel = holdLabelOverridesByLabel[label] ?? "Hold \(label)"
-            items.insert(KeyAction(
-                label: holdLabel,
+            let identifier = ActionIdentifier(
                 keyCode: UInt16(binding.0),
                 flags: binding.1.rawValue
+            )
+            guard !identifiers.contains(identifier) else { continue }
+            let holdLabel = holdLabelOverridesByLabel[label] ?? "Hold \(label)"
+            actions.append(KeyAction(
+                label: holdLabel,
+                keyCode: identifier.keyCode,
+                flags: identifier.flags
             ))
+            identifiers.insert(identifier)
         }
-        return items.sorted { $0.label < $1.label }
+        actions.append(KeyAction(
+            label: typingToggleLabel,
+            keyCode: 0,
+            flags: 0,
+            kind: .typingToggle
+        ))
+        return actions.sorted { $0.label < $1.label }
     }()
 
     static func action(for label: String) -> KeyAction? {

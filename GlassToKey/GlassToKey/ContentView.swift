@@ -358,8 +358,8 @@ struct ContentView: View {
                                     }
                                     .pickerStyle(MenuPickerStyle())
                                     Picker("Action", selection: $customButtons[selectedIndex].action) {
-                                        ForEach(KeyActionCatalog.presets, id: \.self) { action in
-                                            Text(action.label).tag(action)
+                                        ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
+                                            pickerLabel(for: action).tag(action)
                                         }
                                     }
                                     .pickerStyle(MenuPickerStyle())
@@ -370,7 +370,14 @@ struct ContentView: View {
                                                 for: selectedIndex,
                                                 axis: .x
                                             )
-                                            Slider(
+                                            TextField(
+                                                "0.0",
+                                                value: xBinding,
+                                                formatter: Self.columnOffsetFormatter
+                                            )
+                                            .frame(width: 60)
+                                            Stepper(
+                                                "",
                                                 value: xBinding,
                                                 in: positionPercentRange(
                                                     for: selectedIndex,
@@ -378,8 +385,7 @@ struct ContentView: View {
                                                 ),
                                                 step: 0.5
                                             )
-                                            Text(xBinding.wrappedValue, format: .number.precision(.fractionLength(1)))
-                                                .monospacedDigit()
+                                            .labelsHidden()
                                         }
                                         GridRow {
                                             Text("Y (%)")
@@ -387,7 +393,14 @@ struct ContentView: View {
                                                 for: selectedIndex,
                                                 axis: .y
                                             )
-                                            Slider(
+                                            TextField(
+                                                "0.0",
+                                                value: yBinding,
+                                                formatter: Self.columnOffsetFormatter
+                                            )
+                                            .frame(width: 60)
+                                            Stepper(
+                                                "",
                                                 value: yBinding,
                                                 in: positionPercentRange(
                                                     for: selectedIndex,
@@ -395,8 +408,7 @@ struct ContentView: View {
                                                 ),
                                                 step: 0.5
                                             )
-                                            Text(yBinding.wrappedValue, format: .number.precision(.fractionLength(1)))
-                                                .monospacedDigit()
+                                            .labelsHidden()
                                         }
                                     }
                                     HStack {
@@ -416,14 +428,14 @@ struct ContentView: View {
                                         .bold()
                                     Picker("Action", selection: keyActionBinding(for: gridKey.label)) {
                                         ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
-                                            Text(action.label).tag(action)
+                                            pickerLabel(for: action).tag(action)
                                         }
                                     }
                                     .pickerStyle(MenuPickerStyle())
                                     Picker("Hold Action", selection: holdActionBinding(for: gridKey.label)) {
                                         Text("None").tag(nil as KeyAction?)
                                         ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
-                                            Text(action.label).tag(action as KeyAction?)
+                                            pickerLabel(for: action).tag(action as KeyAction?)
                                         }
                                     }
                                     .pickerStyle(MenuPickerStyle())
@@ -1304,6 +1316,14 @@ struct ContentView: View {
     private func labelInfo(for label: String) -> (primary: String, hold: String?) {
         let mapping = effectiveKeyMapping(for: label)
         return (primary: mapping.primary.label, hold: mapping.hold?.label)
+    }
+
+    private func pickerLabel(for action: KeyAction) -> some View {
+        let label = action.kind == .typingToggle
+            ? KeyActionCatalog.typingToggleDisplayLabel
+            : action.label
+        return Text(label)
+            .multilineTextAlignment(.center)
     }
 
     private func effectiveKeyMapping(for label: String) -> KeyMapping {
