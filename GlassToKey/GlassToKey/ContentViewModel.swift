@@ -59,6 +59,7 @@ final class ContentViewModel: ObservableObject {
         let label: String
         let action: KeyBindingAction
         let position: GridKeyPosition?
+        let holdAction: KeyAction?
     }
 
     struct Layout {
@@ -472,7 +473,8 @@ final class ContentViewModel: ObservableObject {
                 rect: rect,
                 label: button.action.label,
                 action: action,
-                position: nil
+                position: nil,
+                holdAction: button.hold
             ))
         }
 
@@ -507,7 +509,8 @@ final class ContentViewModel: ObservableObject {
     private func makeBinding(
         for action: KeyAction,
         rect: CGRect,
-        position: GridKeyPosition?
+        position: GridKeyPosition?,
+        holdAction: KeyAction? = nil
     ) -> KeyBinding? {
         switch action.kind {
         case .key:
@@ -516,14 +519,16 @@ final class ContentViewModel: ObservableObject {
                 rect: rect,
                 label: action.label,
                 action: .key(code: CGKeyCode(action.keyCode), flags: flags),
-                position: position
+                position: position,
+                holdAction: holdAction
             )
         case .typingToggle:
             return KeyBinding(
                 rect: rect,
                 label: action.label,
                 action: .typingToggle,
-                position: position
+                position: position,
+                holdAction: holdAction
             )
         }
     }
@@ -573,8 +578,20 @@ final class ContentViewModel: ObservableObject {
     }
 
     private func holdBinding(for binding: KeyBinding) -> KeyBinding? {
+        if let holdAction = binding.holdAction {
+            return makeBinding(
+                for: holdAction,
+                rect: binding.rect,
+                position: binding.position,
+                holdAction: binding.holdAction
+            )
+        }
         guard let action = holdAction(for: binding.position, label: binding.label) else { return nil }
-        return makeBinding(for: action, rect: binding.rect, position: binding.position)
+        return makeBinding(
+            for: action,
+            rect: binding.rect,
+            position: binding.position
+        )
     }
 
     private func maybeSendPendingContinuousTap(_ pending: PendingTouch, at point: CGPoint) {
@@ -675,7 +692,8 @@ final class ContentViewModel: ObservableObject {
                 rect: .zero,
                 label: "Shift",
                 action: .key(code: CGKeyCode(kVK_Shift), flags: []),
-                position: nil
+                position: nil,
+                holdAction: nil
             )
             postKey(binding: shiftBinding, keyDown: false)
             leftShiftTouchCount = 0
@@ -685,7 +703,8 @@ final class ContentViewModel: ObservableObject {
                 rect: .zero,
                 label: "Ctrl",
                 action: .key(code: CGKeyCode(kVK_Control), flags: []),
-                position: nil
+                position: nil,
+                holdAction: nil
             )
             postKey(binding: controlBinding, keyDown: false)
             controlTouchCount = 0
@@ -792,6 +811,7 @@ struct CustomButton: Identifiable, Codable, Hashable {
     var side: TrackpadSide
     var rect: NormalizedRect
     var action: KeyAction
+    var hold: KeyAction?
 }
 
 enum CustomButtonStore {
@@ -848,6 +868,8 @@ enum CustomButtonDefaults {
                     side: .left,
                     rect: normalized.mirroredHorizontally(),
                     action: leftActions[index]
+                    ,
+                    hold: nil
                 ))
             }
             if index < rightActions.count {
@@ -856,6 +878,8 @@ enum CustomButtonDefaults {
                     side: .right,
                     rect: normalized,
                     action: rightActions[index]
+                    ,
+                    hold: nil
                 ))
             }
         }

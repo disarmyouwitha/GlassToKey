@@ -371,6 +371,13 @@ struct ContentView: View {
                                         }
                                     }
                                     .pickerStyle(MenuPickerStyle())
+                                    Picker("Hold Action", selection: customButtonHoldBinding(for: selectedIndex)) {
+                                        Text("None").tag(nil as KeyAction?)
+                                        ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
+                                            pickerLabel(for: action).tag(action as KeyAction?)
+                                        }
+                                    }
+                                    .pickerStyle(MenuPickerStyle())
                                     Grid(alignment: .leading, verticalSpacing: 6) {
                                         GridRow {
                                             Text("X (%)")
@@ -893,9 +900,23 @@ struct ContentView: View {
             side: side,
             rect: defaultNewButtonRect(),
             action: action
+            ,
+            hold: nil
         )
         customButtons.append(newButton)
         selectedButtonID = newButton.id
+    }
+
+    private func customButtonHoldBinding(for index: Int) -> Binding<KeyAction?> {
+        Binding(
+            get: {
+                customButtons.indices.contains(index) ? customButtons[index].hold : nil
+            },
+            set: { newValue in
+                guard customButtons.indices.contains(index) else { return }
+                customButtons[index].hold = newValue
+            }
+        )
     }
 
     private func removeCustomButton(id: UUID) {
