@@ -30,7 +30,7 @@
 - Keep framework changes in `Framework/OpenMultitouchSupportXCF/`.
 - Treat `OpenMultitouchSupportXCF.xcframework` as generated output (rebuild instead of hand-editing).
 - Call out testing gaps when relevant.
-- GlassToKey build command (ask): `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
+- GlassToKey build command .^(ask): `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
 
 ## Common workflows
 ### Swift wrapper changes only
@@ -41,7 +41,7 @@
 - No notes left
 
 ## TODO
-- Bug in splay-columns-config. LHS and RHS can't detect clicks on first 90px on left side.
+- I think I would like to redesign how the key mapping work. When you click on an individual key in a cluster it should be selected and the action should come up in Button Tuning 
 - Layers I need to add a layer key I can add to the thumb cluster like MOmentary layer switching 
 - Make status light blue on layer change
 - Ask me for arrow keys + Num pad layout for the new layer

@@ -52,6 +52,7 @@ final class ContentViewModel: ObservableObject {
         let id: Int32
     }
     private var customButtons: [CustomButton] = []
+    private var customKeyActions: [String: KeyAction] = [:]
 
     private var activeTouches: [TouchKey: ActiveTouch] = [:]
     private var pendingTouches: [TouchKey: PendingTouch] = [:]
@@ -202,6 +203,10 @@ final class ContentViewModel: ObservableObject {
 
     func updateCustomButtons(_ buttons: [CustomButton]) {
         customButtons = buttons
+    }
+
+    func updateKeyActions(_ actions: [String: KeyAction]) {
+        customKeyActions = actions
     }
 
     func snapshotTouchData() -> [OMSTouchData] {
@@ -465,8 +470,26 @@ final class ContentViewModel: ObservableObject {
     }
 
     private func bindingForLabel(_ label: String, rect: CGRect) -> KeyBinding? {
-        guard let (code, flags) = KeyActionCatalog.bindingsByLabel[label] else { return nil }
-        return KeyBinding(rect: rect, label: label, action: .key(code: code, flags: flags))
+        guard let action = keyAction(for: label) else { return nil }
+        switch action.kind {
+        case .key:
+            let flags = CGEventFlags(rawValue: action.flags)
+            return KeyBinding(
+                rect: rect,
+                label: action.label,
+                action: .key(code: CGKeyCode(action.keyCode), flags: flags)
+            )
+        case .typingToggle:
+            return KeyBinding(
+                rect: rect,
+                label: action.label,
+                action: .typingToggle
+            )
+        }
+    }
+
+    private func keyAction(for label: String) -> KeyAction? {
+        customKeyActions[label] ?? KeyActionCatalog.action(for: label)
     }
 
     private func binding(at point: CGPoint, bindings: [KeyBinding]) -> KeyBinding? {
@@ -890,5 +913,25 @@ enum KeyActionCatalog {
             keyCode: UInt16(binding.0),
             flags: binding.1.rawValue
         )
+    }
+}
+
+enum KeyActionMappingStore {
+    static func decode(_ data: Data) -> [String: KeyAction]? {
+        guard !data.isEmpty else { return nil }
+        do {
+            return try JSONDecoder().decode([String: KeyAction].self, from: data)
+        } catch {
+            return nil
+        }
+    }
+
+    static func encode(_ mappings: [String: KeyAction]) -> Data? {
+        guard !mappings.isEmpty else { return nil }
+        do {
+            return try JSONEncoder().encode(mappings)
+        } catch {
+            return nil
+        }
     }
 }
