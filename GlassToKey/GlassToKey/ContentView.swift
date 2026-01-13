@@ -28,7 +28,7 @@ struct ContentView: View {
     @State private var selectedColumn: Int?
     @State private var selectedGridKey: SelectedGridKey?
     @State private var resizeStartRects: [UUID: NormalizedRect] = [:]
-    @State private var keyMappings: [String: KeyAction] = [:]
+    @State private var keyMappings: [String: KeyMapping] = [:]
     @AppStorage(GlassToKeyDefaultsKeys.leftDeviceID) private var storedLeftDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.rightDeviceID) private var storedRightDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.visualsEnabled) private var storedVisualsEnabled = true
@@ -417,6 +417,13 @@ struct ContentView: View {
                                         }
                                     }
                                     .pickerStyle(MenuPickerStyle())
+                                    Picker("Hold Action", selection: holdActionBinding(for: gridKey.label)) {
+                                        Text("None").tag(nil as KeyAction?)
+                                        ForEach(KeyActionCatalog.presets, id: \.self) { action in
+                                            Text(action.label).tag(action as KeyAction?)
+                                        }
+                                    }
+                                    .pickerStyle(MenuPickerStyle())
                                 }
                             } else {
                                 Text("Select a button or key on the trackpad to edit.")
@@ -488,7 +495,7 @@ struct ContentView: View {
             saveCustomButtons(newValue)
         }
         .onChange(of: keyMappings) { newValue in
-            viewModel.updateKeyActions(newValue)
+            viewModel.updateKeyMappings(newValue)
             saveKeyMappings(newValue)
         }
         .task {
@@ -513,7 +520,8 @@ struct ContentView: View {
         customButtons: [CustomButton],
         visualsEnabled: Bool
     ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let labelProvider = labelInfoProvider(for: labels)
+        return VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.subheadline)
             Group {
@@ -528,7 +536,12 @@ struct ContentView: View {
                             selectedKey: selectedGridKey
                         )
                         drawCustomButtons(context: &context, buttons: customButtons)
-                        drawGridLabels(context: &context, keyRects: layout.keyRects, labels: labels)
+                        drawGridLabels(
+                            context: &context,
+                            keyRects: layout.keyRects,
+                            labels: labels,
+                            labelProvider: labelProvider
+                        )
                         touches.forEach { touch in
                             let path = makeEllipse(touch: touch, size: trackpadSize)
                             context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
@@ -832,10 +845,10 @@ struct ContentView: View {
         } else {
             keyMappings = [:]
         }
-        viewModel.updateKeyActions(keyMappings)
+        viewModel.updateKeyMappings(keyMappings)
     }
 
-    private func saveKeyMappings(_ mappings: [String: KeyAction]) {
+    private func saveKeyMappings(_ mappings: [String: KeyMapping]) {
         storedKeyMappingsData = KeyActionMappingStore.encode(mappings) ?? Data()
     }
 
@@ -1279,24 +1292,69 @@ struct ContentView: View {
         return nil
     }
 
+    private func labelInfo(for label: String) -> (primary: String, hold: String?) {
+        let mapping = effectiveKeyMapping(for: label)
+        return (primary: mapping.primary.label, hold: mapping.hold?.label)
+    }
+
+    private func effectiveKeyMapping(for label: String) -> KeyMapping {
+        if let mapping = keyMappings[label] {
+            return mapping
+        }
+        return defaultKeyMapping(for: label) ?? KeyMapping(primary: KeyAction(label: label, keyCode: 0, flags: 0), hold: nil)
+    }
+
+    private func updateKeyMapping(
+        for label: String,
+        _ update: (inout KeyMapping) -> Void
+    ) {
+        var mapping = keyMappings[label]
+            ?? defaultKeyMapping(for: label)
+            ?? KeyMapping(primary: KeyAction(label: label, keyCode: 0, flags: 0), hold: nil)
+        update(&mapping)
+        if let defaultMapping = defaultKeyMapping(for: label),
+           defaultMapping == mapping {
+            keyMappings.removeValue(forKey: label)
+            return
+        }
+        keyMappings[label] = mapping
+    }
+
+    private func defaultKeyMapping(for label: String) -> KeyMapping? {
+        guard let primary = KeyActionCatalog.action(for: label) else { return nil }
+        return KeyMapping(primary: primary, hold: KeyActionCatalog.holdAction(for: label))
+    }
+
+    private func labelInfoProvider(
+        for labels: [[String]]
+    ) -> (Int, Int) -> (primary: String, hold: String?) {
+        { row, col in
+            guard row < labels.count,
+                  col < labels[row].count else {
+                return (primary: "", hold: nil)
+            }
+            return labelInfo(for: labels[row][col])
+        }
+    }
+
     private func keyActionBinding(for label: String) -> Binding<KeyAction> {
         Binding(
             get: {
-                if let override = keyMappings[label] {
-                    return override
-                }
-                if let defaultAction = KeyActionCatalog.action(for: label) {
-                    return defaultAction
-                }
-                return KeyAction(label: label, keyCode: 0, flags: 0)
+                effectiveKeyMapping(for: label).primary
             },
             set: { newValue in
-                if let defaultAction = KeyActionCatalog.action(for: label),
-                   defaultAction == newValue {
-                    keyMappings.removeValue(forKey: label)
-                } else {
-                    keyMappings[label] = newValue
-                }
+                updateKeyMapping(for: label) { $0.primary = newValue }
+            }
+        )
+    }
+
+    private func holdActionBinding(for label: String) -> Binding<KeyAction?> {
+        Binding(
+            get: {
+                effectiveKeyMapping(for: label).hold
+            },
+            set: { newValue in
+                updateKeyMapping(for: label) { $0.hold = newValue }
             }
         )
     }
@@ -1339,7 +1397,8 @@ struct ContentView: View {
     private func drawGridLabels(
         context: inout GraphicsContext,
         keyRects: [[CGRect]],
-        labels: [[String]]
+        labels: [[String]],
+        labelProvider: (Int, Int) -> (primary: String, hold: String?)
     ) {
         let textStyle = Font.system(size: 10, weight: .semibold, design: .monospaced)
 
@@ -1349,10 +1408,17 @@ struct ContentView: View {
                       col < labels[row].count else { continue }
                 let rect = keyRects[row][col]
                 let center = CGPoint(x: rect.midX, y: rect.midY)
-                let text = Text(labels[row][col])
+                let provided = labelProvider(row, col)
+                let primaryText = Text(provided.primary)
                     .font(textStyle)
                     .foregroundColor(.secondary)
-                context.draw(text, at: center)
+                context.draw(primaryText, at: CGPoint(x: center.x, y: center.y - 4))
+                if let holdLabel = provided.hold {
+                    let holdText = Text(holdLabel)
+                        .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.7))
+                    context.draw(holdText, at: CGPoint(x: center.x, y: center.y + 6))
+                }
             }
         }
     }

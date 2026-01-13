@@ -41,9 +41,10 @@
 - No notes left
 
 ## TODO
-- I think I would like to redesign how the key mapping work. When you click on an individual key in a cluster it should be selected and the action should come up in Button Tuning 
+- Can we add Hold Action to  Button Tuning
 - Layers I need to add a layer key I can add to the thumb cluster like MOmentary layer switching 
 - Make status light blue on layer change
 - Ask me for arrow keys + Num pad layout for the new layer
 - Possible to turn on/off OSX single-finger tap with typing mode??
 - can we devise a keymap layout config we can save and let ppl edit & the program uses that to map keys?
+- option to enable 6x4, 6x3, 5x4, 5x3 columns layout
