@@ -850,8 +850,8 @@ struct ContentView: View {
         selectedColumn: Binding<Int?>
     ) -> some View {
         ZStack(alignment: .topLeading) {
-            let columnRects = columnRects(for: layout.keyRects)
-            let selectGesture = SpatialTapGesture()
+            let columnRects = columnRects(for: layout.keyRects, trackpadSize: trackpadSize)
+            let selectGesture = DragGesture(minimumDistance: 0, coordinateSpace: .local)
                 .onEnded { value in
                     let point = value.location
                     if let matched = buttons.last(where: { button in
@@ -861,8 +861,16 @@ struct ContentView: View {
                         selectedColumn.wrappedValue = nil
                         return
                     }
-                        selectedButtonID.wrappedValue = nil
-                    if let columnIndex = columnRects.firstIndex(where: { $0.contains(point) }) {
+                    selectedButtonID.wrappedValue = nil
+                    let resolvedColumnIndex = columnIndex(for: point, columnRects: columnRects)
+                    #if DEBUG
+                    logColumnSelection(
+                        point: point,
+                        columnRects: columnRects,
+                        resolvedIndex: resolvedColumnIndex
+                    )
+                    #endif
+                    if let columnIndex = resolvedColumnIndex {
                         selectedColumn.wrappedValue = columnIndex
                     } else {
                         selectedColumn.wrappedValue = nil
@@ -888,6 +896,7 @@ struct ContentView: View {
                     .frame(width: rect.width, height: rect.height)
                     .offset(x: rect.minX, y: rect.minY)
                     .contentShape(Rectangle())
+                    .allowsHitTesting(false)
 
                 baseButton
                 if isSelected {
@@ -1127,21 +1136,95 @@ struct ContentView: View {
         }
     }
 
-    private func columnRects(for keyRects: [[CGRect]]) -> [CGRect] {
+    private func columnRects(
+        for keyRects: [[CGRect]],
+        trackpadSize: CGSize
+    ) -> [CGRect] {
         guard let columnCount = keyRects.first?.count else { return [] }
+
         var rects = Array(repeating: CGRect.null, count: columnCount)
         for row in keyRects {
             for col in 0..<columnCount {
                 let rect = row[col]
-                if rects[col].isNull {
-                    rects[col] = rect
-                } else {
-                    rects[col] = rects[col].union(rect)
-                }
+                rects[col] = rects[col].isNull ? rect : rects[col].union(rect)
             }
         }
-        return rects
+
+        let width = trackpadSize.width
+        let height = trackpadSize.height
+        let sortedIndices = rects.enumerated()
+            .sorted { lhs, rhs in
+                let lhsMid = lhs.element.isNull ? 0 : lhs.element.midX
+                let rhsMid = rhs.element.isNull ? 0 : rhs.element.midX
+                return lhsMid < rhsMid
+            }
+            .map(\.offset)
+
+        var boundaries = Array(repeating: CGFloat.zero, count: columnCount + 1)
+        boundaries[0] = 0
+
+        for physicalIndex in 0..<max(0, sortedIndices.count - 1) {
+            let current = rects[sortedIndices[physicalIndex]]
+            let next = rects[sortedIndices[physicalIndex + 1]]
+            let currentMid = current.isNull ? 0 : current.midX
+            let nextMid = next.isNull ? width : next.midX
+            boundaries[physicalIndex + 1] = (currentMid + nextMid) / 2.0
+        }
+
+        boundaries[columnCount] = width
+
+        let columnHeight = height
+        var expandedRects = rects
+        for physicalIndex in 0..<sortedIndices.count {
+            let colIndex = sortedIndices[physicalIndex]
+            let left = boundaries[physicalIndex]
+            let right = boundaries[physicalIndex + 1]
+            expandedRects[colIndex] = CGRect(
+                x: left,
+                y: 0,
+                width: max(0, right - left),
+                height: columnHeight
+            )
+        }
+
+        return expandedRects
     }
+
+    private func columnIndex(
+        for point: CGPoint,
+        columnRects: [CGRect]
+    ) -> Int? {
+        if let index = columnRects.firstIndex(where: { $0.contains(point) }) {
+            return index
+        }
+        guard trackpadSize.width > 0, Self.columnCount > 0 else { return nil }
+        let normalizedX = min(max(point.x / trackpadSize.width, 0.0), 1.0)
+        var index = Int(normalizedX * CGFloat(Self.columnCount))
+        if index == Self.columnCount {
+            index = Self.columnCount - 1
+        }
+        return index
+    }
+
+    #if DEBUG
+    private func logColumnSelection(
+        point: CGPoint,
+        columnRects: [CGRect],
+        resolvedIndex: Int?
+    ) {
+        guard trackpadSize.width > 0, trackpadSize.height > 0 else { return }
+        let normalizedX = min(max(point.x / trackpadSize.width, 0.0), 1.0)
+        let normalizedY = min(max(point.y / trackpadSize.height, 0.0), 1.0)
+        let containsIndex = columnRects.enumerated().first(where: { $0.element.contains(point) })?.offset
+        let method = containsIndex == nil ? "fallback" : "rect"
+        let formattedPointX = String(format: "%.1f", point.x)
+        let formattedPointY = String(format: "%.1f", point.y)
+        let formattedNormX = String(format: "%.2f", normalizedX)
+        let formattedNormY = String(format: "%.2f", normalizedY)
+        print("[ColumnSelection] point=(\(formattedPointX),\(formattedPointY)) norm=(\(formattedNormX),\(formattedNormY)) method=\(method) rectIndex=\(containsIndex.map(String.init) ?? "none") resolved=\(resolvedIndex.map(String.init) ?? "nil")")
+    }
+    #endif
+
     private func drawGridLabels(
         context: inout GraphicsContext,
         keyRects: [[CGRect]],
