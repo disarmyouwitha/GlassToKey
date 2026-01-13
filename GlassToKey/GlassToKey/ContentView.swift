@@ -14,6 +14,7 @@ struct ContentView: View {
         let row: Int
         let column: Int
         let label: String
+        let side: TrackpadSide
     }
 
     @StateObject private var viewModel: ContentViewModel
@@ -170,6 +171,7 @@ struct ContentView: View {
                     HStack(alignment: .top, spacing: 16) {
                         trackpadCanvas(
                             title: "Left Trackpad",
+                            side: .left,
                             touches: visualsEnabled ? displayLeftTouches : [],
                             mirrored: true,
                             labels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
@@ -178,6 +180,7 @@ struct ContentView: View {
                         )
                         trackpadCanvas(
                             title: "Right Trackpad",
+                            side: .right,
                             touches: visualsEnabled ? displayRightTouches : [],
                             mirrored: false,
                             labels: ContentViewModel.rightGridLabels,
@@ -412,7 +415,7 @@ struct ContentView: View {
                                         .font(.subheadline)
                                         .bold()
                                     Picker("Action", selection: keyActionBinding(for: gridKey.label)) {
-                                        ForEach(KeyActionCatalog.presets, id: \.self) { action in
+                                        ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
                                             Text(action.label).tag(action)
                                         }
                                     }
@@ -514,6 +517,7 @@ struct ContentView: View {
 
     private func trackpadCanvas(
         title: String,
+        side: TrackpadSide,
         touches: [OMSTouchData],
         mirrored: Bool,
         labels: [[String]],
@@ -529,11 +533,12 @@ struct ContentView: View {
                     Canvas { context, _ in
                         let layout = mirrored ? leftLayout : rightLayout
                         drawSensorGrid(context: &context, size: trackpadSize, columns: 30, rows: 22)
+                        let selectedKeyForCanvas = selectedGridKey?.side == side ? selectedGridKey : nil
                         drawKeyGrid(
                             context: &context,
                             keyRects: layout.keyRects,
                             selectedColumn: selectedColumn,
-                            selectedKey: selectedGridKey
+                            selectedKey: selectedKeyForCanvas
                         )
                         drawCustomButtons(context: &context, buttons: customButtons)
                         drawGridLabels(
@@ -558,6 +563,7 @@ struct ContentView: View {
                 if visualsEnabled || selectedButtonID != nil {
                     let layout = mirrored ? leftLayout : rightLayout
                     customButtonsOverlay(
+                        side: side,
                         layout: layout,
                         buttons: customButtons,
                         selectedButtonID: $selectedButtonID,
@@ -900,6 +906,7 @@ struct ContentView: View {
     }
 
     private func customButtonsOverlay(
+        side: TrackpadSide,
         layout: ContentViewModel.Layout,
         buttons: [CustomButton],
         selectedButtonID: Binding<UUID?>,
@@ -921,7 +928,7 @@ struct ContentView: View {
                         return
                     }
                     selectedButtonID.wrappedValue = nil
-                    if let key = gridKey(at: point, keyRects: layout.keyRects, labels: gridLabels) {
+                    if let key = gridKey(at: point, keyRects: layout.keyRects, labels: gridLabels, side: side) {
                         selectedGridKey.wrappedValue = key
                         selectedColumn.wrappedValue = key.column
                         return
@@ -1273,7 +1280,8 @@ struct ContentView: View {
     private func gridKey(
         at point: CGPoint,
         keyRects: [[CGRect]],
-        labels: [[String]]
+        labels: [[String]],
+        side: TrackpadSide
     ) -> SelectedGridKey? {
         for rowIndex in 0..<keyRects.count {
             guard rowIndex < labels.count else { continue }
@@ -1284,7 +1292,8 @@ struct ContentView: View {
                     return SelectedGridKey(
                         row: rowIndex,
                         column: colIndex,
-                        label: labels[rowIndex][colIndex]
+                        label: labels[rowIndex][colIndex],
+                        side: side
                     )
                 }
             }
