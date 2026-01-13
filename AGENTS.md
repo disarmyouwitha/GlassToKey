@@ -29,14 +29,6 @@
 - Keep Swift API changes in `Sources/OpenMultitouchSupport/`.
 - Keep framework changes in `Framework/OpenMultitouchSupportXCF/`.
 - Treat `OpenMultitouchSupportXCF.xcframework` as generated output (rebuild instead of hand-editing).
-- Always review the TODO items and show a checklist on startup.
-- When a new TODO task is started always offer to create a new branch (auto generate the name for the user silently).
-- When user says to create a PR you should fill out the name and the description automatically.
-- ALWAYS run `xcodebuild` after finishing changes to check for build errors.
-<!-- 
--GlassToKey build command: `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
-- If build fails due to target let user know so they can add to build target
--->
 - Call out testing gaps when relevant.
 
 ## Common workflows
@@ -44,36 +36,13 @@
 1. Edit files under `Sources/OpenMultitouchSupport/`.
 2. Commit and push (consumers tracking `main` pick up changes).
 
-### Build the XCFramework
-```bash
-./build_framework.sh
-```
-
-### Build a release package
-```bash
-./build_framework.sh --release
-```
-
-### Create a GitHub release
-```bash
-./release.sh <version>
-```
-- Requires `gh` auth.
-- Builds the XCFramework, creates the release, and updates `Package.swift`.
-
 ## Important notes for next instance of Codex
 - No notes left
 
 ## TODO
-- add config to splay columns based on config settings: ask me what I want
+- Bug in splay-columns-config. LHS and RHS can't detect clicks on first 90px on left side.
 - Layers I need to add a layer key I can add to the thumb cluster like MOmentary layer switching 
 - Make status light blue on layer change
 - Ask me for arrow keys + Num pad layout for the new layer
 - Possible to turn on/off OSX single-finger tap with typing mode??
 - can we devise a keymap layout config we can save and let ppl edit & the program uses that to map keys?
-
-## FUTURE
-- add config to splay columns based on your touch
-- make buttons addable through gui, set position by dragging into place. set action through gui (that saves to the keymap)
-- Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight
-- can we round the corners to give the visuals a softer look?GlassToKey/GlassToKey/GlassToKeyDefaultsKeys.swiftGlassToKey/GlassToKey/GlassToKeyDefaultsKeys.swift

@@ -28,6 +28,11 @@ This repo is not really in shape for users, but a developer could definitely get
 
 **I have a todo list in the AGENTS.md file if you want to check it out! Or load up codex and say, "read agents.md" and start submitting PRs, lol!**
 
+## FUTURE
+- can we round the corners to give the visuals a softer look?GlassToKey/GlassToKey/GlassToKeyDefaultsKeys.swiftGlassToKey/GlassToKey/GlassToKeyDefaultsKeys.swift
+- add config to splay columns based on your touch
+- Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight
+
 ---
 
 ## References
@@ -38,7 +43,7 @@ This library refers the following frameworks very much. Special Thanks!
 - [mhuusko5/M5MultitouchSupport](https://github.com/mhuusko5/M5MultitouchSupport)
 - [calftrail/Touch](https://github.com/calftrail/Touch/blob/master/TouchSynthesis/MultitouchSupport.h)
 - [KrishKrosh/OpenMultitouchSupport](https://github.com/KrishKrosh/OpenMultitouchSupport)
-$,m@$@
+
 ## Requirements
 
 - Development with Xcode 16.0+
