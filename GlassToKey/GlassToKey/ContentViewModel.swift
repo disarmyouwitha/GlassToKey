@@ -71,16 +71,6 @@ final class ContentViewModel: ObservableObject {
         let keyRects: [[CGRect]]
     }
 
-    static let leftGridLabels: [[String]] = [
-        ["Esc", "Q", "W", "E", "R", "T"],
-        ["Shift", "A", "S", "D", "F", "G"],
-        ["Shift", "Z", "X", "C", "V", "B"]
-    ]
-    static let rightGridLabels: [[String]] = [
-        ["Y", "U", "I", "O", "P", "Back"],
-        ["H", "J", "K", "L", ";", "Ret"],
-        ["N", "M", ",", ".", "/", "Ret"]
-    ]
     private var latestTouchData = [OMSTouchData]()
     @Published var isListening: Bool = false
     @Published var isTypingEnabled: Bool = true
@@ -1362,6 +1352,7 @@ enum KeyActionCatalog {
         "F": (CGKeyCode(kVK_ANSI_F), []),
         "G": (CGKeyCode(kVK_ANSI_G), []),
         "Ctrl": (CGKeyCode(kVK_Control), []),
+        "Cmd": (CGKeyCode(kVK_Command), []),
         "Z": (CGKeyCode(kVK_ANSI_Z), []),
         "X": (CGKeyCode(kVK_ANSI_X), []),
         "C": (CGKeyCode(kVK_ANSI_C), []),

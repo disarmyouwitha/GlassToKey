@@ -30,7 +30,8 @@
 - Keep framework changes in `Framework/OpenMultitouchSupportXCF/`.
 - Treat `OpenMultitouchSupportXCF.xcframework` as generated output (rebuild instead of hand-editing).
 - Call out testing gaps when relevant.
-- GlassToKey build command .^(ask): `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
+- GlassToKey build command (if the change was big automatically run): `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
+- If build fails due to added files, please add them to the project to fix the error. 
 
 ## Common workflows
 ### Swift wrapper changes only
@@ -41,10 +42,10 @@
 - No notes left
 
 ## TODO
-- When you drag over the MO(1) button it shouldn't activate, you should need to click it. 
-- option to enable 6x4, 6x3, 5x4, 5x3 columns layout. Also include a None layout for no keys.
-- can we round the corners to give the visuals a softer look?
+- Can we round the corners to give the visuals a softer look? Will it affect performance?
 - Need to make sure 2 finger taps do not trigger key presses.
+- Make default window a little bigger to fit everything
+- Issue with starting 2-finger drag when starting from SPACE area
 ###
 - Have GPT show x,y instead of % or at least have it explain why it did that.. Each % is different even if they are in the same place!
 - "Auto" set column x,y based on finger splay "4 finger touch"

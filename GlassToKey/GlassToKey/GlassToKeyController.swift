@@ -24,42 +24,50 @@ final class GlassToKeyController: ObservableObject {
 
     private func configureFromDefaults() {
         viewModel.loadDevices()
-        let columnSettings = resolvedColumnSettings()
+        let layout = resolvedLayoutPreset()
+        let columnSettings = resolvedColumnSettings(for: layout)
 
         let trackpadSize = CGSize(
             width: ContentView.trackpadWidthMM * ContentView.displayScale,
             height: ContentView.trackpadHeightMM * ContentView.displayScale
         )
 
-        let leftLayout = ContentView.makeKeyLayout(
-            size: trackpadSize,
-            keyWidth: ContentView.baseKeyWidthMM,
-            keyHeight: ContentView.baseKeyHeightMM,
-            columns: ContentView.columnCount,
-            rows: ContentView.rowCount,
-            trackpadWidth: ContentView.trackpadWidthMM,
-            trackpadHeight: ContentView.trackpadHeightMM,
-            columnAnchorsMM: ContentView.ColumnAnchorsMM,
-            columnSettings: columnSettings,
-            mirrored: true
-        )
-        let rightLayout = ContentView.makeKeyLayout(
-            size: trackpadSize,
-            keyWidth: ContentView.baseKeyWidthMM,
-            keyHeight: ContentView.baseKeyHeightMM,
-            columns: ContentView.columnCount,
-            rows: ContentView.rowCount,
-            trackpadWidth: ContentView.trackpadWidthMM,
-            trackpadHeight: ContentView.trackpadHeightMM,
-            columnAnchorsMM: ContentView.ColumnAnchorsMM,
-            columnSettings: columnSettings
-        )
+        let leftLayout: ContentViewModel.Layout
+        let rightLayout: ContentViewModel.Layout
+        if layout.columns > 0, layout.rows > 0 {
+            leftLayout = ContentView.makeKeyLayout(
+                size: trackpadSize,
+                keyWidth: ContentView.baseKeyWidthMM,
+                keyHeight: ContentView.baseKeyHeightMM,
+                columns: layout.columns,
+                rows: layout.rows,
+                trackpadWidth: ContentView.trackpadWidthMM,
+                trackpadHeight: ContentView.trackpadHeightMM,
+                columnAnchorsMM: layout.columnAnchors,
+                columnSettings: columnSettings,
+                mirrored: true
+            )
+            rightLayout = ContentView.makeKeyLayout(
+                size: trackpadSize,
+                keyWidth: ContentView.baseKeyWidthMM,
+                keyHeight: ContentView.baseKeyHeightMM,
+                columns: layout.columns,
+                rows: layout.rows,
+                trackpadWidth: ContentView.trackpadWidthMM,
+                trackpadHeight: ContentView.trackpadHeightMM,
+                columnAnchorsMM: layout.columnAnchors,
+                columnSettings: columnSettings
+            )
+        } else {
+            leftLayout = ContentViewModel.Layout(keyRects: [])
+            rightLayout = ContentViewModel.Layout(keyRects: [])
+        }
 
         viewModel.configureLayouts(
             leftLayout: leftLayout,
             rightLayout: rightLayout,
-            leftLabels: ContentView.mirroredLabels(ContentViewModel.leftGridLabels),
-            rightLabels: ContentViewModel.rightGridLabels,
+            leftLabels: layout.leftLabels,
+            rightLabels: layout.rightLabels,
             trackpadSize: trackpadSize
         )
 
@@ -95,14 +103,22 @@ final class GlassToKeyController: ObservableObject {
         )
     }
 
-    private func resolvedColumnSettings() -> [ColumnLayoutSettings] {
+    private func resolvedLayoutPreset() -> TrackpadLayoutPreset {
+        let stored = UserDefaults.standard.string(forKey: GlassToKeyDefaultsKeys.layoutPreset)
+        return TrackpadLayoutPreset(rawValue: stored ?? "") ?? .sixByThree
+    }
+
+    private func resolvedColumnSettings(
+        for layout: TrackpadLayoutPreset
+    ) -> [ColumnLayoutSettings] {
         let defaults = UserDefaults.standard
+        let columns = layout.columns
         if let data = defaults.data(forKey: GlassToKeyDefaultsKeys.columnSettings),
            let decoded = ColumnLayoutStore.decode(data),
-           decoded.count == ContentView.columnCount {
+           decoded.count == columns {
             return ColumnLayoutDefaults.normalizedSettings(
                 decoded,
-                columns: ContentView.columnCount
+                columns: columns
             )
         }
 
@@ -119,7 +135,7 @@ final class GlassToKeyController: ObservableObject {
                 : 0.0
             let offsetXPercent = offsetX / Double(ContentView.trackpadWidthMM) * 100.0
             let offsetYPercent = offsetY / Double(ContentView.trackpadHeightMM) * 100.0
-            let migrated = ColumnLayoutDefaults.defaultSettings(columns: ContentView.columnCount).map { _ in
+            let migrated = ColumnLayoutDefaults.defaultSettings(columns: columns).map { _ in
                 ColumnLayoutSettings(
                     scale: keyScale,
                     offsetXPercent: offsetXPercent,
@@ -129,11 +145,11 @@ final class GlassToKeyController: ObservableObject {
             }
             return ColumnLayoutDefaults.normalizedSettings(
                 migrated,
-                columns: ContentView.columnCount
+                columns: columns
             )
         }
 
-        return ColumnLayoutDefaults.defaultSettings(columns: ContentView.columnCount)
+        return ColumnLayoutDefaults.defaultSettings(columns: columns)
     }
 
     private func stringValue(forKey key: String) -> String {
