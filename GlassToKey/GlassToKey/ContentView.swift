@@ -191,7 +191,8 @@ struct ContentView: View {
                             mirrored: true,
                             labels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
                             customButtons: customButtons.filter { $0.side == .left },
-                            visualsEnabled: visualsEnabled
+                            visualsEnabled: visualsEnabled,
+                            selectedButtonID: selectedButtonID
                         )
                         trackpadCanvas(
                             title: "Right Trackpad",
@@ -200,7 +201,8 @@ struct ContentView: View {
                             mirrored: false,
                             labels: ContentViewModel.rightGridLabels,
                             customButtons: customButtons.filter { $0.side == .right },
-                            visualsEnabled: visualsEnabled
+                            visualsEnabled: visualsEnabled,
+                            selectedButtonID: selectedButtonID
                         )
                     }
                 }
@@ -365,13 +367,6 @@ struct ContentView: View {
                             }
                             if let selectedIndex = customButtons.firstIndex(where: { $0.id == selectedButtonID }) {
                                 VStack(alignment: .leading, spacing: 6) {
-                                    Picker("Side", selection: $customButtons[selectedIndex].side) {
-                                        ForEach(TrackpadSide.allCases) { side in
-                                            Text(side == .left ? "Left" : "Right")
-                                                .tag(side)
-                                        }
-                                    }
-                                    .pickerStyle(MenuPickerStyle())
                                     Picker("Action", selection: $customButtons[selectedIndex].action) {
                                         Text(KeyActionCatalog.noneLabel)
                                             .tag(KeyActionCatalog.noneAction)
@@ -560,7 +555,8 @@ struct ContentView: View {
         mirrored: Bool,
         labels: [[String]],
         customButtons: [CustomButton],
-        visualsEnabled: Bool
+        visualsEnabled: Bool,
+        selectedButtonID: UUID?
     ) -> some View {
         let labelProvider = labelInfoProvider(for: labels, side: side)
         return VStack(alignment: .leading, spacing: 6) {
@@ -578,7 +574,11 @@ struct ContentView: View {
                             selectedColumn: selectedColumn,
                             selectedKey: selectedKeyForCanvas
                         )
-                        drawCustomButtons(context: &context, buttons: customButtons)
+                        drawCustomButtons(
+                            context: &context,
+                            buttons: customButtons,
+                            selectedButtonID: selectedButtonID
+                        )
                         drawGridLabels(
                             context: &context,
                             keyRects: layout.keyRects,
@@ -1268,7 +1268,8 @@ struct ContentView: View {
 
     private func drawCustomButtons(
         context: inout GraphicsContext,
-        buttons: [CustomButton]
+        buttons: [CustomButton],
+        selectedButtonID: UUID?
     ) {
         let primaryStyle = Font.system(size: 10, weight: .semibold, design: .monospaced)
         let holdStyle = Font.system(size: 8, weight: .semibold, design: .monospaced)
@@ -1277,16 +1278,18 @@ struct ContentView: View {
             context.fill(Path(rect), with: .color(Color.blue.opacity(0.12)))
             context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
             let center = CGPoint(x: rect.midX, y: rect.midY)
-            let primaryText = Text(button.action.displayText)
-                .font(primaryStyle)
-                .foregroundColor(.secondary)
-            let primaryY = center.y - (button.hold != nil ? 4 : 0)
-            context.draw(primaryText, at: CGPoint(x: center.x, y: primaryY))
-            if let holdLabel = button.hold?.label {
-                let holdText = Text(holdLabel)
-                    .font(holdStyle)
-                    .foregroundColor(.secondary.opacity(0.7))
-                context.draw(holdText, at: CGPoint(x: center.x, y: center.y + 6))
+            if button.id != selectedButtonID {
+                let primaryText = Text(button.action.displayText)
+                    .font(primaryStyle)
+                    .foregroundColor(.secondary)
+                let primaryY = center.y - (button.hold != nil ? 4 : 0)
+                context.draw(primaryText, at: CGPoint(x: center.x, y: primaryY))
+                if let holdLabel = button.hold?.label {
+                    let holdText = Text(holdLabel)
+                        .font(holdStyle)
+                        .foregroundColor(.secondary.opacity(0.7))
+                    context.draw(holdText, at: CGPoint(x: center.x, y: center.y + 6))
+                }
             }
         }
     }
