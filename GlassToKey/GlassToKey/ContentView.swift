@@ -59,6 +59,7 @@ struct ContentView: View {
     private static let columnOffsetPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.offsetPercentRange
     static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
     private static let dragCancelDistanceRange: ClosedRange<Double> = 0.5...15.0
+    private static let keyCornerRadius: CGFloat = 6.0
     private static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -575,7 +576,7 @@ struct ContentView: View {
                 endRadius: 420
             )
         )
-        .frame(minWidth: trackpadSize.width * 2 + 480, minHeight: trackpadSize.height + 200)
+        .frame(minWidth: trackpadSize.width * 2 + 520, minHeight: trackpadSize.height + 240)
         .onAppear {
             applySavedSettings()
             displayTouchData = viewModel.snapshotTouchData()
@@ -1132,13 +1133,13 @@ struct ContentView: View {
                 let rect = button.rect.rect(in: trackpadSize)
                 let isSelected = button.id == selectedButtonID.wrappedValue
 
-                let baseButton = RoundedRectangle(cornerRadius: 4)
+                let baseButton = RoundedRectangle(cornerRadius: Self.keyCornerRadius)
                     .stroke(
                         isSelected ? Color.accentColor.opacity(0.9) : Color.clear,
                         lineWidth: 1.5
                     )
                     .background(
-                        RoundedRectangle(cornerRadius: 4)
+                        RoundedRectangle(cornerRadius: Self.keyCornerRadius)
                             .fill(Color.accentColor.opacity(isSelected ? 0.08 : 0.02))
                     )
                     .frame(width: rect.width, height: rect.height)
@@ -1358,7 +1359,8 @@ struct ContentView: View {
            keyRects.first?.indices.contains(selectedColumn) == true {
             for row in keyRects {
                 let rect = row[selectedColumn]
-                context.fill(Path(rect), with: .color(Color.accentColor.opacity(0.12)))
+                let keyPath = Path(roundedRect: rect, cornerRadius: Self.keyCornerRadius)
+                context.fill(keyPath, with: .color(Color.accentColor.opacity(0.12)))
             }
         }
 
@@ -1366,12 +1368,14 @@ struct ContentView: View {
            keyRects.indices.contains(key.row),
            keyRects[key.row].indices.contains(key.column) {
             let rect = keyRects[key.row][key.column]
-            context.fill(Path(rect), with: .color(Color.accentColor.opacity(0.18)))
+            let keyPath = Path(roundedRect: rect, cornerRadius: Self.keyCornerRadius)
+            context.fill(keyPath, with: .color(Color.accentColor.opacity(0.18)))
         }
 
         for row in keyRects {
             for rect in row {
-                context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
+                let keyPath = Path(roundedRect: rect, cornerRadius: Self.keyCornerRadius)
+                context.stroke(keyPath, with: .color(.secondary.opacity(0.6)), lineWidth: 1)
             }
         }
 
@@ -1379,7 +1383,8 @@ struct ContentView: View {
            keyRects.first?.indices.contains(selectedColumn) == true {
             for row in keyRects {
                 let rect = row[selectedColumn]
-                context.stroke(Path(rect), with: .color(Color.accentColor.opacity(0.8)), lineWidth: 1.5)
+                let keyPath = Path(roundedRect: rect, cornerRadius: Self.keyCornerRadius)
+                context.stroke(keyPath, with: .color(Color.accentColor.opacity(0.8)), lineWidth: 1.5)
             }
         }
 
@@ -1387,7 +1392,8 @@ struct ContentView: View {
            keyRects.indices.contains(key.row),
            keyRects[key.row].indices.contains(key.column) {
             let rect = keyRects[key.row][key.column]
-            context.stroke(Path(rect), with: .color(Color.accentColor.opacity(0.9)), lineWidth: 1.5)
+            let keyPath = Path(roundedRect: rect, cornerRadius: Self.keyCornerRadius)
+            context.stroke(keyPath, with: .color(Color.accentColor.opacity(0.9)), lineWidth: 1.5)
         }
     }
 
@@ -1400,8 +1406,9 @@ struct ContentView: View {
         let holdStyle = Font.system(size: 8, weight: .semibold, design: .monospaced)
         for button in buttons {
             let rect = button.rect.rect(in: trackpadSize)
-            context.fill(Path(rect), with: .color(Color.blue.opacity(0.12)))
-            context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
+            let buttonPath = Path(roundedRect: rect, cornerRadius: Self.keyCornerRadius)
+            context.fill(buttonPath, with: .color(Color.blue.opacity(0.12)))
+            context.stroke(buttonPath, with: .color(.secondary.opacity(0.6)), lineWidth: 1)
             let center = CGPoint(x: rect.midX, y: rect.midY)
             if button.id != selectedButtonID {
                 let primaryText = Text(button.action.displayText)

@@ -41,13 +41,10 @@
 ## Important notes for next instance of Codex
 - No notes left
 
-## TODO
-- Can we round the corners to give the visuals a softer look? Will it affect performance?
-- Need to make sure 2 finger taps do not trigger key presses.
-- Make default window a little bigger to fit everything
+## TODO 
+- Need to make sure 2 finger taps do not trigger key presses../
 - Issue with starting 2-finger drag when starting from SPACE area
-###
-- Have GPT show x,y instead of % or at least have it explain why it did that.. Each % is different even if they are in the same place!
+###.
 - "Auto" set column x,y based on finger splay "4 finger touch"
 - Maybe I can turn off single-finger tap at the Mac OS level but implement single finger tap-to-click if under a minimum ms typing term?
 - Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight
