@@ -114,42 +114,48 @@ final class GlassToKeyController: ObservableObject {
         let defaults = UserDefaults.standard
         let columns = layout.columns
         if let data = defaults.data(forKey: GlassToKeyDefaultsKeys.columnSettings),
-           let decoded = ColumnLayoutStore.decode(data),
-           decoded.count == columns {
-            return ColumnLayoutDefaults.normalizedSettings(
-                decoded,
-                columns: columns
-            )
+           let stored = LayoutColumnSettingsStorage.settings(
+            for: layout,
+            from: data
+        ) {
+            return ColumnLayoutDefaults.normalizedSettings(stored, columns: columns)
         }
+        if let migrated = legacyColumnSettings(for: layout) {
+            return migrated
+        }
+        return ColumnLayoutDefaults.defaultSettings(columns: columns)
+    }
 
+    private func legacyColumnSettings(
+        for layout: TrackpadLayoutPreset
+    ) -> [ColumnLayoutSettings]? {
+        let columns = layout.columns
+        guard columns > 0 else { return nil }
+        let defaults = UserDefaults.standard
         let hasLegacyScale = defaults.object(forKey: legacyKeyScaleKey) != nil
         let hasLegacyOffsetX = defaults.object(forKey: legacyKeyOffsetXKey) != nil
         let hasLegacyOffsetY = defaults.object(forKey: legacyKeyOffsetYKey) != nil
         let hasLegacyRowSpacing = defaults.object(forKey: legacyRowSpacingPercentKey) != nil
-        if hasLegacyScale || hasLegacyOffsetX || hasLegacyOffsetY || hasLegacyRowSpacing {
-            let keyScale = hasLegacyScale ? defaults.double(forKey: legacyKeyScaleKey) : 1.0
-            let offsetX = hasLegacyOffsetX ? defaults.double(forKey: legacyKeyOffsetXKey) : 0.0
-            let offsetY = hasLegacyOffsetY ? defaults.double(forKey: legacyKeyOffsetYKey) : 0.0
-            let rowSpacingPercent = hasLegacyRowSpacing
-                ? defaults.double(forKey: legacyRowSpacingPercentKey)
-                : 0.0
-            let offsetXPercent = offsetX / Double(ContentView.trackpadWidthMM) * 100.0
-            let offsetYPercent = offsetY / Double(ContentView.trackpadHeightMM) * 100.0
-            let migrated = ColumnLayoutDefaults.defaultSettings(columns: columns).map { _ in
-                ColumnLayoutSettings(
-                    scale: keyScale,
-                    offsetXPercent: offsetXPercent,
-                    offsetYPercent: offsetYPercent,
-                    rowSpacingPercent: rowSpacingPercent
-                )
-            }
-            return ColumnLayoutDefaults.normalizedSettings(
-                migrated,
-                columns: columns
+        guard hasLegacyScale || hasLegacyOffsetX || hasLegacyOffsetY || hasLegacyRowSpacing else {
+            return nil
+        }
+        let keyScale = hasLegacyScale ? defaults.double(forKey: legacyKeyScaleKey) : 1.0
+        let offsetX = hasLegacyOffsetX ? defaults.double(forKey: legacyKeyOffsetXKey) : 0.0
+        let offsetY = hasLegacyOffsetY ? defaults.double(forKey: legacyKeyOffsetYKey) : 0.0
+        let rowSpacingPercent = hasLegacyRowSpacing
+            ? defaults.double(forKey: legacyRowSpacingPercentKey)
+            : 0.0
+        let offsetXPercent = offsetX / Double(ContentView.trackpadWidthMM) * 100.0
+        let offsetYPercent = offsetY / Double(ContentView.trackpadHeightMM) * 100.0
+        let migrated = ColumnLayoutDefaults.defaultSettings(columns: columns).map { _ in
+            ColumnLayoutSettings(
+                scale: keyScale,
+                offsetXPercent: offsetXPercent,
+                offsetYPercent: offsetYPercent,
+                rowSpacingPercent: rowSpacingPercent
             )
         }
-
-        return ColumnLayoutDefaults.defaultSettings(columns: columns)
+        return ColumnLayoutDefaults.normalizedSettings(migrated, columns: columns)
     }
 
     private func stringValue(forKey key: String) -> String {

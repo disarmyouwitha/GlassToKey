@@ -46,6 +46,38 @@ enum ColumnLayoutStore {
     }
 }
 
+enum LayoutColumnSettingsStorage {
+    static func decode(from data: Data) -> [String: [ColumnLayoutSettings]]? {
+        guard !data.isEmpty else { return nil }
+        let decoder = JSONDecoder()
+        if let map = try? decoder.decode([String: [ColumnLayoutSettings]].self, from: data) {
+            return map
+        }
+        if let legacy = try? decoder.decode([ColumnLayoutSettings].self, from: data) {
+            let legacyLayout = TrackpadLayoutPreset.sixByThree.rawValue
+            return [legacyLayout: legacy]
+        }
+        return nil
+    }
+
+    static func encode(_ map: [String: [ColumnLayoutSettings]]) -> Data? {
+        guard !map.isEmpty else { return nil }
+        return try? JSONEncoder().encode(map)
+    }
+
+    static func settings(
+        for layout: TrackpadLayoutPreset,
+        from data: Data
+    ) -> [ColumnLayoutSettings]? {
+        guard let map = decode(from: data) else { return nil }
+        guard let settings = map[layout.rawValue],
+              settings.count == layout.columns else {
+            return nil
+        }
+        return settings
+    }
+}
+
 enum ColumnLayoutDefaults {
     static let scaleRange: ClosedRange<Double> = 0.5...2.0
     static let offsetPercentRange: ClosedRange<Double> = -30.0...30.0

@@ -108,10 +108,7 @@ struct ContentView: View {
     private var layoutSelectionBinding: Binding<TrackpadLayoutPreset> {
         Binding(
             get: { layoutOption },
-            set: { newLayout in
-                layoutOption = newLayout
-                handleLayoutOptionChange(newLayout)
-            }
+            set: { handleLayoutOptionChange($0) }
         )
     }
 
@@ -859,16 +856,14 @@ struct ContentView: View {
     }
 
     private func handleLayoutOptionChange(_ newLayout: TrackpadLayoutPreset) {
+        layoutOption = newLayout
         storedLayoutPreset = newLayout.rawValue
         selectedColumn = nil
         selectedGridKey = nil
         selectedButtonID = nil
-        if columnSettings.count == newLayout.columns {
-            applyColumnSettings(columnSettings)
-            saveSettings()
-        } else {
-            columnSettings = ColumnLayoutDefaults.defaultSettings(columns: newLayout.columns)
-        }
+        columnSettings = columnSettings(for: newLayout)
+        applyColumnSettings(columnSettings)
+        saveSettings()
     }
 
     private func rebuildLayouts() {
@@ -920,11 +915,12 @@ struct ContentView: View {
 
     private func applySavedSettings() {
         visualsEnabled = storedVisualsEnabled
-        layoutOption = TrackpadLayoutPreset(rawValue: storedLayoutPreset) ?? .sixByThree
+        let resolvedLayout = TrackpadLayoutPreset(rawValue: storedLayoutPreset) ?? .sixByThree
+        layoutOption = resolvedLayout
         selectedColumn = nil
         selectedGridKey = nil
         selectedButtonID = nil
-        columnSettings = resolvedStoredColumnSettings(for: layoutOption)
+        columnSettings = columnSettings(for: resolvedLayout)
         loadCustomButtons()
         loadKeyMappings()
         applyColumnSettings(columnSettings)
@@ -942,54 +938,66 @@ struct ContentView: View {
         storedLeftDeviceID = viewModel.leftDevice?.deviceID ?? ""
         storedRightDeviceID = viewModel.rightDevice?.deviceID ?? ""
         storedVisualsEnabled = visualsEnabled
-        storedColumnSettingsData = ColumnLayoutStore.encode(columnSettings) ?? Data()
         storedLayoutPreset = layoutOption.rawValue
+        saveCurrentColumnSettings()
     }
 
-    private func resolvedStoredColumnSettings(
+    private func columnSettings(
         for layout: TrackpadLayoutPreset
     ) -> [ColumnLayoutSettings] {
-        let columns = layout.columns
-        if let decoded = ColumnLayoutStore.decode(storedColumnSettingsData),
-           decoded.count == columns {
-            return Self.normalizedColumnSettings(decoded, columns: columns)
+        if let stored = LayoutColumnSettingsStorage.settings(
+            for: layout,
+            from: storedColumnSettingsData
+        ) {
+            return Self.normalizedColumnSettings(stored, columns: layout.columns)
         }
+        if let migrated = legacyColumnSettings(for: layout) {
+            return migrated
+        }
+        return ColumnLayoutDefaults.defaultSettings(columns: layout.columns)
+    }
 
+    private func legacyColumnSettings(for layout: TrackpadLayoutPreset) -> [ColumnLayoutSettings]? {
+        let columns = layout.columns
+        guard columns > 0 else { return nil }
         let defaults = UserDefaults.standard
         let hasLegacyScale = defaults.object(forKey: Self.legacyKeyScaleKey) != nil
         let hasLegacyOffsetX = defaults.object(forKey: Self.legacyKeyOffsetXKey) != nil
         let hasLegacyOffsetY = defaults.object(forKey: Self.legacyKeyOffsetYKey) != nil
         let hasLegacyRowSpacing = defaults.object(forKey: Self.legacyRowSpacingPercentKey) != nil
-        if hasLegacyScale || hasLegacyOffsetX || hasLegacyOffsetY || hasLegacyRowSpacing {
-            let keyScale = hasLegacyScale
-                ? defaults.double(forKey: Self.legacyKeyScaleKey)
-                : 1.0
-            let offsetX = hasLegacyOffsetX
-                ? defaults.double(forKey: Self.legacyKeyOffsetXKey)
-                : 0.0
-            let offsetY = hasLegacyOffsetY
-                ? defaults.double(forKey: Self.legacyKeyOffsetYKey)
-                : 0.0
-            let rowSpacingPercent = hasLegacyRowSpacing
-                ? defaults.double(forKey: Self.legacyRowSpacingPercentKey)
-                : 0.0
-            let offsetXPercent = offsetX / Double(Self.trackpadWidthMM) * 100.0
-            let offsetYPercent = offsetY / Double(Self.trackpadHeightMM) * 100.0
-            let migrated = ColumnLayoutDefaults.defaultSettings(columns: columns).map { _ in
-                ColumnLayoutSettings(
-                    scale: keyScale,
-                    offsetXPercent: offsetXPercent,
-                    offsetYPercent: offsetYPercent,
-                    rowSpacingPercent: rowSpacingPercent
-                )
-            }
-            return ColumnLayoutDefaults.normalizedSettings(
-                migrated,
-                columns: columns
+        guard hasLegacyScale || hasLegacyOffsetX || hasLegacyOffsetY || hasLegacyRowSpacing else {
+            return nil
+        }
+        let keyScale = hasLegacyScale ? defaults.double(forKey: Self.legacyKeyScaleKey) : 1.0
+        let offsetX = hasLegacyOffsetX ? defaults.double(forKey: Self.legacyKeyOffsetXKey) : 0.0
+        let offsetY = hasLegacyOffsetY ? defaults.double(forKey: Self.legacyKeyOffsetYKey) : 0.0
+        let rowSpacingPercent = hasLegacyRowSpacing
+            ? defaults.double(forKey: Self.legacyRowSpacingPercentKey)
+            : 0.0
+        let offsetXPercent = offsetX / Double(Self.trackpadWidthMM) * 100.0
+        let offsetYPercent = offsetY / Double(Self.trackpadHeightMM) * 100.0
+        let migrated = ColumnLayoutDefaults.defaultSettings(columns: columns).map { _ in
+            ColumnLayoutSettings(
+                scale: keyScale,
+                offsetXPercent: offsetXPercent,
+                offsetYPercent: offsetYPercent,
+                rowSpacingPercent: rowSpacingPercent
             )
         }
+        return ColumnLayoutDefaults.normalizedSettings(migrated, columns: columns)
+    }
 
-        return ColumnLayoutDefaults.defaultSettings(columns: columns)
+    private func saveCurrentColumnSettings() {
+        var map = LayoutColumnSettingsStorage.decode(from: storedColumnSettingsData) ?? [:]
+        map[layoutOption.rawValue] = Self.normalizedColumnSettings(
+            columnSettings,
+            columns: layoutColumns
+        )
+        if let encoded = LayoutColumnSettingsStorage.encode(map) {
+            storedColumnSettingsData = encoded
+        } else {
+            storedColumnSettingsData = Data()
+        }
     }
 
     private func loadCustomButtons() {

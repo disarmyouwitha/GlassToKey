@@ -41,7 +41,8 @@
 ## Important notes for next instance of Codex
 - No notes left
 
-## TODO 
+## TODO
+- It doesn't remember scaling of columns on layout 
 - Need to make sure 2 finger taps do not trigger key presses../
 - Issue with starting 2-finger drag when starting from SPACE area
 ###.
