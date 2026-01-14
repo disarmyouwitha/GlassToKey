@@ -45,6 +45,7 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.customButtons) private var storedCustomButtonsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.keyMappings) private var storedKeyMappingsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = 200.0
+    @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = 2.5
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -57,6 +58,7 @@ struct ContentView: View {
     private static let columnScaleRange: ClosedRange<Double> = ColumnLayoutDefaults.scaleRange
     private static let columnOffsetPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.offsetPercentRange
     static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
+    private static let dragCancelDistanceRange: ClosedRange<Double> = 0.5...15.0
     private static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -210,18 +212,37 @@ struct ContentView: View {
                         Text("Typing Behavior")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text("Tap / Hold threshold")
-                                Spacer()
-                                Text("\(Int(tapHoldDurationMs)) ms")
-                                    .font(.caption)
+                        VStack(alignment: .leading, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text("Tap / Hold threshold")
+                                    Spacer()
+                                    Text("\(Int(tapHoldDurationMs)) ms")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Slider(value: $tapHoldDurationMs, in: 50...1000, step: 5)
+                                Text("Lower values make taps send sooner, reducing accidental drag cancels.")
+                                    .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
-                            Slider(value: $tapHoldDurationMs, in: 50...1000, step: 5)
-                            Text("Lower values make taps send sooner, reducing accidental drag cancels.")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text("Drag cancellation distance")
+                                    Spacer()
+                                    Text("\(String(format: "%.1f", dragCancelDistanceSetting)) px")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Slider(
+                                    value: $dragCancelDistanceSetting,
+                                    in: Self.dragCancelDistanceRange,
+                                    step: 0.1
+                                )
+                                Text("Lower values detect drags sooner, while higher values give taps more wiggle room.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                     .padding(12)
@@ -568,6 +589,9 @@ struct ContentView: View {
         .onChange(of: tapHoldDurationMs) { newValue in
             viewModel.updateHoldThreshold(newValue / 1000.0)
         }
+        .onChange(of: dragCancelDistanceSetting) { newValue in
+            viewModel.updateDragCancelDistance(CGFloat(newValue))
+        }
         .task {
             for await _ in Timer.publish(
                 every: displayRefreshInterval,
@@ -854,6 +878,7 @@ struct ContentView: View {
             viewModel.selectRightDevice(rightDevice)
         }
         viewModel.updateHoldThreshold(tapHoldDurationMs / 1000.0)
+        viewModel.updateDragCancelDistance(CGFloat(dragCancelDistanceSetting))
     }
 
     private func saveSettings() {
