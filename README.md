@@ -18,7 +18,7 @@ Clicking the indicator light will allow you to view the Config or Quit the progr
 
 ## TODO
 
-This repo is not really in shape for users, but a developer could definitely get in and modify the keymap, etc. 
+This repo is not really in shape for users, but a developer could definitely get in and modify the code!
 
 **I have a todo list in the AGENTS.md file if you want to check it out! Or load up codex and say, "read agents.md" and start submitting PRs, lol!**
 
