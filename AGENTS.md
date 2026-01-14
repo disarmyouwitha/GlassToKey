@@ -41,12 +41,10 @@
 - No notes left
 
 ## TODO
-- If a key is held the GUI gets very sluggish
-- Can we try to reduce the amount of movement needed for drag detection?
-- add tap / hold ms slider to config
+- Can we try to reduce the amount of movement needed for drag detection? Basically, when Typing mode is on, sometimes I trigger keys like $ (which may be because I am force-clicking and it thinks I am holding the key because I am taking too long to move??) Lets add a tap/hold ms slider to the config!
 - option to enable 6x4, 6x3, 5x4, 5x3 columns layout. Also include a None layout for no keys.
 - Have GPT show x,y instead of % or at least have it explain why it did that.. Each % is different even if they are in the same place!
 - "Auto" set column x,y based on finger splay "4 finger touch"
 - Maybe I can turn off single-finger tap at the Mac OS level but implement single finger tap-to-click if under a minimum ms typing term?
 - can we round the corners to give the visuals a softer look?n
-- Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight$
+- Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight

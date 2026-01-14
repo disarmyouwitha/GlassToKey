@@ -502,7 +502,7 @@ final class ContentViewModel: ObservableObject {
         keyRects: [[CGRect]],
         labels: [[String]],
         customButtons: [CustomButton],
-        can asSize: CGSize,
+        canvasSize: CGSize,
         side: TrackpadSide
     ) -> [KeyBinding] {
         var bindings: [KeyBinding] = []
@@ -771,6 +771,18 @@ final class ContentViewModel: ObservableObject {
     }
 
     private func sendKey(code: CGKeyCode, flags: CGEventFlags) {
+        let combinedFlags = flags.union(currentModifierFlags())
+        guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false) else {
+            return
+        }
+        keyDown.flags = combinedFlags
+        keyUp.flags = combinedFlags
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
+    }
+
+    private func currentModifierFlags() -> CGEventFlags {
         var modifierFlags: CGEventFlags = []
         if leftShiftTouchCount > 0 {
             modifierFlags.insert(.maskShift)
@@ -784,15 +796,7 @@ final class ContentViewModel: ObservableObject {
         if commandTouchCount > 0 {
             modifierFlags.insert(.maskCommand)
         }
-        guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false) else {
-            return
-        }
-        let combinedFlags = flags.union(modifierFlags)
-        keyDown.flags = combinedFlags
-        keyUp.flags = combinedFlags
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
+        return modifierFlags
     }
 
     private func sendKey(binding: KeyBinding) {
@@ -802,13 +806,15 @@ final class ContentViewModel: ObservableObject {
 
     private func startRepeat(for touchKey: TouchKey, binding: KeyBinding) {
         stopRepeat(for: touchKey)
-        repeatTasks[touchKey] = Task { [weak self] in
-            guard let self = self else { return }
-            try? await Task.sleep(nanoseconds: self.repeatInitialDelay)
+        guard case let .key(code, flags) = binding.action else { return }
+        let repeatFlags = flags.union(currentModifierFlags())
+        let initialDelay = repeatInitialDelay
+        let interval = repeatInterval
+        repeatTasks[touchKey] = Task {
+            try? await Task.sleep(nanoseconds: initialDelay)
             while !Task.isCancelled {
-                guard self.activeTouches[touchKey] != nil else { return }
-                self.sendKey(binding: binding)
-                try? await Task.sleep(nanoseconds: self.repeatInterval)
+                postRepeatedKeyStroke(code: code, flags: repeatFlags)
+                try? await Task.sleep(nanoseconds: interval)
             }
         }
     }
@@ -987,6 +993,17 @@ final class ContentViewModel: ObservableObject {
             break
         }
     }
+}
+
+private func postRepeatedKeyStroke(code: CGKeyCode, flags: CGEventFlags) {
+    guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true),
+          let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false) else {
+        return
+    }
+    keyDown.flags = flags
+    keyUp.flags = flags
+    keyDown.post(tap: .cghidEventTap)
+    keyUp.post(tap: .cghidEventTap)
 }
 
 struct NormalizedRect: Codable, Hashable {
