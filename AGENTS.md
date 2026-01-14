@@ -41,9 +41,10 @@
 - No notes left
 
 ## TODO
-- Next up: Layers! I need you to re-think our keymap code to use layers. I need you to treat the current keymap as Layer0, and I want you to duplicate it as Layer1. You should add 2 Actions: Momentary layer while held and an action that toggles the layer, like MO(1) or TO(1). When on the second layer the status light should turn blue
-- Make status light blue on layer changem
-- Ask me for arrow keys + Num pad layout for the new layer
+- Next up: Layers! I need you to refactor our keymap code to use layers. I need you to treat the current keymap as Layer0, and I want you to duplicate it as Layer1. You should add 2 Actions: Momentary layer while held and an action that toggles the layer, like MO(1) or TO(1). When on the new layer the status light should turn blue. In the config GUI Layer 0 / Layer 1 should have a toggle like visuals
+- Add arrow keys to action
+- add tap / hold ms slider to config
+- Ask me for arrow keys + Num pad layout for the new layedd arrow keys to 
 - Possible to turn on/off OSX single-finger tap with typing mode??
 - can we devise a keymap layout config we can save and let ppl edit & the program uses that to map keys?
 - option to enable 6x4, 6x3, 5x4, 5x3 columns layout

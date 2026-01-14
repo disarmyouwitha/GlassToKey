@@ -17,6 +17,8 @@ enum TrackpadSide: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+typealias LayeredKeyMappings = [Int: [String: KeyMapping]]
+
 struct GridKeyPosition: Codable, Hashable {
     let side: TrackpadSide
     let row: Int
@@ -52,6 +54,9 @@ final class ContentViewModel: ObservableObject {
     enum KeyBindingAction: Sendable {
         case key(code: CGKeyCode, flags: CGEventFlags)
         case typingToggle
+        case layerMomentary(Int)
+        case layerToggle(Int)
+        case none
     }
 
     struct KeyBinding: Sendable {
@@ -79,6 +84,7 @@ final class ContentViewModel: ObservableObject {
     private var latestTouchData = [OMSTouchData]()
     @Published var isListening: Bool = false
     @Published var isTypingEnabled: Bool = true
+    @Published private(set) var activeLayer: Int = 0
     private let isDragDetectionEnabled = true
     @Published var availableDevices = [OMSDeviceInfo]()
     @Published var leftDevice: OMSDeviceInfo?
@@ -91,7 +97,9 @@ final class ContentViewModel: ObservableObject {
         let id: Int32
     }
     private var customButtons: [CustomButton] = []
-    private var customKeyMappings: [String: KeyMapping] = [:]
+    private var customButtonsByLayerAndSide: [Int: [TrackpadSide: [CustomButton]]] = [:]
+    private var customKeyMappingsByLayer: LayeredKeyMappings = [:]
+    private var persistentLayer: Int = 0
 
     private var activeTouches: [TouchKey: ActiveTouch] = [:]
     private var pendingTouches: [TouchKey: PendingTouch] = [:]
@@ -102,6 +110,8 @@ final class ContentViewModel: ObservableObject {
     private var commandTouchCount = 0
     private var repeatTasks: [TouchKey: Task<Void, Never>] = [:]
     private var toggleTouchStarts: [TouchKey: Date] = [:]
+    private var layerToggleTouchStarts: [TouchKey: Int] = [:]
+    private var momentaryLayerTouches: [TouchKey: Int] = [:]
     private let tapMaxDuration: TimeInterval = 0.2
     private let holdMinDuration: TimeInterval = 0.2
     private let modifierActivationDelay: TimeInterval = 0.05
@@ -212,10 +222,27 @@ final class ContentViewModel: ObservableObject {
 
     func updateCustomButtons(_ buttons: [CustomButton]) {
         customButtons = buttons
+        rebuildCustomButtonsIndex()
     }
 
-    func updateKeyMappings(_ actions: [String: KeyMapping]) {
-        customKeyMappings = actions
+    private func rebuildCustomButtonsIndex() {
+        var mapping: [Int: [TrackpadSide: [CustomButton]]] = [:]
+        for button in customButtons {
+            var layerMap = mapping[button.layer] ?? [:]
+            var sideButtons = layerMap[button.side] ?? []
+            sideButtons.append(button)
+            layerMap[button.side] = sideButtons
+            mapping[button.layer] = layerMap
+        }
+        customButtonsByLayerAndSide = mapping
+    }
+
+    private func customButtons(for layer: Int, side: TrackpadSide) -> [CustomButton] {
+        customButtonsByLayerAndSide[layer]?[side] ?? []
+    }
+
+    func updateKeyMappings(_ actions: LayeredKeyMappings) {
+        customKeyMappingsByLayer = actions
     }
 
     func snapshotTouchData() -> [OMSTouchData] {
@@ -256,6 +283,12 @@ final class ContentViewModel: ObservableObject {
         var maxDistance: CGFloat
     }
 
+    func setPersistentLayer(_ layer: Int) {
+        let clamped = max(0, min(layer, 1))
+        persistentLayer = clamped
+        updateActiveLayer()
+    }
+
     func processTouches(
         _ touches: [OMSTouchData],
         keyRects: [[CGRect]],
@@ -268,7 +301,7 @@ final class ContentViewModel: ObservableObject {
         let bindings = makeBindings(
             keyRects: keyRects,
             labels: labels,
-            customButtons: customButtons.filter { $0.side == side },
+            customButtons: customButtons(for: activeLayer, side: side),
             canvasSize: canvasSize,
             side: side
         )
@@ -281,15 +314,36 @@ final class ContentViewModel: ObservableObject {
             let touchKey = TouchKey(deviceID: touch.deviceID, id: touch.id)
             let bindingAtPoint = binding(at: point, bindings: bindings)
 
+            if momentaryLayerTouches[touchKey] != nil {
+                handleMomentaryLayerTouch(touchKey: touchKey, state: touch.state, targetLayer: nil)
+                continue
+            }
+            if layerToggleTouchStarts[touchKey] != nil {
+                handleLayerToggleTouch(touchKey: touchKey, state: touch.state, targetLayer: nil)
+                continue
+            }
             if toggleTouchStarts[touchKey] != nil {
                 handleTypingToggleTouch(touchKey: touchKey, state: touch.state)
                 continue
             }
-            if case .typingToggle = bindingAtPoint?.action {
-                handleTypingToggleTouch(touchKey: touchKey, state: touch.state)
-                continue
+            if let binding = bindingAtPoint {
+                switch binding.action {
+                case .typingToggle:
+                    handleTypingToggleTouch(touchKey: touchKey, state: touch.state)
+                    continue
+                case let .layerToggle(targetLayer):
+                    handleLayerToggleTouch(touchKey: touchKey, state: touch.state, targetLayer: targetLayer)
+                    continue
+                case let .layerMomentary(targetLayer):
+                    handleMomentaryLayerTouch(touchKey: touchKey, state: touch.state, targetLayer: targetLayer)
+                    continue
+                case .none:
+                    continue
+                case .key:
+                    break
+                }
             }
-            if !isTypingEnabled {
+            if !isTypingEnabled && momentaryLayerTouches.isEmpty {
                 if let active = activeTouches.removeValue(forKey: touchKey) {
                     if let modifierKey = active.modifierKey {
                         handleModifierUp(modifierKey, binding: active.binding)
@@ -333,7 +387,7 @@ final class ContentViewModel: ObservableObject {
                        let holdBinding = active.holdBinding,
                        Date().timeIntervalSince(active.startTime) >= holdMinDuration,
                        (!isDragDetectionEnabled || active.maxDistance <= dragCancelDistance) {
-                        sendKey(binding: holdBinding)
+                        triggerBinding(holdBinding, touchKey: touchKey)
                         active.didHold = true
                         activeTouches[touchKey] = active
                     }
@@ -365,7 +419,7 @@ final class ContentViewModel: ObservableObject {
                             if let modifierKey {
                                 handleModifierDown(modifierKey, binding: pending.binding)
                             } else if isContinuousKey {
-                                sendKey(binding: pending.binding)
+                                triggerBinding(pending.binding, touchKey: touchKey)
                                 startRepeat(for: touchKey, binding: pending.binding)
                             }
                         } else if isDragDetectionEnabled {
@@ -399,7 +453,7 @@ final class ContentViewModel: ObservableObject {
                         if let modifierKey {
                             handleModifierDown(modifierKey, binding: binding)
                         } else if isContinuousKey {
-                            sendKey(binding: binding)
+                            triggerBinding(binding, touchKey: touchKey)
                             startRepeat(for: touchKey, binding: binding)
                         }
                     }
@@ -419,8 +473,9 @@ final class ContentViewModel: ObservableObject {
                     } else if !active.didHold,
                               Date().timeIntervalSince(active.startTime) <= tapMaxDuration,
                               (!isDragDetectionEnabled || active.maxDistance <= dragCancelDistance) {
-                        sendKey(binding: active.binding)
+                        triggerBinding(active.binding, touchKey: touchKey)
                     }
+                    endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
                 }
             case .notTouching:
                 if let pending = pendingTouches.removeValue(forKey: touchKey) {
@@ -435,6 +490,7 @@ final class ContentViewModel: ObservableObject {
                     } else if active.isContinuousKey {
                         stopRepeat(for: touchKey)
                     }
+                    endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
                 }
             case .hovering, .lingering:
                 break
@@ -472,6 +528,12 @@ final class ContentViewModel: ObservableObject {
                 )
             case .typingToggle:
                 action = .typingToggle
+            case .layerMomentary:
+                action = .layerMomentary(button.action.layer ?? 1)
+            case .layerToggle:
+                action = .layerToggle(button.action.layer ?? 1)
+            case .none:
+                action = .none
             }
             bindings.append(KeyBinding(
                 rect: rect,
@@ -491,20 +553,22 @@ final class ContentViewModel: ObservableObject {
     }
 
     private func keyAction(for position: GridKeyPosition, label: String) -> KeyAction? {
-        if let mapping = customKeyMappings[position.storageKey] {
+        let layerMappings = customKeyMappingsByLayer[activeLayer] ?? [:]
+        if let mapping = layerMappings[position.storageKey] {
             return mapping.primary
         }
-        if let mapping = customKeyMappings[label] {
+        if let mapping = layerMappings[label] {
             return mapping.primary
         }
         return KeyActionCatalog.action(for: label)
     }
 
     private func holdAction(for position: GridKeyPosition?, label: String) -> KeyAction? {
-        if let position, let mapping = customKeyMappings[position.storageKey] {
+        let layerMappings = customKeyMappingsByLayer[activeLayer] ?? [:]
+        if let position, let mapping = layerMappings[position.storageKey] {
             if let hold = mapping.hold { return hold }
         }
-        if let mapping = customKeyMappings[label], let hold = mapping.hold {
+        if let mapping = layerMappings[label], let hold = mapping.hold {
             return hold
         }
         return KeyActionCatalog.holdAction(for: label)
@@ -534,6 +598,30 @@ final class ContentViewModel: ObservableObject {
                 position: position,
                 holdAction: holdAction
             )
+        case .layerMomentary:
+            return KeyBinding(
+                rect: rect,
+                label: action.label,
+                action: .layerMomentary(action.layer ?? 1),
+                position: position,
+                holdAction: holdAction
+            )
+        case .layerToggle:
+            return KeyBinding(
+                rect: rect,
+                label: action.label,
+                action: .layerToggle(action.layer ?? 1),
+                position: position,
+                holdAction: holdAction
+            )
+        case .none:
+            return KeyBinding(
+                rect: rect,
+                label: action.label,
+                action: .none,
+                position: position,
+                holdAction: holdAction
+            )
         }
     }
 
@@ -553,6 +641,49 @@ final class ContentViewModel: ObservableObject {
             }
         case .notTouching:
             toggleTouchStarts.removeValue(forKey: touchKey)
+        case .hovering, .lingering:
+            break
+        }
+    }
+
+    private func handleLayerToggleTouch(
+        touchKey: TouchKey,
+        state: OMSState,
+        targetLayer: Int?
+    ) {
+        switch state {
+        case .starting, .making, .touching:
+            guard isTypingEnabled else { break }
+            if let targetLayer {
+                layerToggleTouchStarts[touchKey] = targetLayer
+            }
+        case .breaking, .leaving:
+            if let targetLayer = layerToggleTouchStarts.removeValue(forKey: touchKey) {
+                guard isTypingEnabled else { break }
+                toggleLayer(to: targetLayer)
+            }
+        case .notTouching:
+            layerToggleTouchStarts.removeValue(forKey: touchKey)
+        case .hovering, .lingering:
+            break
+        }
+    }
+
+    private func handleMomentaryLayerTouch(
+        touchKey: TouchKey,
+        state: OMSState,
+        targetLayer: Int?
+    ) {
+        switch state {
+        case .starting, .making, .touching:
+            if momentaryLayerTouches[touchKey] == nil, let targetLayer {
+                momentaryLayerTouches[touchKey] = targetLayer
+                updateActiveLayer()
+            }
+        case .breaking, .leaving, .notTouching:
+            if momentaryLayerTouches.removeValue(forKey: touchKey) != nil {
+                updateActiveLayer()
+            }
         case .hovering, .lingering:
             break
         }
@@ -584,7 +715,12 @@ final class ContentViewModel: ObservableObject {
 
     private func isContinuousKey(_ binding: KeyBinding) -> Bool {
         guard case let .key(code, _) = binding.action else { return false }
-        return code == CGKeyCode(kVK_Space) || code == CGKeyCode(kVK_Delete)
+        return code == CGKeyCode(kVK_Space)
+            || code == CGKeyCode(kVK_Delete)
+            || code == CGKeyCode(kVK_LeftArrow)
+            || code == CGKeyCode(kVK_RightArrow)
+            || code == CGKeyCode(kVK_UpArrow)
+            || code == CGKeyCode(kVK_DownArrow)
     }
 
     private func holdBinding(for binding: KeyBinding) -> KeyBinding? {
@@ -614,8 +750,27 @@ final class ContentViewModel: ObservableObject {
         sendKey(binding: pending.binding)
     }
 
-    private func sendKey(binding: KeyBinding) {
-        guard case let .key(code, flags) = binding.action else { return }
+    private func triggerBinding(
+        _ binding: KeyBinding,
+        touchKey: TouchKey?
+    ) {
+        switch binding.action {
+        case let .layerMomentary(layer):
+            guard let touchKey else { return }
+            momentaryLayerTouches[touchKey] = layer
+            updateActiveLayer()
+        case let .layerToggle(layer):
+            toggleLayer(to: layer)
+        case .typingToggle:
+            toggleTypingMode()
+        case .none:
+            break
+        case let .key(code, flags):
+            sendKey(code: code, flags: flags)
+        }
+    }
+
+    private func sendKey(code: CGKeyCode, flags: CGEventFlags) {
         var modifierFlags: CGEventFlags = []
         if leftShiftTouchCount > 0 {
             modifierFlags.insert(.maskShift)
@@ -638,6 +793,11 @@ final class ContentViewModel: ObservableObject {
         keyUp.flags = combinedFlags
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
+    }
+
+    private func sendKey(binding: KeyBinding) {
+        guard case let .key(code, flags) = binding.action else { return }
+        sendKey(code: code, flags: flags)
     }
 
     private func startRepeat(for touchKey: TouchKey, binding: KeyBinding) {
@@ -774,6 +934,9 @@ final class ContentViewModel: ObservableObject {
         pendingTouches.removeAll()
         disqualifiedTouches.removeAll()
         toggleTouchStarts.removeAll()
+        layerToggleTouchStarts.removeAll()
+        momentaryLayerTouches.removeAll()
+        updateActiveLayer()
     }
 
     private func disqualifyTouch(_ touchKey: TouchKey) {
@@ -785,6 +948,7 @@ final class ContentViewModel: ObservableObject {
             } else if active.isContinuousKey {
                 stopRepeat(for: touchKey)
             }
+            endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
         }
     }
 
@@ -792,6 +956,36 @@ final class ContentViewModel: ObservableObject {
         let dx = end.x - start.x
         let dy = end.y - start.y
         return (dx * dx + dy * dy).squareRoot()
+    }
+
+    private func toggleLayer(to layer: Int) { 
+        let clamped = max(0, min(layer, 1))
+        if persistentLayer == clamped {
+            persistentLayer = 0
+        } else {
+            persistentLayer = clamped
+        }
+        updateActiveLayer()
+    }
+
+    private func updateActiveLayer() {
+        if let momentaryLayer = momentaryLayerTouches.values.max() {
+            activeLayer = momentaryLayer
+        } else {
+            activeLayer = persistentLayer
+        }
+    }
+
+    private func endMomentaryHoldIfNeeded(_ binding: KeyBinding?, touchKey: TouchKey) {
+        guard let binding else { return }
+        switch binding.action {
+        case .layerMomentary:
+            if momentaryLayerTouches.removeValue(forKey: touchKey) != nil {
+                updateActiveLayer()
+            }
+        default:
+            break
+        }
     }
 }
 
@@ -832,6 +1026,9 @@ struct NormalizedRect: Codable, Hashable {
 enum KeyActionKind: String, Codable {
     case key
     case typingToggle
+    case layerMomentary
+    case layerToggle
+    case none
 }
 
 struct KeyAction: Codable, Hashable {
@@ -839,12 +1036,31 @@ struct KeyAction: Codable, Hashable {
     var keyCode: UInt16
     var flags: UInt64
     var kind: KeyActionKind
+    var layer: Int?
+    var displayText: String {
+        kind == .none ? "" : label
+    }
 
-    init(label: String, keyCode: UInt16, flags: UInt64, kind: KeyActionKind = .key) {
+    private enum CodingKeys: String, CodingKey {
+        case label
+        case keyCode
+        case flags
+        case kind
+        case layer
+    }
+
+    init(
+        label: String,
+        keyCode: UInt16,
+        flags: UInt64,
+        kind: KeyActionKind = .key,
+        layer: Int? = nil
+    ) {
         self.label = label
         self.keyCode = keyCode
         self.flags = flags
         self.kind = kind
+        self.layer = layer
     }
 
     init(from decoder: Decoder) throws {
@@ -853,9 +1069,19 @@ struct KeyAction: Codable, Hashable {
         keyCode = try container.decode(UInt16.self, forKey: .keyCode)
         flags = try container.decode(UInt64.self, forKey: .flags)
         kind = try container.decodeIfPresent(KeyActionKind.self, forKey: .kind) ?? .key
+        layer = try container.decodeIfPresent(Int.self, forKey: .layer)
         if kind == .typingToggle, label == KeyActionCatalog.legacyTypingToggleLabel {
             label = KeyActionCatalog.typingToggleLabel
         }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(label, forKey: .label)
+        try container.encode(keyCode, forKey: .keyCode)
+        try container.encode(flags, forKey: .flags)
+        try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(layer, forKey: .layer)
     }
 }
 
@@ -870,6 +1096,52 @@ struct CustomButton: Identifiable, Codable, Hashable {
     var rect: NormalizedRect
     var action: KeyAction
     var hold: KeyAction?
+    var layer: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case side
+        case rect
+        case action
+        case hold
+        case layer
+    }
+
+    init(
+        id: UUID,
+        side: TrackpadSide,
+        rect: NormalizedRect,
+        action: KeyAction,
+        hold: KeyAction?,
+        layer: Int = 0
+    ) {
+        self.id = id
+        self.side = side
+        self.rect = rect
+        self.action = action
+        self.hold = hold
+        self.layer = layer
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        side = try container.decode(TrackpadSide.self, forKey: .side)
+        rect = try container.decode(NormalizedRect.self, forKey: .rect)
+        action = try container.decode(KeyAction.self, forKey: .action)
+        hold = try container.decodeIfPresent(KeyAction.self, forKey: .hold)
+        layer = try container.decodeIfPresent(Int.self, forKey: .layer) ?? 0
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(side, forKey: .side)
+        try container.encode(rect, forKey: .rect)
+        try container.encode(action, forKey: .action)
+        try container.encodeIfPresent(hold, forKey: .hold)
+        try container.encode(layer, forKey: .layer)
+    }
 }
 
 enum CustomButtonStore {
@@ -927,7 +1199,8 @@ enum CustomButtonDefaults {
                     rect: normalized.mirroredHorizontally(),
                     action: leftActions[index]
                     ,
-                    hold: nil
+                    hold: nil,
+                    layer: 0
                 ))
             }
             if index < rightActions.count {
@@ -937,7 +1210,8 @@ enum CustomButtonDefaults {
                     rect: normalized,
                     action: rightActions[index]
                     ,
-                    hold: nil
+                    hold: nil,
+                    layer: 0
                 ))
             }
         }
@@ -949,6 +1223,17 @@ enum KeyActionCatalog {
     static let typingToggleLabel = "Typing Toggle"
     static let typingToggleDisplayLabel = "Typing\nToggle"
     static let legacyTypingToggleLabel = "Typing Mode Toggle"
+    static let momentaryLayer1Label = "MO(1)"
+    static let toggleLayer1Label = "TO(1)"
+    static let noneLabel = "None"
+    static var noneAction: KeyAction {
+        KeyAction(
+            label: noneLabel,
+            keyCode: UInt16.max,
+            flags: 0,
+            kind: .none
+        )
+    }
     static let holdBindingsByLabel: [String: (CGKeyCode, CGEventFlags)] = [
         "Esc": (CGKeyCode(kVK_Escape), []),
         "Q": (CGKeyCode(kVK_ANSI_LeftBracket), []),
@@ -984,6 +1269,19 @@ enum KeyActionCatalog {
     static let bindingsByLabel: [String: (CGKeyCode, CGEventFlags)] = [
         "Esc": (CGKeyCode(kVK_Escape), []),
         "Tab": (CGKeyCode(kVK_Tab), []),
+        "`": (CGKeyCode(kVK_ANSI_Grave), []),
+        "1": (CGKeyCode(kVK_ANSI_1), []),
+        "2": (CGKeyCode(kVK_ANSI_2), []),
+        "3": (CGKeyCode(kVK_ANSI_3), []),
+        "4": (CGKeyCode(kVK_ANSI_4), []),
+        "5": (CGKeyCode(kVK_ANSI_5), []),
+        "6": (CGKeyCode(kVK_ANSI_6), []),
+        "7": (CGKeyCode(kVK_ANSI_7), []),
+        "8": (CGKeyCode(kVK_ANSI_8), []),
+        "9": (CGKeyCode(kVK_ANSI_9), []),
+        "0": (CGKeyCode(kVK_ANSI_0), []),
+        "-": (CGKeyCode(kVK_ANSI_Minus), []),
+        "=": (CGKeyCode(kVK_ANSI_Equal), []),
         "Q": (CGKeyCode(kVK_ANSI_Q), []),
         "W": (CGKeyCode(kVK_ANSI_W), []),
         "E": (CGKeyCode(kVK_ANSI_E), []),
@@ -1007,20 +1305,47 @@ enum KeyActionCatalog {
         "I": (CGKeyCode(kVK_ANSI_I), []),
         "O": (CGKeyCode(kVK_ANSI_O), []),
         "P": (CGKeyCode(kVK_ANSI_P), []),
+        "[": (CGKeyCode(kVK_ANSI_LeftBracket), []),
+        "]": (CGKeyCode(kVK_ANSI_RightBracket), []),
+        "\\": (CGKeyCode(kVK_ANSI_Backslash), []),
         "Back": (CGKeyCode(kVK_Delete), []),
+        "Left": (CGKeyCode(kVK_LeftArrow), []),
+        "Right": (CGKeyCode(kVK_RightArrow), []),
+        "Up": (CGKeyCode(kVK_UpArrow), []),
+        "Down": (CGKeyCode(kVK_DownArrow), []),
         "H": (CGKeyCode(kVK_ANSI_H), []),
         "J": (CGKeyCode(kVK_ANSI_J), []),
         "K": (CGKeyCode(kVK_ANSI_K), []),
         "L": (CGKeyCode(kVK_ANSI_L), []),
         ";": (CGKeyCode(kVK_ANSI_Semicolon), []),
+        "'": (CGKeyCode(kVK_ANSI_Quote), []),
         "Ret": (CGKeyCode(kVK_Return), []),
         "N": (CGKeyCode(kVK_ANSI_N), []),
         "M": (CGKeyCode(kVK_ANSI_M), []),
         ",": (CGKeyCode(kVK_ANSI_Comma), []),
         ".": (CGKeyCode(kVK_ANSI_Period), []),
         "/": (CGKeyCode(kVK_ANSI_Slash), []),
-        "\\": (CGKeyCode(kVK_ANSI_Backslash), []),
+        "!": (CGKeyCode(kVK_ANSI_1), .maskShift),
+        "@": (CGKeyCode(kVK_ANSI_2), .maskShift),
+        "#": (CGKeyCode(kVK_ANSI_3), .maskShift),
+        "$": (CGKeyCode(kVK_ANSI_4), .maskShift),
+        "%": (CGKeyCode(kVK_ANSI_5), .maskShift),
+        "^": (CGKeyCode(kVK_ANSI_6), .maskShift),
+        "&": (CGKeyCode(kVK_ANSI_7), .maskShift),
+        "*": (CGKeyCode(kVK_ANSI_8), .maskShift),
+        "(": (CGKeyCode(kVK_ANSI_9), .maskShift),
+        ")": (CGKeyCode(kVK_ANSI_0), .maskShift),
+        "_": (CGKeyCode(kVK_ANSI_Minus), .maskShift),
+        "+": (CGKeyCode(kVK_ANSI_Equal), .maskShift),
+        "{": (CGKeyCode(kVK_ANSI_LeftBracket), .maskShift),
+        "}": (CGKeyCode(kVK_ANSI_RightBracket), .maskShift),
+        "|": (CGKeyCode(kVK_ANSI_Backslash), .maskShift),
+        ":": (CGKeyCode(kVK_ANSI_Semicolon), .maskShift),
+        "\"": (CGKeyCode(kVK_ANSI_Quote), .maskShift),
+        "<": (CGKeyCode(kVK_ANSI_Comma), .maskShift),
+        ">": (CGKeyCode(kVK_ANSI_Period), .maskShift),
         "?": (CGKeyCode(kVK_ANSI_Slash), .maskShift),
+        "~": (CGKeyCode(kVK_ANSI_Grave), .maskShift),
         "Space": (CGKeyCode(kVK_Space), [])
     ]
 
@@ -1092,6 +1417,7 @@ enum KeyActionCatalog {
             flags: 0,
             kind: .typingToggle
         ))
+        items.append(contentsOf: layerActions)
         return items.sorted { $0.label < $1.label }
     }()
 
@@ -1118,16 +1444,38 @@ enum KeyActionCatalog {
             flags: 0,
             kind: .typingToggle
         ))
+        actions.append(contentsOf: layerActions)
         return actions.sorted { $0.label < $1.label }
     }()
 
     static func action(for label: String) -> KeyAction? {
+        if label == noneLabel {
+            return noneAction
+        }
         if label == typingToggleLabel || label == legacyTypingToggleLabel {
             return KeyAction(
                 label: typingToggleLabel,
                 keyCode: 0,
                 flags: 0,
                 kind: .typingToggle
+            )
+        }
+        if label == momentaryLayer1Label {
+            return KeyAction(
+                label: momentaryLayer1Label,
+                keyCode: 0,
+                flags: 0,
+                kind: .layerMomentary,
+                layer: 1
+            )
+        }
+        if label == toggleLayer1Label {
+            return KeyAction(
+                label: toggleLayer1Label,
+                keyCode: 0,
+                flags: 0,
+                kind: .layerToggle,
+                layer: 1
             )
         }
         guard let binding = bindingsByLabel[label] else { return nil }
@@ -1159,19 +1507,40 @@ enum KeyActionCatalog {
     ) -> KeyAction? {
         presets.first { $0.keyCode == keyCode && $0.flags == flags.rawValue }
     }
+
+    private static var layerActions: [KeyAction] {
+        [
+            KeyAction(
+                label: momentaryLayer1Label,
+                keyCode: 0,
+                flags: 0,
+                kind: .layerMomentary,
+                layer: 1
+            ),
+            KeyAction(
+                label: toggleLayer1Label,
+                keyCode: 0,
+                flags: 0,
+                kind: .layerToggle,
+                layer: 1
+            )
+        ]
+    }
 }
 
 enum KeyActionMappingStore {
-    static func decode(_ data: Data) -> [String: KeyMapping]? {
+    static func decode(_ data: Data) -> LayeredKeyMappings? {
         guard !data.isEmpty else { return nil }
-        do {
-            return try JSONDecoder().decode([String: KeyMapping].self, from: data)
-        } catch {
-            return nil
+        if let layered = try? JSONDecoder().decode(LayeredKeyMappings.self, from: data) {
+            return layered
         }
+        if let legacy = try? JSONDecoder().decode([String: KeyMapping].self, from: data) {
+            return [0: legacy, 1: legacy]
+        }
+        return nil
     }
 
-    static func encode(_ mappings: [String: KeyMapping]) -> Data? {
+    static func encode(_ mappings: LayeredKeyMappings) -> Data? {
         guard !mappings.isEmpty else { return nil }
         do {
             return try JSONEncoder().encode(mappings)
