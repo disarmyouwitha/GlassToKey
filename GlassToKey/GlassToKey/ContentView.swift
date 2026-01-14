@@ -206,6 +206,29 @@ struct ContentView: View {
                             selectedButtonID: selectedButtonID
                         )
                     }
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Typing Behavior")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Tap / Hold threshold")
+                                Spacer()
+                                Text("\(Int(tapHoldDurationMs)) ms")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Slider(value: $tapHoldDurationMs, in: 50...1000, step: 5)
+                            Text("Lower values make taps send sooner, reducing accidental drag cancels.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.primary.opacity(0.05))
+                    )
                 }
 
                 VStack(alignment: .leading, spacing: 14) {
@@ -475,30 +498,6 @@ struct ContentView: View {
                                 .fill(Color.primary.opacity(0.05))
                         )
                     }
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Typing Behavior")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text("Tap / Hold threshold")
-                                Spacer()
-                                Text("\(Int(tapHoldDurationMs)) ms")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Slider(value: $tapHoldDurationMs, in: 50...1000, step: 5)
-                            Text("Lower values make taps send sooner, reducing accidental drag cancels.")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.primary.opacity(0.05))
-                    )
 
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Typing Test")
