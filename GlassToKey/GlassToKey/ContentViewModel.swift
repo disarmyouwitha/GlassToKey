@@ -502,7 +502,7 @@ final class ContentViewModel: ObservableObject {
         for button in customButtons {
             let rect = button.rect.rect(in: canvasSize)
             let action: KeyBindingAction
-            switch button.action.kind {
+             switch button.action.kind {
             case .key:
                 action = .key(
                     code: CGKeyCode(button.action.keyCode),
@@ -514,6 +514,8 @@ final class ContentViewModel: ObservableObject {
                 action = .layerMomentary(button.action.layer ?? 1)
             case .layerToggle:
                 action = .layerToggle(button.action.layer ?? 1)
+            case .none:
+                action = .none
             }
             bindings.append(KeyBinding(
                 rect: rect,
