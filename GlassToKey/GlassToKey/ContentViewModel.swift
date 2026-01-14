@@ -112,6 +112,7 @@ final class ContentViewModel: ObservableObject {
     private var toggleTouchStarts: [TouchKey: Date] = [:]
     private var layerToggleTouchStarts: [TouchKey: Int] = [:]
     private var momentaryLayerTouches: [TouchKey: Int] = [:]
+    private var touchInitialContactPoint: [TouchKey: CGPoint] = [:]
     private let tapMaxDuration: TimeInterval = 0.2
     private var holdMinDuration: TimeInterval = 0.2
     private let modifierActivationDelay: TimeInterval = 0.05
@@ -320,10 +321,19 @@ final class ContentViewModel: ObservableObject {
                 y: CGFloat(1.0 - touch.position.y) * canvasSize.height
             )
             let touchKey = TouchKey(deviceID: touch.deviceID, id: touch.id)
+            if touchInitialContactPoint[touchKey] == nil,
+               Self.isContactState(touch.state) {
+                touchInitialContactPoint[touchKey] = point
+            }
             let bindingAtPoint = binding(at: point, bindings: bindings)
 
             if momentaryLayerTouches[touchKey] != nil {
-                handleMomentaryLayerTouch(touchKey: touchKey, state: touch.state, targetLayer: nil)
+                handleMomentaryLayerTouch(
+                    touchKey: touchKey,
+                    state: touch.state,
+                    targetLayer: nil,
+                    bindingRect: nil
+                )
                 continue
             }
             if layerToggleTouchStarts[touchKey] != nil {
@@ -343,7 +353,12 @@ final class ContentViewModel: ObservableObject {
                     handleLayerToggleTouch(touchKey: touchKey, state: touch.state, targetLayer: targetLayer)
                     continue
                 case let .layerMomentary(targetLayer):
-                    handleMomentaryLayerTouch(touchKey: touchKey, state: touch.state, targetLayer: targetLayer)
+                    handleMomentaryLayerTouch(
+                        touchKey: touchKey,
+                        state: touch.state,
+                        targetLayer: targetLayer,
+                        bindingRect: binding.rect
+                    )
                     continue
                 case .none:
                     continue
@@ -361,6 +376,7 @@ final class ContentViewModel: ObservableObject {
                 }
                 pendingTouches.removeValue(forKey: touchKey)
                 disqualifiedTouches.remove(touchKey)
+                touchInitialContactPoint.removeValue(forKey: touchKey)
                 continue
             }
 
@@ -467,6 +483,7 @@ final class ContentViewModel: ObservableObject {
                     }
                 }
             case .breaking, .leaving:
+                touchInitialContactPoint.removeValue(forKey: touchKey)
                 if let pending = pendingTouches.removeValue(forKey: touchKey) {
                     maybeSendPendingContinuousTap(pending, at: point)
                 }
@@ -486,6 +503,7 @@ final class ContentViewModel: ObservableObject {
                     endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
                 }
             case .notTouching:
+                touchInitialContactPoint.removeValue(forKey: touchKey)
                 if let pending = pendingTouches.removeValue(forKey: touchKey) {
                     maybeSendPendingContinuousTap(pending, at: point)
                 }
@@ -637,6 +655,15 @@ final class ContentViewModel: ObservableObject {
         bindings.first { $0.rect.contains(point) }
     }
 
+    private static func isContactState(_ state: OMSState) -> Bool {
+        switch state {
+        case .starting, .making, .touching:
+            return true
+        default:
+            return false
+        }
+    }
+
     private func handleTypingToggleTouch(touchKey: TouchKey, state: OMSState) {
         switch state {
         case .starting, .making, .touching:
@@ -680,14 +707,20 @@ final class ContentViewModel: ObservableObject {
     private func handleMomentaryLayerTouch(
         touchKey: TouchKey,
         state: OMSState,
-        targetLayer: Int?
+        targetLayer: Int?,
+        bindingRect: CGRect?
     ) {
         switch state {
         case .starting, .making, .touching:
-            if momentaryLayerTouches[touchKey] == nil, let targetLayer {
-                momentaryLayerTouches[touchKey] = targetLayer
-                updateActiveLayer()
+            guard momentaryLayerTouches[touchKey] == nil,
+                  let targetLayer,
+                  let rect = bindingRect,
+                  let initialPoint = touchInitialContactPoint[touchKey],
+                  rect.contains(initialPoint) else {
+                break
             }
+            momentaryLayerTouches[touchKey] = targetLayer
+            updateActiveLayer()
         case .breaking, .leaving, .notTouching:
             if momentaryLayerTouches.removeValue(forKey: touchKey) != nil {
                 updateActiveLayer()
@@ -950,10 +983,12 @@ final class ContentViewModel: ObservableObject {
         toggleTouchStarts.removeAll()
         layerToggleTouchStarts.removeAll()
         momentaryLayerTouches.removeAll()
+        touchInitialContactPoint.removeAll()
         updateActiveLayer()
     }
 
     private func disqualifyTouch(_ touchKey: TouchKey) {
+        touchInitialContactPoint.removeValue(forKey: touchKey)
         disqualifiedTouches.insert(touchKey)
         pendingTouches.removeValue(forKey: touchKey)
         if let active = activeTouches.removeValue(forKey: touchKey) {

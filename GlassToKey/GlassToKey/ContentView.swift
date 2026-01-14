@@ -230,7 +230,7 @@ struct ContentView: View {
                                 HStack {
                                     Text("Drag cancellation distance")
                                     Spacer()
-                                    Text("\(String(format: "%.1f", dragCancelDistanceSetting)) px")
+                                    Text( "\(String(format: "%.1f", dragCancelDistanceSetting)) px")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }

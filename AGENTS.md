@@ -41,10 +41,10 @@
 - No notes left
 
 ## TODO
-- Need to make sure 2 finger taps do not trigger key presses.
-- If no Hold Action is set, can it call Action instead as a fallback?
-- can we round the corners to give the visuals a softer look?
+- When you drag over the MO(1) button it shouldn't activate, you should need to click it. 
 - option to enable 6x4, 6x3, 5x4, 5x3 columns layout. Also include a None layout for no keys.
+- can we round the corners to give the visuals a softer look?
+- Need to make sure 2 finger taps do not trigger key presses.
 ###
 - Have GPT show x,y instead of % or at least have it explain why it did that.. Each % is different even if they are in the same place!
 - "Auto" set column x,y based on finger splay "4 finger touch"
