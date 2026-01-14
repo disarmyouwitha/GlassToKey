@@ -502,7 +502,7 @@ final class ContentViewModel: ObservableObject {
         keyRects: [[CGRect]],
         labels: [[String]],
         customButtons: [CustomButton],
-        canvasSize: CGSize,
+        can asSize: CGSize,
         side: TrackpadSide
     ) -> [KeyBinding] {
         var bindings: [KeyBinding] = []
@@ -1031,15 +1031,22 @@ enum KeyActionKind: String, Codable {
     case none
 }
 
-struct KeyAction: Codable, Hashable {
-    var label: String
-    var keyCode: UInt16
-    var flags: UInt64
-    var kind: KeyActionKind
-    var layer: Int?
-    var displayText: String {
-        kind == .none ? "" : label
-    }
+    struct KeyAction: Codable, Hashable {
+        var label: String
+        var keyCode: UInt16
+        var flags: UInt64
+        var kind: KeyActionKind
+        var layer: Int?
+        var displayText: String {
+            switch kind {
+            case .none:
+                return ""
+            case .typingToggle:
+                return KeyActionCatalog.typingToggleDisplayLabel
+            default:
+                return label
+            }
+        }
 
     private enum CodingKeys: String, CodingKey {
         case label

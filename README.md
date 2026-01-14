@@ -6,7 +6,7 @@ Since it is built on the same technology, I thought it would be fun to try and c
 
 <img src="Screenshots/touchstreamLP.jpg" alt="Fingerworks Touchstream LP" width="900px" />
 
-It's just Codex and I vibe coding~ you can submit an issue but this is really just a repo for me, you might have to fork and extend!
+It's just Codex and I vibe coding~ You can submit an issue but this is really just a repo for me, you might have to fork and extend!
 
 ## Usage
 
@@ -16,12 +16,6 @@ Clicking the indicator light will allow you to view the Config or Quit the progr
 
 <img src="Screenshots/GTK_config.png" alt="GlassToKey" width="900px" />
 
-If you hold any key for longer than 200ms I have a whole hidden tap-hold layer. <br>
-(Sorry it is not more user friendly at this point)
-
-## Known Bugs
-In Config, when selecting columns use the Right-Hand-Side. LHS cannot select Columns 5,6
-
 ## TODO
 
 This repo is not really in shape for users, but a developer could definitely get in and modify the keymap, etc. 
@@ -29,8 +23,6 @@ This repo is not really in shape for users, but a developer could definitely get
 **I have a todo list in the AGENTS.md file if you want to check it out! Or load up codex and say, "read agents.md" and start submitting PRs, lol!**
 
 ## FUTURE
-- can we round the corners to give the visuals a softer look?GlassToKey/GlassToKey/GlassToKeyDefaultsKeys.swiftGlassToKey/GlassToKey/GlassToKeyDefaultsKeys.swift
-- add config to splay columns based on your touch
 - Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight
 
 ---
