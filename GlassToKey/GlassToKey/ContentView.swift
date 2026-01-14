@@ -37,7 +37,7 @@ struct ContentView: View {
     @State private var selectedColumn: Int?
     @State private var selectedGridKey: SelectedGridKey?
     @State private var resizeStartRects: [UUID: NormalizedRect] = [:]
-    @State private var keyMappings: [String: KeyMapping] = [:]
+    @State private var keyMappingsByLayer: LayeredKeyMappings = [:]
     @AppStorage(GlassToKeyDefaultsKeys.leftDeviceID) private var storedLeftDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.rightDeviceID) private var storedRightDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.visualsEnabled) private var storedVisualsEnabled = true
@@ -158,6 +158,13 @@ struct ContentView: View {
                 Spacer()
                 Toggle("Visuals", isOn: $visualsEnabled)
                     .toggleStyle(SwitchToggleStyle())
+                HStack(spacing: 6) {
+                    Text("Layer 0")
+                    Toggle("", isOn: layerToggleBinding)
+                        .toggleStyle(SwitchToggleStyle())
+                        .labelsHidden()
+                    Text("Layer 1")
+                }
                 if viewModel.isListening {
                     Button("Stop") {
                         viewModel.stop()
@@ -524,7 +531,7 @@ struct ContentView: View {
             viewModel.updateCustomButtons(newValue)
             saveCustomButtons(newValue)
         }
-        .onChange(of: keyMappings) { newValue in
+        .onChange(of: keyMappingsByLayer) { newValue in
             viewModel.updateKeyMappings(newValue)
             saveKeyMappings(newValue)
         }
@@ -874,14 +881,14 @@ struct ContentView: View {
 
     private func loadKeyMappings() {
         if let decoded = KeyActionMappingStore.decode(storedKeyMappingsData) {
-            keyMappings = decoded
+            keyMappingsByLayer = normalizedLayerMappings(decoded)
         } else {
-            keyMappings = [:]
+            keyMappingsByLayer = [0: [:], 1: [:]]
         }
-        viewModel.updateKeyMappings(keyMappings)
+        viewModel.updateKeyMappings(keyMappingsByLayer)
     }
 
-    private func saveKeyMappings(_ mappings: [String: KeyMapping]) {
+    private func saveKeyMappings(_ mappings: LayeredKeyMappings) {
         storedKeyMappingsData = KeyActionMappingStore.encode(mappings) ?? Data()
     }
 
@@ -1372,10 +1379,11 @@ struct ContentView: View {
     }
 
     private func effectiveKeyMapping(for key: SelectedGridKey) -> KeyMapping {
-        if let mapping = keyMappings[key.storageKey] {
+        let layerMappings = keyMappingsForActiveLayer()
+        if let mapping = layerMappings[key.storageKey] {
             return mapping
         }
-        if let mapping = keyMappings[key.label] {
+        if let mapping = layerMappings[key.label] {
             return mapping
         }
         return defaultKeyMapping(for: key.label) ?? KeyMapping(primary: KeyAction(label: key.label, keyCode: 0, flags: 0), hold: nil)
@@ -1385,19 +1393,23 @@ struct ContentView: View {
         for key: SelectedGridKey,
         _ update: (inout KeyMapping) -> Void
     ) {
-        var mapping = keyMappings[key.storageKey]
-            ?? keyMappings[key.label]
+        let layer = viewModel.activeLayer
+        var layerMappings = keyMappingsByLayer[layer] ?? [:]
+        var mapping = layerMappings[key.storageKey]
+            ?? layerMappings[key.label]
             ?? defaultKeyMapping(for: key.label)
             ?? KeyMapping(primary: KeyAction(label: key.label, keyCode: 0, flags: 0), hold: nil)
         update(&mapping)
         if let defaultMapping = defaultKeyMapping(for: key.label),
            defaultMapping == mapping {
-            keyMappings.removeValue(forKey: key.storageKey)
-            keyMappings.removeValue(forKey: key.label)
+            layerMappings.removeValue(forKey: key.storageKey)
+            layerMappings.removeValue(forKey: key.label)
+            keyMappingsByLayer[layer] = layerMappings
             return
         }
-        keyMappings[key.storageKey] = mapping
-        keyMappings.removeValue(forKey: key.label)
+        layerMappings[key.storageKey] = mapping
+        layerMappings.removeValue(forKey: key.label)
+        keyMappingsByLayer[layer] = layerMappings
     }
 
     private func defaultKeyMapping(for label: String) -> KeyMapping? {
@@ -1523,6 +1535,25 @@ struct ContentView: View {
     ) -> [OMSTouchData] {
         guard let deviceID = device?.deviceID else { return [] }
         return touches.filter { $0.deviceID == deviceID }
+    }
+
+    private var layerToggleBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.activeLayer == 1 },
+            set: { isOn in
+                viewModel.setPersistentLayer(isOn ? 1 : 0)
+            }
+        )
+    }
+
+    private func normalizedLayerMappings(_ mappings: LayeredKeyMappings) -> LayeredKeyMappings {
+        let layer0 = mappings[0] ?? [:]
+        let layer1 = mappings[1] ?? layer0
+        return [0: layer0, 1: layer1]
+    }
+
+    private func keyMappingsForActiveLayer() -> [String: KeyMapping] {
+        keyMappingsByLayer[viewModel.activeLayer] ?? [:]
     }
 }
 

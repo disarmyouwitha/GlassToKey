@@ -18,13 +18,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let controller = GlassToKeyController()
     private var statusItem: NSStatusItem?
     private var configWindow: NSWindow?
-    private var typingModeCancellable: AnyCancellable?
+    private var statusCancellable: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         controller.start()
         configureStatusItem()
-        observeTypingMode()
+        observeStatus()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -64,31 +64,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         item.menu = menu
         statusItem = item
-        updateStatusIndicator(isTypingEnabled: controller.viewModel.isTypingEnabled)
+        updateStatusIndicator(
+            isTypingEnabled: controller.viewModel.isTypingEnabled,
+            activeLayer: controller.viewModel.activeLayer
+        )
     }
 
-    private func observeTypingMode() {
-        typingModeCancellable = controller.viewModel.$isTypingEnabled
-            .removeDuplicates()
-            .sink { [weak self] isTypingEnabled in
-                self?.updateStatusIndicator(isTypingEnabled: isTypingEnabled)
-            }
+    private func observeStatus() {
+        statusCancellable = Publishers.CombineLatest(
+            controller.viewModel.$isTypingEnabled.removeDuplicates(),
+            controller.viewModel.$activeLayer.removeDuplicates()
+        )
+        .sink { [weak self] isTypingEnabled, activeLayer in
+            self?.updateStatusIndicator(
+                isTypingEnabled: isTypingEnabled,
+                activeLayer: activeLayer
+            )
+        }
     }
 
-    private func updateStatusIndicator(isTypingEnabled: Bool) {
+    private func updateStatusIndicator(isTypingEnabled: Bool, activeLayer: Int) {
         guard let button = statusItem?.button else { return }
-        button.image = statusIndicatorImage(isTypingEnabled: isTypingEnabled)
+        button.image = statusIndicatorImage(
+            isTypingEnabled: isTypingEnabled,
+            activeLayer: activeLayer
+        )
         button.toolTip = isTypingEnabled ? "Keyboard mode" : "Mouse mode"
     }
 
-    private func statusIndicatorImage(isTypingEnabled: Bool) -> NSImage {
+    private func statusIndicatorImage(isTypingEnabled: Bool, activeLayer: Int) -> NSImage {
         let size = NSSize(width: 10, height: 10)
         let image = NSImage(size: size)
         image.isTemplate = false
         image.lockFocus()
         let rect = NSRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1)
         let path = NSBezierPath(ovalIn: rect)
-        let color = isTypingEnabled ? NSColor.systemGreen : NSColor.systemRed
+        let color = activeLayer == 1
+            ? NSColor.systemBlue
+            : (isTypingEnabled ? NSColor.systemGreen : NSColor.systemRed)
         color.setFill()
         path.fill()
         image.unlockFocus()
