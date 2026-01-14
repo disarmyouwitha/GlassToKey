@@ -42,7 +42,7 @@
 
 ## TODO
 - Need to make sure 2 finger taps do not trigger key presses.
-- Can we try to reduce the amount of movement needed for drag detection? I think we set it to 5px or something and I want to half that
+- If no Hold Action is set, can it call Action instead as a fallback?
 - can we round the corners to give the visuals a softer look?
 - option to enable 6x4, 6x3, 5x4, 5x3 columns layout. Also include a None layout for no keys.
 ###
