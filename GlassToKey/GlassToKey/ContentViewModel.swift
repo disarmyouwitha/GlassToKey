@@ -502,7 +502,7 @@ final class ContentViewModel: ObservableObject {
         for button in customButtons {
             let rect = button.rect.rect(in: canvasSize)
             let action: KeyBindingAction
-             switch button.action.kind {
+            switch button.action.kind {
             case .key:
                 action = .key(
                     code: CGKeyCode(button.action.keyCode),
@@ -697,7 +697,12 @@ final class ContentViewModel: ObservableObject {
 
     private func isContinuousKey(_ binding: KeyBinding) -> Bool {
         guard case let .key(code, _) = binding.action else { return false }
-        return code == CGKeyCode(kVK_Space) || code == CGKeyCode(kVK_Delete)
+        return code == CGKeyCode(kVK_Space)
+            || code == CGKeyCode(kVK_Delete)
+            || code == CGKeyCode(kVK_LeftArrow)
+            || code == CGKeyCode(kVK_RightArrow)
+            || code == CGKeyCode(kVK_UpArrow)
+            || code == CGKeyCode(kVK_DownArrow)
     }
 
     private func holdBinding(for binding: KeyBinding) -> KeyBinding? {
@@ -1238,6 +1243,10 @@ enum KeyActionCatalog {
         "]": (CGKeyCode(kVK_ANSI_RightBracket), []),
         "\\": (CGKeyCode(kVK_ANSI_Backslash), []),
         "Back": (CGKeyCode(kVK_Delete), []),
+        "Left": (CGKeyCode(kVK_LeftArrow), []),
+        "Right": (CGKeyCode(kVK_RightArrow), []),
+        "Up": (CGKeyCode(kVK_UpArrow), []),
+        "Down": (CGKeyCode(kVK_DownArrow), []),
         "H": (CGKeyCode(kVK_ANSI_H), []),
         "J": (CGKeyCode(kVK_ANSI_J), []),
         "K": (CGKeyCode(kVK_ANSI_K), []),
