@@ -44,6 +44,7 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.columnSettings) private var storedColumnSettingsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.customButtons) private var storedCustomButtonsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.keyMappings) private var storedKeyMappingsData = Data()
+    @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = 200.0
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -476,6 +477,30 @@ struct ContentView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
+                        Text("Typing Behavior")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Tap / Hold threshold")
+                                Spacer()
+                                Text("\(Int(tapHoldDurationMs)) ms")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Slider(value: $tapHoldDurationMs, in: 50...1000, step: 5)
+                            Text("Lower values make taps send sooner, reducing accidental drag cancels.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.primary.opacity(0.05))
+                    )
+
+                    VStack(alignment: .leading, spacing: 10) {
                         Text("Typing Test")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -538,6 +563,9 @@ struct ContentView: View {
         .onChange(of: keyMappingsByLayer) { newValue in
             viewModel.updateKeyMappings(newValue)
             saveKeyMappings(newValue)
+        }
+        .onChange(of: tapHoldDurationMs) { newValue in
+            viewModel.updateHoldThreshold(newValue / 1000.0)
         }
         .task {
             for await _ in Timer.publish(
@@ -824,6 +852,7 @@ struct ContentView: View {
         if let rightDevice = deviceForID(storedRightDeviceID) {
             viewModel.selectRightDevice(rightDevice)
         }
+        viewModel.updateHoldThreshold(tapHoldDurationMs / 1000.0)
     }
 
     private func saveSettings() {

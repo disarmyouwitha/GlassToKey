@@ -7,4 +7,5 @@ enum GlassToKeyDefaultsKeys {
     static let columnSettings = "GlassToKey.columnSettings"
     static let customButtons = "GlassToKey.customButtons"
     static let keyMappings = "GlassToKey.keyMappings"
+    static let tapHoldDuration = "GlassToKey.tapHoldDuration"
 }
