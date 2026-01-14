@@ -368,6 +368,8 @@ struct ContentView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
+                            Color.clear
+                                .frame(height: 16)
                         }
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
