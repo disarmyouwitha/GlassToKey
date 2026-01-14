@@ -1277,7 +1277,7 @@ struct ContentView: View {
             context.fill(Path(rect), with: .color(Color.blue.opacity(0.12)))
             context.stroke(Path(rect), with: .color(.secondary.opacity(0.6)), lineWidth: 1)
             let center = CGPoint(x: rect.midX, y: rect.midY)
-            let primaryText = Text(button.action.label)
+            let primaryText = Text(button.action.displayText)
                 .font(primaryStyle)
                 .foregroundColor(.secondary)
             let primaryY = center.y - (button.hold != nil ? 4 : 0)
@@ -1371,7 +1371,7 @@ struct ContentView: View {
 
     private func labelInfo(for key: SelectedGridKey) -> (primary: String, hold: String?) {
         let mapping = effectiveKeyMapping(for: key)
-        return (primary: mapping.primary.label, hold: mapping.hold?.label)
+        return (primary: mapping.primary.displayText, hold: mapping.hold?.label)
     }
 
     private func pickerLabel(for action: KeyAction) -> some View {

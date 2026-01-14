@@ -1014,6 +1014,9 @@ struct KeyAction: Codable, Hashable {
     var flags: UInt64
     var kind: KeyActionKind
     var layer: Int?
+    var displayText: String {
+        kind == .none ? "" : label
+    }
 
     private enum CodingKeys: String, CodingKey {
         case label
