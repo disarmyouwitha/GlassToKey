@@ -97,6 +97,7 @@ final class ContentViewModel: ObservableObject {
         let id: Int32
     }
     private var customButtons: [CustomButton] = []
+    private var customButtonsByLayerAndSide: [Int: [TrackpadSide: [CustomButton]]] = [:]
     private var customKeyMappingsByLayer: LayeredKeyMappings = [:]
     private var persistentLayer: Int = 0
 
@@ -221,6 +222,23 @@ final class ContentViewModel: ObservableObject {
 
     func updateCustomButtons(_ buttons: [CustomButton]) {
         customButtons = buttons
+        rebuildCustomButtonsIndex()
+    }
+
+    private func rebuildCustomButtonsIndex() {
+        var mapping: [Int: [TrackpadSide: [CustomButton]]] = [:]
+        for button in customButtons {
+            var layerMap = mapping[button.layer] ?? [:]
+            var sideButtons = layerMap[button.side] ?? []
+            sideButtons.append(button)
+            layerMap[button.side] = sideButtons
+            mapping[button.layer] = layerMap
+        }
+        customButtonsByLayerAndSide = mapping
+    }
+
+    private func customButtons(for layer: Int, side: TrackpadSide) -> [CustomButton] {
+        customButtonsByLayerAndSide[layer]?[side] ?? []
     }
 
     func updateKeyMappings(_ actions: LayeredKeyMappings) {
@@ -283,7 +301,7 @@ final class ContentViewModel: ObservableObject {
         let bindings = makeBindings(
             keyRects: keyRects,
             labels: labels,
-            customButtons: customButtons.filter { $0.side == side },
+            customButtons: customButtons(for: activeLayer, side: side),
             canvasSize: canvasSize,
             side: side
         )
@@ -1078,6 +1096,52 @@ struct CustomButton: Identifiable, Codable, Hashable {
     var rect: NormalizedRect
     var action: KeyAction
     var hold: KeyAction?
+    var layer: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case side
+        case rect
+        case action
+        case hold
+        case layer
+    }
+
+    init(
+        id: UUID,
+        side: TrackpadSide,
+        rect: NormalizedRect,
+        action: KeyAction,
+        hold: KeyAction?,
+        layer: Int = 0
+    ) {
+        self.id = id
+        self.side = side
+        self.rect = rect
+        self.action = action
+        self.hold = hold
+        self.layer = layer
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        side = try container.decode(TrackpadSide.self, forKey: .side)
+        rect = try container.decode(NormalizedRect.self, forKey: .rect)
+        action = try container.decode(KeyAction.self, forKey: .action)
+        hold = try container.decodeIfPresent(KeyAction.self, forKey: .hold)
+        layer = try container.decodeIfPresent(Int.self, forKey: .layer) ?? 0
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(side, forKey: .side)
+        try container.encode(rect, forKey: .rect)
+        try container.encode(action, forKey: .action)
+        try container.encodeIfPresent(hold, forKey: .hold)
+        try container.encode(layer, forKey: .layer)
+    }
 }
 
 enum CustomButtonStore {
@@ -1135,7 +1199,8 @@ enum CustomButtonDefaults {
                     rect: normalized.mirroredHorizontally(),
                     action: leftActions[index]
                     ,
-                    hold: nil
+                    hold: nil,
+                    layer: 0
                 ))
             }
             if index < rightActions.count {
@@ -1145,7 +1210,8 @@ enum CustomButtonDefaults {
                     rect: normalized,
                     action: rightActions[index]
                     ,
-                    hold: nil
+                    hold: nil,
+                    layer: 0
                 ))
             }
         }

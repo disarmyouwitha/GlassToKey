@@ -190,7 +190,7 @@ struct ContentView: View {
                             touches: visualsEnabled ? displayLeftTouches : [],
                             mirrored: true,
                             labels: Self.mirroredLabels(ContentViewModel.leftGridLabels),
-                            customButtons: customButtons.filter { $0.side == .left },
+                            customButtons: customButtons(for: .left),
                             visualsEnabled: visualsEnabled,
                             selectedButtonID: selectedButtonID
                         )
@@ -200,7 +200,7 @@ struct ContentView: View {
                             touches: visualsEnabled ? displayRightTouches : [],
                             mirrored: false,
                             labels: ContentViewModel.rightGridLabels,
-                            customButtons: customButtons.filter { $0.side == .right },
+                            customButtons: customButtons(for: .right),
                             visualsEnabled: visualsEnabled,
                             selectedButtonID: selectedButtonID
                         )
@@ -529,6 +529,11 @@ struct ContentView: View {
         .onChange(of: customButtons) { newValue in
             viewModel.updateCustomButtons(newValue)
             saveCustomButtons(newValue)
+        }
+        .onChange(of: viewModel.activeLayer) { _ in
+            selectedButtonID = nil
+            selectedColumn = nil
+            selectedGridKey = nil
         }
         .onChange(of: keyMappingsByLayer) { newValue in
             viewModel.updateKeyMappings(newValue)
@@ -912,7 +917,8 @@ struct ContentView: View {
             rect: defaultNewButtonRect(),
             action: action
             ,
-            hold: nil
+            hold: nil,
+            layer: viewModel.activeLayer
         )
         customButtons.append(newButton)
         selectedButtonID = newButton.id
@@ -1534,6 +1540,10 @@ struct ContentView: View {
 
     private var displayRightTouches: [OMSTouchData] {
         touches(for: viewModel.rightDevice, in: displayTouchData)
+    }
+
+    private func customButtons(for side: TrackpadSide) -> [CustomButton] {
+        customButtons.filter { $0.side == side && $0.layer == viewModel.activeLayer }
     }
 
     private func touches(
