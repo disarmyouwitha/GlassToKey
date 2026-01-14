@@ -56,6 +56,7 @@ final class ContentViewModel: ObservableObject {
         case typingToggle
         case layerMomentary(Int)
         case layerToggle(Int)
+        case none
     }
 
     struct KeyBinding: Sendable {
@@ -318,11 +319,13 @@ final class ContentViewModel: ObservableObject {
                 case let .layerMomentary(targetLayer):
                     handleMomentaryLayerTouch(touchKey: touchKey, state: touch.state, targetLayer: targetLayer)
                     continue
+                case .none:
+                    continue
                 case .key:
                     break
                 }
             }
-            if !isTypingEnabled {
+            if !isTypingEnabled && momentaryLayerTouches.isEmpty {
                 if let active = activeTouches.removeValue(forKey: touchKey) {
                     if let modifierKey = active.modifierKey {
                         handleModifierUp(modifierKey, binding: active.binding)
@@ -591,6 +594,14 @@ final class ContentViewModel: ObservableObject {
                 position: position,
                 holdAction: holdAction
             )
+        case .none:
+            return KeyBinding(
+                rect: rect,
+                label: action.label,
+                action: .none,
+                position: position,
+                holdAction: holdAction
+            )
         }
     }
 
@@ -622,11 +633,13 @@ final class ContentViewModel: ObservableObject {
     ) {
         switch state {
         case .starting, .making, .touching:
+            guard isTypingEnabled else { break }
             if let targetLayer {
                 layerToggleTouchStarts[touchKey] = targetLayer
             }
         case .breaking, .leaving:
             if let targetLayer = layerToggleTouchStarts.removeValue(forKey: touchKey) {
+                guard isTypingEnabled else { break }
                 toggleLayer(to: targetLayer)
             }
         case .notTouching:
@@ -725,6 +738,8 @@ final class ContentViewModel: ObservableObject {
             toggleLayer(to: layer)
         case .typingToggle:
             toggleTypingMode()
+        case .none:
+            break
         case let .key(code, flags):
             sendKey(code: code, flags: flags)
         }
@@ -988,6 +1003,7 @@ enum KeyActionKind: String, Codable {
     case typingToggle
     case layerMomentary
     case layerToggle
+    case none
 }
 
 struct KeyAction: Codable, Hashable {
@@ -1133,6 +1149,15 @@ enum KeyActionCatalog {
     static let legacyTypingToggleLabel = "Typing Mode Toggle"
     static let momentaryLayer1Label = "MO(1)"
     static let toggleLayer1Label = "TO(1)"
+    static let noneLabel = "None"
+    static var noneAction: KeyAction {
+        KeyAction(
+            label: noneLabel,
+            keyCode: UInt16.max,
+            flags: 0,
+            kind: .none
+        )
+    }
     static let holdBindingsByLabel: [String: (CGKeyCode, CGEventFlags)] = [
         "Esc": (CGKeyCode(kVK_Escape), []),
         "Q": (CGKeyCode(kVK_ANSI_LeftBracket), []),
@@ -1168,6 +1193,19 @@ enum KeyActionCatalog {
     static let bindingsByLabel: [String: (CGKeyCode, CGEventFlags)] = [
         "Esc": (CGKeyCode(kVK_Escape), []),
         "Tab": (CGKeyCode(kVK_Tab), []),
+        "`": (CGKeyCode(kVK_ANSI_Grave), []),
+        "1": (CGKeyCode(kVK_ANSI_1), []),
+        "2": (CGKeyCode(kVK_ANSI_2), []),
+        "3": (CGKeyCode(kVK_ANSI_3), []),
+        "4": (CGKeyCode(kVK_ANSI_4), []),
+        "5": (CGKeyCode(kVK_ANSI_5), []),
+        "6": (CGKeyCode(kVK_ANSI_6), []),
+        "7": (CGKeyCode(kVK_ANSI_7), []),
+        "8": (CGKeyCode(kVK_ANSI_8), []),
+        "9": (CGKeyCode(kVK_ANSI_9), []),
+        "0": (CGKeyCode(kVK_ANSI_0), []),
+        "-": (CGKeyCode(kVK_ANSI_Minus), []),
+        "=": (CGKeyCode(kVK_ANSI_Equal), []),
         "Q": (CGKeyCode(kVK_ANSI_Q), []),
         "W": (CGKeyCode(kVK_ANSI_W), []),
         "E": (CGKeyCode(kVK_ANSI_E), []),
@@ -1191,20 +1229,43 @@ enum KeyActionCatalog {
         "I": (CGKeyCode(kVK_ANSI_I), []),
         "O": (CGKeyCode(kVK_ANSI_O), []),
         "P": (CGKeyCode(kVK_ANSI_P), []),
+        "[": (CGKeyCode(kVK_ANSI_LeftBracket), []),
+        "]": (CGKeyCode(kVK_ANSI_RightBracket), []),
+        "\\": (CGKeyCode(kVK_ANSI_Backslash), []),
         "Back": (CGKeyCode(kVK_Delete), []),
         "H": (CGKeyCode(kVK_ANSI_H), []),
         "J": (CGKeyCode(kVK_ANSI_J), []),
         "K": (CGKeyCode(kVK_ANSI_K), []),
         "L": (CGKeyCode(kVK_ANSI_L), []),
         ";": (CGKeyCode(kVK_ANSI_Semicolon), []),
+        "'": (CGKeyCode(kVK_ANSI_Quote), []),
         "Ret": (CGKeyCode(kVK_Return), []),
         "N": (CGKeyCode(kVK_ANSI_N), []),
         "M": (CGKeyCode(kVK_ANSI_M), []),
         ",": (CGKeyCode(kVK_ANSI_Comma), []),
         ".": (CGKeyCode(kVK_ANSI_Period), []),
         "/": (CGKeyCode(kVK_ANSI_Slash), []),
-        "\\": (CGKeyCode(kVK_ANSI_Backslash), []),
+        "!": (CGKeyCode(kVK_ANSI_1), .maskShift),
+        "@": (CGKeyCode(kVK_ANSI_2), .maskShift),
+        "#": (CGKeyCode(kVK_ANSI_3), .maskShift),
+        "$": (CGKeyCode(kVK_ANSI_4), .maskShift),
+        "%": (CGKeyCode(kVK_ANSI_5), .maskShift),
+        "^": (CGKeyCode(kVK_ANSI_6), .maskShift),
+        "&": (CGKeyCode(kVK_ANSI_7), .maskShift),
+        "*": (CGKeyCode(kVK_ANSI_8), .maskShift),
+        "(": (CGKeyCode(kVK_ANSI_9), .maskShift),
+        ")": (CGKeyCode(kVK_ANSI_0), .maskShift),
+        "_": (CGKeyCode(kVK_ANSI_Minus), .maskShift),
+        "+": (CGKeyCode(kVK_ANSI_Equal), .maskShift),
+        "{": (CGKeyCode(kVK_ANSI_LeftBracket), .maskShift),
+        "}": (CGKeyCode(kVK_ANSI_RightBracket), .maskShift),
+        "|": (CGKeyCode(kVK_ANSI_Backslash), .maskShift),
+        ":": (CGKeyCode(kVK_ANSI_Semicolon), .maskShift),
+        "\"": (CGKeyCode(kVK_ANSI_Quote), .maskShift),
+        "<": (CGKeyCode(kVK_ANSI_Comma), .maskShift),
+        ">": (CGKeyCode(kVK_ANSI_Period), .maskShift),
         "?": (CGKeyCode(kVK_ANSI_Slash), .maskShift),
+        "~": (CGKeyCode(kVK_ANSI_Grave), .maskShift),
         "Space": (CGKeyCode(kVK_Space), [])
     ]
 
@@ -1308,6 +1369,9 @@ enum KeyActionCatalog {
     }()
 
     static func action(for label: String) -> KeyAction? {
+        if label == noneLabel {
+            return noneAction
+        }
         if label == typingToggleLabel || label == legacyTypingToggleLabel {
             return KeyAction(
                 label: typingToggleLabel,

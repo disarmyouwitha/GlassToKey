@@ -373,6 +373,8 @@ struct ContentView: View {
                                     }
                                     .pickerStyle(MenuPickerStyle())
                                     Picker("Action", selection: $customButtons[selectedIndex].action) {
+                                        Text(KeyActionCatalog.noneLabel)
+                                            .tag(KeyActionCatalog.noneAction)
                                         ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
                                             pickerLabel(for: action).tag(action)
                                         }
@@ -449,6 +451,8 @@ struct ContentView: View {
                                         .font(.subheadline)
                                         .bold()
                                     Picker("Action", selection: keyActionBinding(for: gridKey)) {
+                                        Text(KeyActionCatalog.noneLabel)
+                                            .tag(KeyActionCatalog.noneAction)
                                         ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
                                             pickerLabel(for: action).tag(action)
                                         }
