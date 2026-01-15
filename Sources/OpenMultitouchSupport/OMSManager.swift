@@ -126,9 +126,12 @@ public final class OMSManager: Sendable {
         if touches.isEmpty {
             touchDataSubject.send([])
         } else {
-            let array = touches.compactMap { touch -> OMSTouchData? in
-                guard let state = OMSState(touch.state) else { return nil }
-                return OMSTouchData(
+            let timestamp = dateFormatter.string(from: Date())
+            var data: [OMSTouchData] = []
+            data.reserveCapacity(touches.count)
+            for touch in touches {
+                guard let state = OMSState(touch.state) else { continue }
+                data.append(OMSTouchData(
                     deviceID: event.deviceID,
                     id: touch.identifier,
                     position: OMSPosition(x: touch.posX, y: touch.posY),
@@ -138,10 +141,10 @@ public final class OMSManager: Sendable {
                     angle: touch.angle,
                     density: touch.density,
                     state: state,
-                    timestamp: dateFormatter.string(from: Date.now)
-                )
+                    timestamp: timestamp
+                ))
             }
-            touchDataSubject.send(array)
+            touchDataSubject.send(data)
         }
     }
 }

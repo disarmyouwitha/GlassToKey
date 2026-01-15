@@ -39,10 +39,12 @@
 2. Commit and push (consumers tracking `main` pick up changes).
 
 ## Important notes for next instance of Codex
-- No notes left
+- no notes left.
 
 ## TODO
-- It doesn't remember scaling of columns on layout 
+- Lets move Typing Test underneat the Layouts!
+- Create a virtual keyboard device (robust, more work): macOS has official support for virtual HID devices via CoreHID, including HIDVirtualDevice: https://developer.apple.com/documentation/corehid/hidvirtualdevice
+- Performant, efficient re-write of codebase. 
 - Need to make sure 2 finger taps do not trigger key presses../
 - Issue with starting 2-finger drag when starting from SPACE area
 ###.
