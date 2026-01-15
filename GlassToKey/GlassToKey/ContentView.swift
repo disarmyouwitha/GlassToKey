@@ -319,10 +319,11 @@ struct ContentView: View {
                                             value: columnScaleBinding(for: selectedColumn),
                                             formatter: Self.columnScaleFormatter,
                                             range: Self.columnScaleRange,
-                                            sliderStep: 0.05
+                                            sliderStep: 0.05,
+                                            showSlider: false
                                         )
                                         ColumnTuningRow(
-                                            title: "Offset X (%)",
+                                            title: "X (%)",
                                             value: columnOffsetBinding(
                                                 for: selectedColumn,
                                                 axis: .x
@@ -334,7 +335,7 @@ struct ContentView: View {
                                             showSlider: false
                                         )
                                         ColumnTuningRow(
-                                            title: "Offset Y (%)",
+                                            title: "Y (%)",
                                             value: columnOffsetBinding(
                                                 for: selectedColumn,
                                                 axis: .y
@@ -346,12 +347,13 @@ struct ContentView: View {
                                             showSlider: false
                                         )
                                         ColumnTuningRow(
-                                            title: "Spacing (%)",
+                                            title: "Spacing",
                                             value: columnRowSpacingBinding(for: selectedColumn),
                                             formatter: Self.rowSpacingFormatter,
                                             range: Self.rowSpacingPercentRange,
                                             sliderStep: 1.0,
-                                            buttonStep: 0.5
+                                            buttonStep: 0.5,
+                                            showSlider: false
                                         )
                                     }
                                 } else {

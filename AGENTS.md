@@ -49,7 +49,6 @@
 ## TODO
 - Need to make sure 2 finger taps do not trigger key presses.
 - Create a virtual keyboard device (robust, more work): macOS has official support for virtual HID devices via CoreHID, including HIDVirtualDevice: https://developer.apple.com/documentation/corehid/hidvirtualdevice
-- Interval for space is too fast?
 - Clicking into space & dragging out can get the space stuck
 ###
 - Clicking the OffsetX/Y up/down too much gets very laggy and starts to repeat clicks. re: clamping doesmn't seem to work and I can't type into the field without resetting it? Can we fix? is there a better GUI element? 
