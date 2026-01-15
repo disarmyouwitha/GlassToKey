@@ -9,9 +9,7 @@ import Carbon
 import CoreGraphics
 import OpenMultitouchSupport
 import SwiftUI
-#if DEBUG
 import os
-#endif
 
 enum TrackpadSide: String, Codable, CaseIterable, Identifiable {
     case left
@@ -102,6 +100,7 @@ final class ContentViewModel: ObservableObject {
     private var optionTouchCount = 0
     private var commandTouchCount = 0
     private var repeatTasks: [TouchKey: Task<Void, Never>] = [:]
+    private var repeatTokens: [TouchKey: RepeatToken] = [:]
     private var toggleTouchStarts: [TouchKey: Date] = [:]
     private var layerToggleTouchStarts: [TouchKey: Int] = [:]
     private var momentaryLayerTouches: [TouchKey: Int] = [:]
@@ -889,10 +888,12 @@ final class ContentViewModel: ObservableObject {
         let repeatFlags = flags.union(currentModifierFlags())
         let initialDelay = repeatInitialDelay
         let interval = repeatInterval
-        repeatTasks[touchKey] = Task {
+        let token = RepeatToken()
+        repeatTokens[touchKey] = token
+        repeatTasks[touchKey] = Task.detached(priority: .userInitiated) { [dispatcher = keyDispatcher] in
             try? await Task.sleep(nanoseconds: initialDelay)
-            while !Task.isCancelled {
-                postRepeatedKeyStroke(code: code, flags: repeatFlags)
+            while !Task.isCancelled, token.isActive {
+                dispatcher.postKeyStroke(code: code, flags: repeatFlags, token: token)
                 try? await Task.sleep(nanoseconds: interval)
             }
         }
@@ -902,6 +903,7 @@ final class ContentViewModel: ObservableObject {
         if let task = repeatTasks.removeValue(forKey: touchKey) {
             task.cancel()
         }
+        repeatTokens.removeValue(forKey: touchKey)?.deactivate()
     }
 
     private func handleModifierDown(_ modifierKey: ModifierKey, binding: KeyBinding) {
@@ -1096,8 +1098,16 @@ final class ContentViewModel: ObservableObject {
     }
 }
 
-private func postRepeatedKeyStroke(code: CGKeyCode, flags: CGEventFlags) {
-    KeyEventDispatcher.shared.postKeyStroke(code: code, flags: flags)
+private final class RepeatToken: @unchecked Sendable {
+    private let isActiveLock = OSAllocatedUnfairLock<Bool>(uncheckedState: true)
+
+    var isActive: Bool {
+        isActiveLock.withLockUnchecked(\.self)
+    }
+
+    func deactivate() {
+        isActiveLock.withLockUnchecked { $0 = false }
+    }
 }
 
 private final class KeyEventDispatcher: @unchecked Sendable {
@@ -1109,9 +1119,15 @@ private final class KeyEventDispatcher: @unchecked Sendable {
     )
     private var eventSource: CGEventSource?
 
-    func postKeyStroke(code: CGKeyCode, flags: CGEventFlags) {
+    func postKeyStroke(code: CGKeyCode, flags: CGEventFlags, token: RepeatToken? = nil) {
         queue.async {
+            if let token, !token.isActive {
+                return
+            }
             autoreleasepool {
+                if let token, !token.isActive {
+                    return
+                }
                 guard let source = self.eventSource
                     ?? CGEventSource(stateID: .hidSystemState) else {
                     return
@@ -1137,9 +1153,15 @@ private final class KeyEventDispatcher: @unchecked Sendable {
         }
     }
 
-    func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool) {
+    func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool, token: RepeatToken? = nil) {
         queue.async {
+            if let token, !token.isActive {
+                return
+            }
             autoreleasepool {
+                if let token, !token.isActive {
+                    return
+                }
                 guard let source = self.eventSource
                     ?? CGEventSource(stateID: .hidSystemState) else {
                     return
