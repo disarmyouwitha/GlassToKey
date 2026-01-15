@@ -212,49 +212,12 @@ struct ContentView: View {
                             selectedButtonID: selectedButtonID
                         )
                     }
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Typing Behavior")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        VStack(alignment: .leading, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text("Tap / Hold threshold")
-                                    Spacer()
-                                    Text("\(Int(tapHoldDurationMs)) ms")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Slider(value: $tapHoldDurationMs, in: 50...1000, step: 5)
-                                Text("Lower values make taps send sooner, reducing accidental drag cancels.")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text("Drag cancellation distance")
-                                    Spacer()
-                                    Text( "\(String(format: "%.1f", dragCancelDistanceSetting)) px")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Slider(
-                                    value: $dragCancelDistanceSetting,
-                                    in: Self.dragCancelDistanceRange,
-                                    step: 0.1
-                                )
-                                Text("Lower values detect drags sooner, while higher values give taps more wiggle room.")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.primary.opacity(0.05))
-                    )
                 }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.primary.opacity(0.05))
+                )
 
                 VStack(alignment: .leading, spacing: 14) {
                     VStack(alignment: .leading, spacing: 10) {
