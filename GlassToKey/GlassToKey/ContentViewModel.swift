@@ -446,6 +446,12 @@ final class ContentViewModel: ObservableObject {
                         continue
                     }
 
+                    if active.isContinuousKey,
+                       !active.binding.rect.contains(point) {
+                        disqualifyTouch(touchKey)
+                        continue
+                    }
+
                     if active.modifierKey == nil,
                        !active.isContinuousKey,
                        !active.didHold,
