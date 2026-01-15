@@ -39,6 +39,7 @@ struct ContentView: View {
     @State private var resizeStartRects: [UUID: NormalizedRect] = [:]
     @State private var keyMappingsByLayer: LayeredKeyMappings = [:]
     @State private var layoutOption: TrackpadLayoutPreset = .sixByThree
+    @State private var lastTouchRevision: UInt64 = 0
     @AppStorage(GlassToKeyDefaultsKeys.leftDeviceID) private var storedLeftDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.rightDeviceID) private var storedRightDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.visualsEnabled) private var storedVisualsEnabled = true
@@ -539,7 +540,13 @@ struct ContentView: View {
         .frame(minWidth: trackpadSize.width * 2 + 520, minHeight: trackpadSize.height + 240)
         .onAppear {
             applySavedSettings()
-            displayTouchData = viewModel.snapshotTouchData()
+            if let snapshot = viewModel.snapshotTouchDataIfUpdated(since: 0) {
+                displayTouchData = snapshot.data
+                lastTouchRevision = snapshot.revision
+            } else {
+                displayTouchData = viewModel.snapshotTouchData()
+                lastTouchRevision = 0
+            }
         }
         .onChange(of: visualsEnabled) { enabled in
             if !enabled {
@@ -548,7 +555,16 @@ struct ContentView: View {
                 selectedGridKey = nil
             }
             saveSettings()
-            displayTouchData = enabled ? viewModel.snapshotTouchData() : []
+            if enabled {
+                if let snapshot = viewModel.snapshotTouchDataIfUpdated(since: 0) {
+                    displayTouchData = snapshot.data
+                    lastTouchRevision = snapshot.revision
+                } else {
+                    displayTouchData = viewModel.snapshotTouchData()
+                }
+            } else {
+                displayTouchData = []
+            }
         }
         .onChange(of: columnSettings) { newValue in
             applyColumnSettings(newValue)
@@ -573,7 +589,8 @@ struct ContentView: View {
         .onChange(of: dragCancelDistanceSetting) { newValue in
             viewModel.updateDragCancelDistance(CGFloat(newValue))
         }
-        .task {
+        .task(id: visualsEnabled) {
+            guard visualsEnabled else { return }
             for await _ in Timer.publish(
                 every: displayRefreshInterval,
                 on: .main,
@@ -581,8 +598,10 @@ struct ContentView: View {
             )
             .autoconnect()
             .values {
-                guard visualsEnabled else { continue }
-                displayTouchData = viewModel.snapshotTouchData()
+                if let snapshot = viewModel.snapshotTouchDataIfUpdated(since: lastTouchRevision) {
+                    displayTouchData = snapshot.data
+                    lastTouchRevision = snapshot.revision
+                }
             }
         }
     }

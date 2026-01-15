@@ -9,6 +9,9 @@ import Carbon
 import CoreGraphics
 import OpenMultitouchSupport
 import SwiftUI
+#if DEBUG
+import os
+#endif
 
 enum TrackpadSide: String, Codable, CaseIterable, Identifiable {
     case left
@@ -118,6 +121,14 @@ final class ContentViewModel: ObservableObject {
     private var bindingsCacheLayer: Int = -1
     private var bindingsGeneration = 0
     private var bindingsGenerationBySide: [TrackpadSide: Int] = [:]
+    private var touchRevision: UInt64 = 0
+    private let keyDispatcher = KeyEventDispatcher.shared
+#if DEBUG
+    private let signposter = OSSignposter(
+        subsystem: "com.kyome.GlassToKey",
+        category: "TouchProcessing"
+    )
+#endif
 
     init() {
         loadDevices()
@@ -139,6 +150,7 @@ final class ContentViewModel: ObservableObject {
                 await MainActor.run {
                     guard let self else { return }
                     self.latestTouchData = touchData
+                    self.touchRevision &+= 1
                     guard let leftLayout = self.leftLayout,
                           let rightLayout = self.rightLayout else {
                         return
@@ -262,6 +274,13 @@ final class ContentViewModel: ObservableObject {
         latestTouchData
     }
 
+    func snapshotTouchDataIfUpdated(
+        since revision: UInt64
+    ) -> (data: [OMSTouchData], revision: UInt64)? {
+        guard touchRevision != revision else { return nil }
+        return (latestTouchData, touchRevision)
+    }
+
     private func updateActiveDevices() {
         let devices = [leftDevice, rightDevice].compactMap { $0 }
         guard !devices.isEmpty else { return }
@@ -318,6 +337,14 @@ final class ContentViewModel: ObservableObject {
         isLeftSide: Bool
     ) {
         guard isListening else { return }
+        #if DEBUG
+        let signpostID = signposter.makeSignpostID()
+        let state = signposter.beginInterval(
+            "ProcessTouches",
+            id: signpostID
+        )
+        defer { signposter.endInterval("ProcessTouches", state) }
+        #endif
         let now = Date()
         let dragCancelDistanceSquared = dragCancelDistance * dragCancelDistance
         let side: TrackpadSide = isLeftSide ? .left : .right
@@ -831,14 +858,7 @@ final class ContentViewModel: ObservableObject {
 
     private func sendKey(code: CGKeyCode, flags: CGEventFlags) {
         let combinedFlags = flags.union(currentModifierFlags())
-        guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false) else {
-            return
-        }
-        keyDown.flags = combinedFlags
-        keyUp.flags = combinedFlags
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
+        keyDispatcher.postKeyStroke(code: code, flags: combinedFlags)
     }
 
     private func currentModifierFlags() -> CGEventFlags {
@@ -936,15 +956,7 @@ final class ContentViewModel: ObservableObject {
 
     private func postKey(binding: KeyBinding, keyDown: Bool) {
         guard case let .key(code, flags) = binding.action else { return }
-        guard let event = CGEvent(
-            keyboardEventSource: nil,
-            virtualKey: code,
-            keyDown: keyDown
-        ) else {
-            return
-        }
-        event.flags = flags
-        event.post(tap: .cghidEventTap)
+        keyDispatcher.postKey(code: code, flags: flags, keyDown: keyDown)
     }
 
     private func releaseHeldKeys() {
@@ -1085,14 +1097,51 @@ final class ContentViewModel: ObservableObject {
 }
 
 private func postRepeatedKeyStroke(code: CGKeyCode, flags: CGEventFlags) {
-    guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true),
-          let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false) else {
-        return
+    KeyEventDispatcher.shared.postKeyStroke(code: code, flags: flags)
+}
+
+private final class KeyEventDispatcher: @unchecked Sendable {
+    static let shared = KeyEventDispatcher()
+
+    private let queue = DispatchQueue(
+        label: "com.kyome.GlassToKey.KeyDispatch",
+        qos: .userInteractive
+    )
+
+    func postKeyStroke(code: CGKeyCode, flags: CGEventFlags) {
+        queue.async {
+            guard let keyDown = CGEvent(
+                keyboardEventSource: nil,
+                virtualKey: code,
+                keyDown: true
+            ),
+            let keyUp = CGEvent(
+                keyboardEventSource: nil,
+                virtualKey: code,
+                keyDown: false
+            ) else {
+                return
+            }
+            keyDown.flags = flags
+            keyUp.flags = flags
+            keyDown.post(tap: .cghidEventTap)
+            keyUp.post(tap: .cghidEventTap)
+        }
     }
-    keyDown.flags = flags
-    keyUp.flags = flags
-    keyDown.post(tap: .cghidEventTap)
-    keyUp.post(tap: .cghidEventTap)
+
+    func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool) {
+        queue.async {
+            guard let event = CGEvent(
+                keyboardEventSource: nil,
+                virtualKey: code,
+                keyDown: keyDown
+            ) else {
+                return
+            }
+            event.flags = flags
+            event.post(tap: .cghidEventTap)
+        }
+    }
 }
 
 struct NormalizedRect: Codable, Hashable {
