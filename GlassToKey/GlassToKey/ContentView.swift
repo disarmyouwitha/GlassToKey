@@ -337,19 +337,12 @@ struct ContentView: View {
                                                 for: selectedColumn,
                                                 axis: .x
                                             )
-                                            TextField(
-                                                "0.0",
+                                            numericAdjustmentControl(
                                                 value: offsetBinding,
-                                                formatter: Self.columnOffsetFormatter
-                                            )
-                                            .frame(width: 60)
-                                            Stepper(
-                                                "",
-                                                value: offsetBinding,
-                                                in: Self.columnOffsetPercentRange,
+                                                formatter: Self.columnOffsetFormatter,
+                                                range: Self.columnOffsetPercentRange,
                                                 step: 0.5
                                             )
-                                            .labelsHidden()
                                         }
                                         GridRow {
                                             Text("Offset Y (%)")
@@ -357,19 +350,12 @@ struct ContentView: View {
                                                 for: selectedColumn,
                                                 axis: .y
                                             )
-                                            TextField(
-                                                "0.0",
+                                            numericAdjustmentControl(
                                                 value: offsetBinding,
-                                                formatter: Self.columnOffsetFormatter
-                                            )
-                                            .frame(width: 60)
-                                            Stepper(
-                                                "",
-                                                value: offsetBinding,
-                                                in: Self.columnOffsetPercentRange,
+                                                formatter: Self.columnOffsetFormatter,
+                                                range: Self.columnOffsetPercentRange,
                                                 step: 0.5
                                             )
-                                            .labelsHidden()
                                         }
                                         GridRow {
                                             Text("Spacing (%)")
@@ -527,6 +513,12 @@ struct ContentView: View {
                         .background(
                             RoundedRectangle(cornerRadius: 12)
                                 .fill(Color.primary.opacity(0.05))
+                        )
+                        .contentShape(Rectangle())
+                        .simultaneousGesture(
+                            TapGesture().onEnded {
+                                viewModel.clearTouchState()
+                            }
                         )
                     }
 
@@ -1136,6 +1128,7 @@ struct ContentView: View {
             let columnRects = columnRects(for: layout.keyRects, trackpadSize: trackpadSize)
             let selectGesture = DragGesture(minimumDistance: 0, coordinateSpace: .local)
                 .onEnded { value in
+                    viewModel.clearTouchState()
                     let point = value.location
                     if let matched = buttons.last(where: { button in
                         button.rect.rect(in: trackpadSize).contains(point)
@@ -1303,6 +1296,42 @@ struct ContentView: View {
                 }
             }
         )
+    }
+
+    @ViewBuilder
+    private func numericAdjustmentControl(
+        value: Binding<Double>,
+        formatter: NumberFormatter,
+        range: ClosedRange<Double>,
+        step: Double
+    ) -> some View {
+        HStack(spacing: 6) {
+            Button {
+                value.wrappedValue = max(range.lowerBound, value.wrappedValue - step)
+            } label: {
+                Image(systemName: "minus")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.mini)
+
+            TextField(
+                "0.0",
+                value: value,
+                formatter: formatter
+            )
+            .frame(width: 60)
+
+            Button {
+                value.wrappedValue = min(range.upperBound, value.wrappedValue + step)
+            } label: {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.mini)
+
+            Slider(value: value, in: range, step: step)
+                .frame(maxWidth: .infinity)
+        }
     }
 
     private enum CustomButtonAxis {

@@ -961,6 +961,10 @@ final class ContentViewModel: ObservableObject {
         keyDispatcher.postKey(code: code, flags: flags, keyDown: keyDown)
     }
 
+    func clearTouchState() {
+        releaseHeldKeys()
+    }
+
     private func releaseHeldKeys() {
         if leftShiftTouchCount > 0 {
             let shiftBinding = KeyBinding(
