@@ -1151,7 +1151,7 @@ final class ContentViewModel: ObservableObject {
     }
 }
 
-private final class RepeatToken: @unchecked Sendable {
+final class RepeatToken: @unchecked Sendable {
     private let isActiveLock = OSAllocatedUnfairLock<Bool>(uncheckedState: true)
 
     var isActive: Bool {
@@ -1160,77 +1160,6 @@ private final class RepeatToken: @unchecked Sendable {
 
     func deactivate() {
         isActiveLock.withLockUnchecked { $0 = false }
-    }
-}
-
-private final class KeyEventDispatcher: @unchecked Sendable {
-    static let shared = KeyEventDispatcher()
-
-    private let queue = DispatchQueue(
-        label: "com.kyome.GlassToKey.KeyDispatch",
-        qos: .userInteractive
-    )
-    private var eventSource: CGEventSource?
-
-    func postKeyStroke(code: CGKeyCode, flags: CGEventFlags, token: RepeatToken? = nil) {
-        queue.async {
-            if let token, !token.isActive {
-                return
-            }
-            autoreleasepool {
-                if let token, !token.isActive {
-                    return
-                }
-                guard let source = self.eventSource
-                    ?? CGEventSource(stateID: .hidSystemState) else {
-                    return
-                }
-                self.eventSource = source
-                guard let keyDown = CGEvent(
-                    keyboardEventSource: source,
-                    virtualKey: code,
-                    keyDown: true
-                ),
-                let keyUp = CGEvent(
-                    keyboardEventSource: source,
-                    virtualKey: code,
-                    keyDown: false
-                ) else {
-                    return
-                }
-                keyDown.flags = flags
-                keyUp.flags = flags
-                keyDown.post(tap: .cghidEventTap)
-                keyUp.post(tap: .cghidEventTap)
-            }
-        }
-    }
-
-    func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool, token: RepeatToken? = nil) {
-        queue.async {
-            if let token, !token.isActive {
-                return
-            }
-            autoreleasepool {
-                if let token, !token.isActive {
-                    return
-                }
-                guard let source = self.eventSource
-                    ?? CGEventSource(stateID: .hidSystemState) else {
-                    return
-                }
-                self.eventSource = source
-                guard let event = CGEvent(
-                    keyboardEventSource: source,
-                    virtualKey: code,
-                    keyDown: keyDown
-                ) else {
-                    return
-                }
-                event.flags = flags
-                event.post(tap: .cghidEventTap)
-            }
-        }
     }
 }
 
