@@ -60,6 +60,7 @@ struct ContentView: View {
     private static let columnOffsetPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.offsetPercentRange
     static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
     private static let dragCancelDistanceRange: ClosedRange<Double> = 0.5...15.0
+    private static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
     private static let keyCornerRadius: CGFloat = 6.0
     private static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -86,6 +87,24 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 1
         formatter.minimum = NSNumber(value: ContentView.rowSpacingPercentRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.rowSpacingPercentRange.upperBound)
+        return formatter
+    }()
+    private static let tapHoldDurationFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.minimum = NSNumber(value: ContentView.tapHoldDurationRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.tapHoldDurationRange.upperBound)
+        return formatter
+    }()
+    private static let dragCancelDistanceFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 1
+        formatter.maximumFractionDigits = 1
+        formatter.minimum = NSNumber(value: ContentView.dragCancelDistanceRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.dragCancelDistanceRange.upperBound)
         return formatter
     }()
     private let displayRefreshInterval: TimeInterval = 1.0 / 60.0
@@ -503,6 +522,49 @@ struct ContentView: View {
                                 .fill(Color.primary.opacity(0.05))
                         )
                     }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Typing Behavior")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                            GridRow {
+                                Text("Tap/Hold (ms)")
+                                TextField(
+                                    "200",
+                                    value: $tapHoldDurationMs,
+                                    formatter: Self.tapHoldDurationFormatter
+                                )
+                                .frame(width: 60)
+                                Slider(
+                                    value: $tapHoldDurationMs,
+                                    in: Self.tapHoldDurationRange,
+                                    step: 10
+                                )
+                                .frame(minWidth: 120)
+                            }
+                            GridRow {
+                                Text("Drag Cancel")
+                                TextField(
+                                    "2.5",
+                                    value: $dragCancelDistanceSetting,
+                                    formatter: Self.dragCancelDistanceFormatter
+                                )
+                                .frame(width: 60)
+                                Slider(
+                                    value: $dragCancelDistanceSetting,
+                                    in: Self.dragCancelDistanceRange,
+                                    step: 0.5
+                                )
+                                .frame(minWidth: 120)
+                            }
+                        }
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.primary.opacity(0.05))
+                    )
 
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Typing Test")
