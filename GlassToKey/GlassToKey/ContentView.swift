@@ -232,6 +232,13 @@ struct ContentView: View {
                             selectedButtonID: selectedButtonID
                         )
                     }
+                    TextEditor(text: $testText)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(height: 100)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
+                        )
                 }
                 .padding(12)
                 .background(
@@ -524,24 +531,6 @@ struct ContentView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Typing Test")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        TextEditor(text: $testText)
-                            .font(.system(.body, design: .monospaced))
-                            .frame(height: 100)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
-                            )
-                    }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.primary.opacity(0.05))
-                    )
-
-                    VStack(alignment: .leading, spacing: 10) {
                         Text("Typing Behavior")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -583,6 +572,10 @@ struct ContentView: View {
                         RoundedRectangle(cornerRadius: 12)
                             .fill(Color.primary.opacity(0.05))
                     )
+<<<<<<< HEAD
+=======
+
+>>>>>>> 4774ad1 (moving textbox for typing)
                 }
                 .frame(width: 420)
             }
