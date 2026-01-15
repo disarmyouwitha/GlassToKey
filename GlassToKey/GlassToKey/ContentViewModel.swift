@@ -111,6 +111,7 @@ final class ContentViewModel: ObservableObject {
     private var dragCancelDistance: CGFloat = 2.5
     private let repeatInitialDelay: UInt64 = 350_000_000
     private let repeatInterval: UInt64 = 50_000_000
+    private let spaceRepeatMultiplier: UInt64 = 2
     private var leftLayout: Layout?
     private var rightLayout: Layout?
     private var leftLabels: [[String]] = []
@@ -887,7 +888,7 @@ final class ContentViewModel: ObservableObject {
         guard case let .key(code, flags) = binding.action else { return }
         let repeatFlags = flags.union(currentModifierFlags())
         let initialDelay = repeatInitialDelay
-        let interval = repeatInterval
+        let interval = repeatInterval(for: binding.action)
         let token = RepeatToken()
         repeatTokens[touchKey] = token
         repeatTasks[touchKey] = Task.detached(priority: .userInitiated) { [dispatcher = keyDispatcher] in
@@ -897,6 +898,15 @@ final class ContentViewModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: interval)
             }
         }
+    }
+
+    private func repeatInterval(for action: KeyBindingAction) -> UInt64 {
+        if case let .key(code, flags) = action,
+           code == CGKeyCode(kVK_Space),
+           flags.isEmpty {
+            return repeatInterval * spaceRepeatMultiplier
+        }
+        return repeatInterval
     }
 
     private func stopRepeat(for touchKey: TouchKey) {

@@ -330,7 +330,8 @@ struct ContentView: View {
                                             formatter: Self.columnOffsetFormatter,
                                             range: Self.columnOffsetPercentRange,
                                             sliderStep: 1.0,
-                                            buttonStep: 0.5
+                                            buttonStep: 0.5,
+                                            showSlider: false
                                         )
                                         ColumnTuningRow(
                                             title: "Offset Y (%)",
@@ -341,7 +342,8 @@ struct ContentView: View {
                                             formatter: Self.columnOffsetFormatter,
                                             range: Self.columnOffsetPercentRange,
                                             sliderStep: 1.0,
-                                            buttonStep: 0.5
+                                            buttonStep: 0.5,
+                                            showSlider: false
                                         )
                                         ColumnTuningRow(
                                             title: "Spacing (%)",
@@ -414,7 +416,8 @@ struct ContentView: View {
                                                 axis: .x
                                             ),
                                             sliderStep: 1.0,
-                                            buttonStep: 0.5
+                                            buttonStep: 0.5,
+                                            showSlider: false
                                         )
                                         let yBinding = positionPercentBinding(
                                             for: selectedIndex,
@@ -429,7 +432,8 @@ struct ContentView: View {
                                                 axis: .y
                                             ),
                                             sliderStep: 1.0,
-                                            buttonStep: 0.5
+                                            buttonStep: 0.5,
+                                            showSlider: false
                                         )
                                     }
                                     HStack {
@@ -1265,70 +1269,70 @@ struct ContentView: View {
         let range: ClosedRange<Double>
         let sliderStep: Double
         let buttonStep: Double
+        let showSlider: Bool
         @Binding var value: Double
 
-        init(
-            title: String,
-            value: Binding<Double>,
-            formatter: NumberFormatter,
-            range: ClosedRange<Double>,
-            sliderStep: Double,
-            buttonStep: Double? = nil
-        ) {
-            self.title = title
-            self._value = value
-            self.formatter = formatter
-            self.range = range
-            self.sliderStep = sliderStep
-            self.buttonStep = buttonStep ?? sliderStep
-        }
+            init(
+                title: String,
+                value: Binding<Double>,
+                formatter: NumberFormatter,
+                range: ClosedRange<Double>,
+                sliderStep: Double,
+                buttonStep: Double? = nil,
+                showSlider: Bool? = nil
+            ) {
+                self.title = title
+                self._value = value
+                self.formatter = formatter
+                self.range = range
+                self.sliderStep = sliderStep
+                self.buttonStep = buttonStep ?? sliderStep
+                self.showSlider = showSlider ?? true
+            }
 
         var body: some View {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text(title)
-                        .font(.callout)
-                        .fontWeight(.semibold)
-                    Spacer()
-                    Text(formattedValue)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                HStack(spacing: 8) {
-                    Slider(value: $value, in: range, step: sliderStep)
-                        .frame(maxWidth: .infinity)
-                    HStack(spacing: 4) {
-                        Button {
-                                adjust(-buttonStep)
-                        } label: {
-                            Image(systemName: "minus")
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.mini)
-
-                        TextField(
-                            "",
-                            value: $value,
-                            formatter: formatter
-                        )
-                        .frame(width: 60)
-                        .textFieldStyle(.roundedBorder)
-
-                        Button {
-                                adjust(buttonStep)
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.mini)
+            HStack(alignment: .center, spacing: 12) {
+                Text(title)
+                    .font(.callout)
+                    .fontWeight(.semibold)
+                Spacer()
+                HStack(spacing: 12) {
+                    if showSlider {
+                        Slider(value: $value, in: range, step: sliderStep)
+                            .frame(minWidth: 140, maxWidth: 220)
                     }
+                    controlButtons
                 }
             }
         }
 
-        private var formattedValue: String {
-            formatter.string(from: NSNumber(value: value)) ??
-                String(format: "%.2f", value)
+        @ViewBuilder
+        private var controlButtons: some View {
+            HStack(spacing: 4) {
+                Button {
+                    adjust(-buttonStep)
+                } label: {
+                    Image(systemName: "minus")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                TextField(
+                    "",
+                    value: $value,
+                    formatter: formatter
+                )
+                .frame(width: 60)
+                .textFieldStyle(.roundedBorder)
+
+                Button {
+                    adjust(buttonStep)
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+            }
         }
 
         private func adjust(_ delta: Double) {
