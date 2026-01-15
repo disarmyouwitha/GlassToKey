@@ -9,6 +9,7 @@ import Carbon
 import CoreGraphics
 import OpenMultitouchSupport
 import SwiftUI
+import os
 
 enum TrackpadSide: String, Codable, CaseIterable, Identifiable {
     case left
@@ -99,6 +100,7 @@ final class ContentViewModel: ObservableObject {
     private var optionTouchCount = 0
     private var commandTouchCount = 0
     private var repeatTasks: [TouchKey: Task<Void, Never>] = [:]
+    private var repeatTokens: [TouchKey: RepeatToken] = [:]
     private var toggleTouchStarts: [TouchKey: Date] = [:]
     private var layerToggleTouchStarts: [TouchKey: Int] = [:]
     private var momentaryLayerTouches: [TouchKey: Int] = [:]
@@ -114,6 +116,18 @@ final class ContentViewModel: ObservableObject {
     private var leftLabels: [[String]] = []
     private var rightLabels: [[String]] = []
     private var trackpadSize: CGSize = .zero
+    private var bindingsCache: [TrackpadSide: [KeyBinding]] = [:]
+    private var bindingsCacheLayer: Int = -1
+    private var bindingsGeneration = 0
+    private var bindingsGenerationBySide: [TrackpadSide: Int] = [:]
+    private var touchRevision: UInt64 = 0
+    private let keyDispatcher = KeyEventDispatcher.shared
+#if DEBUG
+    private let signposter = OSSignposter(
+        subsystem: "com.kyome.GlassToKey",
+        category: "TouchProcessing"
+    )
+#endif
 
     init() {
         loadDevices()
@@ -135,19 +149,35 @@ final class ContentViewModel: ObservableObject {
                 await MainActor.run {
                     guard let self else { return }
                     self.latestTouchData = touchData
+                    self.touchRevision &+= 1
                     guard let leftLayout = self.leftLayout,
                           let rightLayout = self.rightLayout else {
                         return
                     }
+                    let leftID = self.leftDevice?.deviceID
+                    let rightID = self.rightDevice?.deviceID
+                    var leftTouches: [OMSTouchData] = []
+                    var rightTouches: [OMSTouchData] = []
+                    if leftID != nil || rightID != nil {
+                        leftTouches.reserveCapacity(touchData.count / 2)
+                        rightTouches.reserveCapacity(touchData.count / 2)
+                        for touch in touchData {
+                            if touch.deviceID == leftID {
+                                leftTouches.append(touch)
+                            } else if touch.deviceID == rightID {
+                                rightTouches.append(touch)
+                            }
+                        }
+                    }
                     self.processTouches(
-                        self.leftTouches,
+                        leftTouches,
                         keyRects: leftLayout.keyRects,
                         canvasSize: self.trackpadSize,
                         labels: self.leftLabels,
                         isLeftSide: true
                     )
                     self.processTouches(
-                        self.rightTouches,
+                        rightTouches,
                         keyRects: rightLayout.keyRects,
                         canvasSize: self.trackpadSize,
                         labels: self.rightLabels,
@@ -209,11 +239,13 @@ final class ContentViewModel: ObservableObject {
         self.leftLabels = leftLabels
         self.rightLabels = rightLabels
         self.trackpadSize = trackpadSize
+        invalidateBindingsCache()
     }
 
     func updateCustomButtons(_ buttons: [CustomButton]) {
         customButtons = buttons
         rebuildCustomButtonsIndex()
+        invalidateBindingsCache()
     }
 
     private func rebuildCustomButtonsIndex() {
@@ -234,10 +266,18 @@ final class ContentViewModel: ObservableObject {
 
     func updateKeyMappings(_ actions: LayeredKeyMappings) {
         customKeyMappingsByLayer = actions
+        invalidateBindingsCache()
     }
 
     func snapshotTouchData() -> [OMSTouchData] {
         latestTouchData
+    }
+
+    func snapshotTouchDataIfUpdated(
+        since revision: UInt64
+    ) -> (data: [OMSTouchData], revision: UInt64)? {
+        guard touchRevision != revision else { return nil }
+        return (latestTouchData, touchRevision)
     }
 
     private func updateActiveDevices() {
@@ -264,14 +304,14 @@ final class ContentViewModel: ObservableObject {
         let isContinuousKey: Bool
         let holdBinding: KeyBinding?
         var didHold: Bool
-        var maxDistance: CGFloat
+        var maxDistanceSquared: CGFloat
     }
 
     private struct PendingTouch {
         let binding: KeyBinding
         let startTime: Date
         let startPoint: CGPoint
-        var maxDistance: CGFloat
+        var maxDistanceSquared: CGFloat
     }
 
     func setPersistentLayer(_ layer: Int) {
@@ -296,13 +336,22 @@ final class ContentViewModel: ObservableObject {
         isLeftSide: Bool
     ) {
         guard isListening else { return }
+        #if DEBUG
+        let signpostID = signposter.makeSignpostID()
+        let state = signposter.beginInterval(
+            "ProcessTouches",
+            id: signpostID
+        )
+        defer { signposter.endInterval("ProcessTouches", state) }
+        #endif
+        let now = Date()
+        let dragCancelDistanceSquared = dragCancelDistance * dragCancelDistance
         let side: TrackpadSide = isLeftSide ? .left : .right
-        let bindings = makeBindings(
+        let bindings = bindings(
+            for: side,
             keyRects: keyRects,
             labels: labels,
-            customButtons: customButtons(for: activeLayer, side: side),
-            canvasSize: canvasSize,
-            side: side
+            canvasSize: canvasSize
         )
 
         for touch in touches {
@@ -383,14 +432,15 @@ final class ContentViewModel: ObservableObject {
             switch touch.state {
             case .starting, .making, .touching:
                 if var active = activeTouches[touchKey] {
-                    active.maxDistance = max(active.maxDistance, distance(from: active.startPoint, to: point))
+                    let distanceSquared = distanceSquared(from: active.startPoint, to: point)
+                    active.maxDistanceSquared = max(active.maxDistanceSquared, distanceSquared)
                     activeTouches[touchKey] = active
 
                     if isDragDetectionEnabled,
                        active.modifierKey == nil,
                        !active.isContinuousKey,
                        !active.didHold,
-                       active.maxDistance > dragCancelDistance {
+                       active.maxDistanceSquared > dragCancelDistanceSquared {
                         disqualifyTouch(touchKey)
                         continue
                     }
@@ -399,22 +449,24 @@ final class ContentViewModel: ObservableObject {
                        !active.isContinuousKey,
                        !active.didHold,
                        let holdBinding = active.holdBinding,
-                       Date().timeIntervalSince(active.startTime) >= holdMinDuration,
-                       (!isDragDetectionEnabled || active.maxDistance <= dragCancelDistance) {
+                       now.timeIntervalSince(active.startTime) >= holdMinDuration,
+                       (!isDragDetectionEnabled || active.maxDistanceSquared <= dragCancelDistanceSquared) {
                         triggerBinding(holdBinding, touchKey: touchKey)
                         active.didHold = true
                         activeTouches[touchKey] = active
                     }
                 } else if var pending = pendingTouches[touchKey] {
-                    pending.maxDistance = max(pending.maxDistance, distance(from: pending.startPoint, to: point))
+                    let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
+                    pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
                     pendingTouches[touchKey] = pending
 
-                    if isDragDetectionEnabled, pending.maxDistance > dragCancelDistance {
+                    if isDragDetectionEnabled,
+                       pending.maxDistanceSquared > dragCancelDistanceSquared {
                         disqualifyTouch(touchKey)
                         continue
                     }
 
-                    if Date().timeIntervalSince(pending.startTime) >= modifierActivationDelay {
+                    if now.timeIntervalSince(pending.startTime) >= modifierActivationDelay {
                         if pending.binding.rect.contains(point) {
                             let modifierKey = modifierKey(for: pending.binding)
                             let isContinuousKey = isContinuousKey(pending.binding)
@@ -427,7 +479,7 @@ final class ContentViewModel: ObservableObject {
                                 isContinuousKey: isContinuousKey,
                                 holdBinding: holdBinding,
                                 didHold: false,
-                                maxDistance: pending.maxDistance
+                                maxDistanceSquared: pending.maxDistanceSquared
                             )
                             pendingTouches.removeValue(forKey: touchKey)
                             if let modifierKey {
@@ -451,7 +503,7 @@ final class ContentViewModel: ObservableObject {
                             binding: binding,
                             startTime: Date(),
                             startPoint: point,
-                            maxDistance: 0
+                            maxDistanceSquared: 0
                         )
                     } else {
                         activeTouches[touchKey] = ActiveTouch(
@@ -462,7 +514,7 @@ final class ContentViewModel: ObservableObject {
                             isContinuousKey: isContinuousKey,
                             holdBinding: holdBinding,
                             didHold: false,
-                            maxDistance: 0
+                            maxDistanceSquared: 0
                         )
                         if let modifierKey {
                             handleModifierDown(modifierKey, binding: binding)
@@ -486,8 +538,9 @@ final class ContentViewModel: ObservableObject {
                     } else if active.isContinuousKey {
                         stopRepeat(for: touchKey)
                     } else if !active.didHold,
-                              Date().timeIntervalSince(active.startTime) <= tapMaxDuration,
-                              (!isDragDetectionEnabled || active.maxDistance <= dragCancelDistance) {
+                              now.timeIntervalSince(active.startTime) <= tapMaxDuration,
+                              (!isDragDetectionEnabled
+                               || active.maxDistanceSquared <= dragCancelDistanceSquared) {
                         triggerBinding(active.binding, touchKey: touchKey)
                     }
                     endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
@@ -775,7 +828,8 @@ final class ContentViewModel: ObservableObject {
         guard isContinuousKey(pending.binding),
               Date().timeIntervalSince(pending.startTime) <= tapMaxDuration,
               pending.binding.rect.contains(point),
-              (!isDragDetectionEnabled || pending.maxDistance <= dragCancelDistance) else {
+              (!isDragDetectionEnabled
+               || pending.maxDistanceSquared <= dragCancelDistance * dragCancelDistance) else {
             return
         }
         sendKey(binding: pending.binding)
@@ -803,14 +857,7 @@ final class ContentViewModel: ObservableObject {
 
     private func sendKey(code: CGKeyCode, flags: CGEventFlags) {
         let combinedFlags = flags.union(currentModifierFlags())
-        guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false) else {
-            return
-        }
-        keyDown.flags = combinedFlags
-        keyUp.flags = combinedFlags
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
+        keyDispatcher.postKeyStroke(code: code, flags: combinedFlags)
     }
 
     private func currentModifierFlags() -> CGEventFlags {
@@ -841,10 +888,12 @@ final class ContentViewModel: ObservableObject {
         let repeatFlags = flags.union(currentModifierFlags())
         let initialDelay = repeatInitialDelay
         let interval = repeatInterval
-        repeatTasks[touchKey] = Task {
+        let token = RepeatToken()
+        repeatTokens[touchKey] = token
+        repeatTasks[touchKey] = Task.detached(priority: .userInitiated) { [dispatcher = keyDispatcher] in
             try? await Task.sleep(nanoseconds: initialDelay)
-            while !Task.isCancelled {
-                postRepeatedKeyStroke(code: code, flags: repeatFlags)
+            while !Task.isCancelled, token.isActive {
+                dispatcher.postKeyStroke(code: code, flags: repeatFlags, token: token)
                 try? await Task.sleep(nanoseconds: interval)
             }
         }
@@ -854,6 +903,7 @@ final class ContentViewModel: ObservableObject {
         if let task = repeatTasks.removeValue(forKey: touchKey) {
             task.cancel()
         }
+        repeatTokens.removeValue(forKey: touchKey)?.deactivate()
     }
 
     private func handleModifierDown(_ modifierKey: ModifierKey, binding: KeyBinding) {
@@ -908,15 +958,7 @@ final class ContentViewModel: ObservableObject {
 
     private func postKey(binding: KeyBinding, keyDown: Bool) {
         guard case let .key(code, flags) = binding.action else { return }
-        guard let event = CGEvent(
-            keyboardEventSource: nil,
-            virtualKey: code,
-            keyDown: keyDown
-        ) else {
-            return
-        }
-        event.flags = flags
-        event.post(tap: .cghidEventTap)
+        keyDispatcher.postKey(code: code, flags: flags, keyDown: keyDown)
     }
 
     private func releaseHeldKeys() {
@@ -991,10 +1033,10 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    private func distance(from start: CGPoint, to end: CGPoint) -> CGFloat {
+    private func distanceSquared(from start: CGPoint, to end: CGPoint) -> CGFloat {
         let dx = end.x - start.x
         let dy = end.y - start.y
-        return (dx * dx + dy * dy).squareRoot()
+        return dx * dx + dy * dy
     }
 
     private func toggleLayer(to layer: Int) { 
@@ -1008,10 +1050,10 @@ final class ContentViewModel: ObservableObject {
     }
 
     private func updateActiveLayer() {
-        if let momentaryLayer = momentaryLayerTouches.values.max() {
-            activeLayer = momentaryLayer
-        } else {
-            activeLayer = persistentLayer
+        let resolvedLayer = momentaryLayerTouches.values.max() ?? persistentLayer
+        if activeLayer != resolvedLayer {
+            activeLayer = resolvedLayer
+            invalidateBindingsCache()
         }
     }
 
@@ -1026,17 +1068,117 @@ final class ContentViewModel: ObservableObject {
             break
         }
     }
+
+    private func invalidateBindingsCache() {
+        bindingsGeneration &+= 1
+    }
+
+    private func bindings(
+        for side: TrackpadSide,
+        keyRects: [[CGRect]],
+        labels: [[String]],
+        canvasSize: CGSize
+    ) -> [KeyBinding] {
+        if bindingsCacheLayer != activeLayer {
+            bindingsCacheLayer = activeLayer
+            invalidateBindingsCache()
+        }
+        let currentGeneration = bindingsGenerationBySide[side] ?? -1
+        if currentGeneration != bindingsGeneration || bindingsCache[side] == nil {
+            bindingsCache[side] = makeBindings(
+                keyRects: keyRects,
+                labels: labels,
+                customButtons: customButtons(for: activeLayer, side: side),
+                canvasSize: canvasSize,
+                side: side
+            )
+            bindingsGenerationBySide[side] = bindingsGeneration
+        }
+        return bindingsCache[side] ?? []
+    }
 }
 
-private func postRepeatedKeyStroke(code: CGKeyCode, flags: CGEventFlags) {
-    guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true),
-          let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false) else {
-        return
+private final class RepeatToken: @unchecked Sendable {
+    private let isActiveLock = OSAllocatedUnfairLock<Bool>(uncheckedState: true)
+
+    var isActive: Bool {
+        isActiveLock.withLockUnchecked(\.self)
     }
-    keyDown.flags = flags
-    keyUp.flags = flags
-    keyDown.post(tap: .cghidEventTap)
-    keyUp.post(tap: .cghidEventTap)
+
+    func deactivate() {
+        isActiveLock.withLockUnchecked { $0 = false }
+    }
+}
+
+private final class KeyEventDispatcher: @unchecked Sendable {
+    static let shared = KeyEventDispatcher()
+
+    private let queue = DispatchQueue(
+        label: "com.kyome.GlassToKey.KeyDispatch",
+        qos: .userInteractive
+    )
+    private var eventSource: CGEventSource?
+
+    func postKeyStroke(code: CGKeyCode, flags: CGEventFlags, token: RepeatToken? = nil) {
+        queue.async {
+            if let token, !token.isActive {
+                return
+            }
+            autoreleasepool {
+                if let token, !token.isActive {
+                    return
+                }
+                guard let source = self.eventSource
+                    ?? CGEventSource(stateID: .hidSystemState) else {
+                    return
+                }
+                self.eventSource = source
+                guard let keyDown = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: code,
+                    keyDown: true
+                ),
+                let keyUp = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: code,
+                    keyDown: false
+                ) else {
+                    return
+                }
+                keyDown.flags = flags
+                keyUp.flags = flags
+                keyDown.post(tap: .cghidEventTap)
+                keyUp.post(tap: .cghidEventTap)
+            }
+        }
+    }
+
+    func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool, token: RepeatToken? = nil) {
+        queue.async {
+            if let token, !token.isActive {
+                return
+            }
+            autoreleasepool {
+                if let token, !token.isActive {
+                    return
+                }
+                guard let source = self.eventSource
+                    ?? CGEventSource(stateID: .hidSystemState) else {
+                    return
+                }
+                self.eventSource = source
+                guard let event = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: code,
+                    keyDown: keyDown
+                ) else {
+                    return
+                }
+                event.flags = flags
+                event.post(tap: .cghidEventTap)
+            }
+        }
+    }
 }
 
 struct NormalizedRect: Codable, Hashable {

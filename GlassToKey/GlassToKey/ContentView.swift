@@ -39,6 +39,7 @@ struct ContentView: View {
     @State private var resizeStartRects: [UUID: NormalizedRect] = [:]
     @State private var keyMappingsByLayer: LayeredKeyMappings = [:]
     @State private var layoutOption: TrackpadLayoutPreset = .sixByThree
+    @State private var lastTouchRevision: UInt64 = 0
     @AppStorage(GlassToKeyDefaultsKeys.leftDeviceID) private var storedLeftDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.rightDeviceID) private var storedRightDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.visualsEnabled) private var storedVisualsEnabled = true
@@ -59,6 +60,7 @@ struct ContentView: View {
     private static let columnOffsetPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.offsetPercentRange
     static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
     private static let dragCancelDistanceRange: ClosedRange<Double> = 0.5...15.0
+    private static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
     private static let keyCornerRadius: CGFloat = 6.0
     private static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -87,6 +89,24 @@ struct ContentView: View {
         formatter.maximum = NSNumber(value: ContentView.rowSpacingPercentRange.upperBound)
         return formatter
     }()
+    private static let tapHoldDurationFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.minimum = NSNumber(value: ContentView.tapHoldDurationRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.tapHoldDurationRange.upperBound)
+        return formatter
+    }()
+    private static let dragCancelDistanceFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 1
+        formatter.maximumFractionDigits = 1
+        formatter.minimum = NSNumber(value: ContentView.dragCancelDistanceRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.dragCancelDistanceRange.upperBound)
+        return formatter
+    }()
     private let displayRefreshInterval: TimeInterval = 1.0 / 60.0
     private static let legacyKeyScaleKey = "GlassToKey.keyScale"
     private static let legacyKeyOffsetXKey = "GlassToKey.keyOffsetX"
@@ -108,10 +128,7 @@ struct ContentView: View {
     private var layoutSelectionBinding: Binding<TrackpadLayoutPreset> {
         Binding(
             get: { layoutOption },
-            set: { newLayout in
-                layoutOption = newLayout
-                handleLayoutOptionChange(newLayout)
-            }
+            set: { handleLayoutOptionChange($0) }
         )
     }
 
@@ -215,49 +232,12 @@ struct ContentView: View {
                             selectedButtonID: selectedButtonID
                         )
                     }
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Typing Behavior")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        VStack(alignment: .leading, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text("Tap / Hold threshold")
-                                    Spacer()
-                                    Text("\(Int(tapHoldDurationMs)) ms")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Slider(value: $tapHoldDurationMs, in: 50...1000, step: 5)
-                                Text("Lower values make taps send sooner, reducing accidental drag cancels.")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text("Drag cancellation distance")
-                                    Spacer()
-                                    Text( "\(String(format: "%.1f", dragCancelDistanceSetting)) px")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Slider(
-                                    value: $dragCancelDistanceSetting,
-                                    in: Self.dragCancelDistanceRange,
-                                    step: 0.1
-                                )
-                                Text("Lower values detect drags sooner, while higher values give taps more wiggle room.")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.primary.opacity(0.05))
-                    )
                 }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.primary.opacity(0.05))
+                )
 
                 VStack(alignment: .leading, spacing: 14) {
                     VStack(alignment: .leading, spacing: 10) {
@@ -560,6 +540,49 @@ struct ContentView: View {
                         RoundedRectangle(cornerRadius: 12)
                             .fill(Color.primary.opacity(0.05))
                     )
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Typing Behavior")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                            GridRow {
+                                Text("Tap/Hold (ms)")
+                                TextField(
+                                    "200",
+                                    value: $tapHoldDurationMs,
+                                    formatter: Self.tapHoldDurationFormatter
+                                )
+                                .frame(width: 60)
+                                Slider(
+                                    value: $tapHoldDurationMs,
+                                    in: Self.tapHoldDurationRange,
+                                    step: 10
+                                )
+                                .frame(minWidth: 120)
+                            }
+                            GridRow {
+                                Text("Drag Cancel")
+                                TextField(
+                                    "2.5",
+                                    value: $dragCancelDistanceSetting,
+                                    formatter: Self.dragCancelDistanceFormatter
+                                )
+                                .frame(width: 60)
+                                Slider(
+                                    value: $dragCancelDistanceSetting,
+                                    in: Self.dragCancelDistanceRange,
+                                    step: 0.5
+                                )
+                                .frame(minWidth: 120)
+                            }
+                        }
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.primary.opacity(0.05))
+                    )
                 }
                 .frame(width: 420)
             }
@@ -579,7 +602,13 @@ struct ContentView: View {
         .frame(minWidth: trackpadSize.width * 2 + 520, minHeight: trackpadSize.height + 240)
         .onAppear {
             applySavedSettings()
-            displayTouchData = viewModel.snapshotTouchData()
+            if let snapshot = viewModel.snapshotTouchDataIfUpdated(since: 0) {
+                displayTouchData = snapshot.data
+                lastTouchRevision = snapshot.revision
+            } else {
+                displayTouchData = viewModel.snapshotTouchData()
+                lastTouchRevision = 0
+            }
         }
         .onChange(of: visualsEnabled) { enabled in
             if !enabled {
@@ -588,7 +617,16 @@ struct ContentView: View {
                 selectedGridKey = nil
             }
             saveSettings()
-            displayTouchData = enabled ? viewModel.snapshotTouchData() : []
+            if enabled {
+                if let snapshot = viewModel.snapshotTouchDataIfUpdated(since: 0) {
+                    displayTouchData = snapshot.data
+                    lastTouchRevision = snapshot.revision
+                } else {
+                    displayTouchData = viewModel.snapshotTouchData()
+                }
+            } else {
+                displayTouchData = []
+            }
         }
         .onChange(of: columnSettings) { newValue in
             applyColumnSettings(newValue)
@@ -613,7 +651,8 @@ struct ContentView: View {
         .onChange(of: dragCancelDistanceSetting) { newValue in
             viewModel.updateDragCancelDistance(CGFloat(newValue))
         }
-        .task {
+        .task(id: visualsEnabled) {
+            guard visualsEnabled else { return }
             for await _ in Timer.publish(
                 every: displayRefreshInterval,
                 on: .main,
@@ -621,8 +660,10 @@ struct ContentView: View {
             )
             .autoconnect()
             .values {
-                guard visualsEnabled else { continue }
-                displayTouchData = viewModel.snapshotTouchData()
+                if let snapshot = viewModel.snapshotTouchDataIfUpdated(since: lastTouchRevision) {
+                    displayTouchData = snapshot.data
+                    lastTouchRevision = snapshot.revision
+                }
             }
         }
     }
@@ -859,16 +900,14 @@ struct ContentView: View {
     }
 
     private func handleLayoutOptionChange(_ newLayout: TrackpadLayoutPreset) {
+        layoutOption = newLayout
         storedLayoutPreset = newLayout.rawValue
         selectedColumn = nil
         selectedGridKey = nil
         selectedButtonID = nil
-        if columnSettings.count == newLayout.columns {
-            applyColumnSettings(columnSettings)
-            saveSettings()
-        } else {
-            columnSettings = ColumnLayoutDefaults.defaultSettings(columns: newLayout.columns)
-        }
+        columnSettings = columnSettings(for: newLayout)
+        applyColumnSettings(columnSettings)
+        saveSettings()
     }
 
     private func rebuildLayouts() {
@@ -920,11 +959,12 @@ struct ContentView: View {
 
     private func applySavedSettings() {
         visualsEnabled = storedVisualsEnabled
-        layoutOption = TrackpadLayoutPreset(rawValue: storedLayoutPreset) ?? .sixByThree
+        let resolvedLayout = TrackpadLayoutPreset(rawValue: storedLayoutPreset) ?? .sixByThree
+        layoutOption = resolvedLayout
         selectedColumn = nil
         selectedGridKey = nil
         selectedButtonID = nil
-        columnSettings = resolvedStoredColumnSettings(for: layoutOption)
+        columnSettings = columnSettings(for: resolvedLayout)
         loadCustomButtons()
         loadKeyMappings()
         applyColumnSettings(columnSettings)
@@ -942,54 +982,66 @@ struct ContentView: View {
         storedLeftDeviceID = viewModel.leftDevice?.deviceID ?? ""
         storedRightDeviceID = viewModel.rightDevice?.deviceID ?? ""
         storedVisualsEnabled = visualsEnabled
-        storedColumnSettingsData = ColumnLayoutStore.encode(columnSettings) ?? Data()
         storedLayoutPreset = layoutOption.rawValue
+        saveCurrentColumnSettings()
     }
 
-    private func resolvedStoredColumnSettings(
+    private func columnSettings(
         for layout: TrackpadLayoutPreset
     ) -> [ColumnLayoutSettings] {
-        let columns = layout.columns
-        if let decoded = ColumnLayoutStore.decode(storedColumnSettingsData),
-           decoded.count == columns {
-            return Self.normalizedColumnSettings(decoded, columns: columns)
+        if let stored = LayoutColumnSettingsStorage.settings(
+            for: layout,
+            from: storedColumnSettingsData
+        ) {
+            return Self.normalizedColumnSettings(stored, columns: layout.columns)
         }
+        if let migrated = legacyColumnSettings(for: layout) {
+            return migrated
+        }
+        return ColumnLayoutDefaults.defaultSettings(columns: layout.columns)
+    }
 
+    private func legacyColumnSettings(for layout: TrackpadLayoutPreset) -> [ColumnLayoutSettings]? {
+        let columns = layout.columns
+        guard columns > 0 else { return nil }
         let defaults = UserDefaults.standard
         let hasLegacyScale = defaults.object(forKey: Self.legacyKeyScaleKey) != nil
         let hasLegacyOffsetX = defaults.object(forKey: Self.legacyKeyOffsetXKey) != nil
         let hasLegacyOffsetY = defaults.object(forKey: Self.legacyKeyOffsetYKey) != nil
         let hasLegacyRowSpacing = defaults.object(forKey: Self.legacyRowSpacingPercentKey) != nil
-        if hasLegacyScale || hasLegacyOffsetX || hasLegacyOffsetY || hasLegacyRowSpacing {
-            let keyScale = hasLegacyScale
-                ? defaults.double(forKey: Self.legacyKeyScaleKey)
-                : 1.0
-            let offsetX = hasLegacyOffsetX
-                ? defaults.double(forKey: Self.legacyKeyOffsetXKey)
-                : 0.0
-            let offsetY = hasLegacyOffsetY
-                ? defaults.double(forKey: Self.legacyKeyOffsetYKey)
-                : 0.0
-            let rowSpacingPercent = hasLegacyRowSpacing
-                ? defaults.double(forKey: Self.legacyRowSpacingPercentKey)
-                : 0.0
-            let offsetXPercent = offsetX / Double(Self.trackpadWidthMM) * 100.0
-            let offsetYPercent = offsetY / Double(Self.trackpadHeightMM) * 100.0
-            let migrated = ColumnLayoutDefaults.defaultSettings(columns: columns).map { _ in
-                ColumnLayoutSettings(
-                    scale: keyScale,
-                    offsetXPercent: offsetXPercent,
-                    offsetYPercent: offsetYPercent,
-                    rowSpacingPercent: rowSpacingPercent
-                )
-            }
-            return ColumnLayoutDefaults.normalizedSettings(
-                migrated,
-                columns: columns
+        guard hasLegacyScale || hasLegacyOffsetX || hasLegacyOffsetY || hasLegacyRowSpacing else {
+            return nil
+        }
+        let keyScale = hasLegacyScale ? defaults.double(forKey: Self.legacyKeyScaleKey) : 1.0
+        let offsetX = hasLegacyOffsetX ? defaults.double(forKey: Self.legacyKeyOffsetXKey) : 0.0
+        let offsetY = hasLegacyOffsetY ? defaults.double(forKey: Self.legacyKeyOffsetYKey) : 0.0
+        let rowSpacingPercent = hasLegacyRowSpacing
+            ? defaults.double(forKey: Self.legacyRowSpacingPercentKey)
+            : 0.0
+        let offsetXPercent = offsetX / Double(Self.trackpadWidthMM) * 100.0
+        let offsetYPercent = offsetY / Double(Self.trackpadHeightMM) * 100.0
+        let migrated = ColumnLayoutDefaults.defaultSettings(columns: columns).map { _ in
+            ColumnLayoutSettings(
+                scale: keyScale,
+                offsetXPercent: offsetXPercent,
+                offsetYPercent: offsetYPercent,
+                rowSpacingPercent: rowSpacingPercent
             )
         }
+        return ColumnLayoutDefaults.normalizedSettings(migrated, columns: columns)
+    }
 
-        return ColumnLayoutDefaults.defaultSettings(columns: columns)
+    private func saveCurrentColumnSettings() {
+        var map = LayoutColumnSettingsStorage.decode(from: storedColumnSettingsData) ?? [:]
+        map[layoutOption.rawValue] = Self.normalizedColumnSettings(
+            columnSettings,
+            columns: layoutColumns
+        )
+        if let encoded = LayoutColumnSettingsStorage.encode(map) {
+            storedColumnSettingsData = encoded
+        } else {
+            storedColumnSettingsData = Data()
+        }
     }
 
     private func loadCustomButtons() {
