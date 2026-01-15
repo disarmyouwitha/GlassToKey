@@ -313,67 +313,44 @@ struct ContentView: View {
                                     Text("Selected column \(selectedColumn + 1)")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
-                                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
-                                        GridRow {
-                                            Text("Scale")
-                                            let scaleBinding = columnScaleBinding(for: selectedColumn)
-                                            TextField(
-                                                "1.0",
-                                                value: scaleBinding,
-                                                formatter: Self.columnScaleFormatter
-                                            )
-                                            .frame(width: 60)
-                                            Stepper(
-                                                "",
-                                                value: scaleBinding,
-                                                in: Self.columnScaleRange,
-                                                step: 0.05
-                                            )
-                                            .labelsHidden()
-                                        }
-                                        GridRow {
-                                            Text("Offset X (%)")
-                                            let offsetBinding = columnOffsetBinding(
+                                    VStack(alignment: .leading, spacing: 14) {
+                                        ColumnTuningRow(
+                                            title: "Scale",
+                                            value: columnScaleBinding(for: selectedColumn),
+                                            formatter: Self.columnScaleFormatter,
+                                            range: Self.columnScaleRange,
+                                            sliderStep: 0.05
+                                        )
+                                        ColumnTuningRow(
+                                            title: "Offset X (%)",
+                                            value: columnOffsetBinding(
                                                 for: selectedColumn,
                                                 axis: .x
-                                            )
-                                            numericAdjustmentControl(
-                                                value: offsetBinding,
-                                                formatter: Self.columnOffsetFormatter,
-                                                range: Self.columnOffsetPercentRange,
-                                                step: 0.5
-                                            )
-                                        }
-                                        GridRow {
-                                            Text("Offset Y (%)")
-                                            let offsetBinding = columnOffsetBinding(
+                                            ),
+                                            formatter: Self.columnOffsetFormatter,
+                                            range: Self.columnOffsetPercentRange,
+                                            sliderStep: 1.0,
+                                            buttonStep: 0.5
+                                        )
+                                        ColumnTuningRow(
+                                            title: "Offset Y (%)",
+                                            value: columnOffsetBinding(
                                                 for: selectedColumn,
                                                 axis: .y
-                                            )
-                                            numericAdjustmentControl(
-                                                value: offsetBinding,
-                                                formatter: Self.columnOffsetFormatter,
-                                                range: Self.columnOffsetPercentRange,
-                                                step: 0.5
-                                            )
-                                        }
-                                        GridRow {
-                                            Text("Spacing (%)")
-                                            let spacingBinding = columnRowSpacingBinding(for: selectedColumn)
-                                            TextField(
-                                                "0.0",
-                                                value: spacingBinding,
-                                                formatter: Self.rowSpacingFormatter
-                                            )
-                                            .frame(width: 60)
-                                            Stepper(
-                                                "",
-                                                value: spacingBinding,
-                                                in: Self.rowSpacingPercentRange,
-                                                step: 0.5
-                                            )
-                                            .labelsHidden()
-                                        }
+                                            ),
+                                            formatter: Self.columnOffsetFormatter,
+                                            range: Self.columnOffsetPercentRange,
+                                            sliderStep: 1.0,
+                                            buttonStep: 0.5
+                                        )
+                                        ColumnTuningRow(
+                                            title: "Spacing (%)",
+                                            value: columnRowSpacingBinding(for: selectedColumn),
+                                            formatter: Self.rowSpacingFormatter,
+                                            range: Self.rowSpacingPercentRange,
+                                            sliderStep: 1.0,
+                                            buttonStep: 0.5
+                                        )
                                     }
                                 } else {
                                     Text("Select a column on the trackpad to edit.")
@@ -423,53 +400,37 @@ struct ContentView: View {
                                         }
                                     }
                                     .pickerStyle(MenuPickerStyle())
-                                    Grid(alignment: .leading, verticalSpacing: 6) {
-                                        GridRow {
-                                            Text("X (%)")
-                                            let xBinding = positionPercentBinding(
+                                    VStack(alignment: .leading, spacing: 14) {
+                                        let xBinding = positionPercentBinding(
+                                            for: selectedIndex,
+                                            axis: .x
+                                        )
+                                        ColumnTuningRow(
+                                            title: "X (%)",
+                                            value: xBinding,
+                                            formatter: Self.columnOffsetFormatter,
+                                            range: positionPercentRange(
                                                 for: selectedIndex,
                                                 axis: .x
-                                            )
-                                            TextField(
-                                                "0.0",
-                                                value: xBinding,
-                                                formatter: Self.columnOffsetFormatter
-                                            )
-                                            .frame(width: 60)
-                                            Stepper(
-                                                "",
-                                                value: xBinding,
-                                                in: positionPercentRange(
-                                                    for: selectedIndex,
-                                                    axis: .x
-                                                ),
-                                                step: 0.5
-                                            )
-                                            .labelsHidden()
-                                        }
-                                        GridRow {
-                                            Text("Y (%)")
-                                            let yBinding = positionPercentBinding(
+                                            ),
+                                            sliderStep: 1.0,
+                                            buttonStep: 0.5
+                                        )
+                                        let yBinding = positionPercentBinding(
+                                            for: selectedIndex,
+                                            axis: .y
+                                        )
+                                        ColumnTuningRow(
+                                            title: "Y (%)",
+                                            value: yBinding,
+                                            formatter: Self.columnOffsetFormatter,
+                                            range: positionPercentRange(
                                                 for: selectedIndex,
                                                 axis: .y
-                                            )
-                                            TextField(
-                                                "0.0",
-                                                value: yBinding,
-                                                formatter: Self.columnOffsetFormatter
-                                            )
-                                            .frame(width: 60)
-                                            Stepper(
-                                                "",
-                                                value: yBinding,
-                                                in: positionPercentRange(
-                                                    for: selectedIndex,
-                                                    axis: .y
-                                                ),
-                                                step: 0.5
-                                            )
-                                            .labelsHidden()
-                                        }
+                                            ),
+                                            sliderStep: 1.0,
+                                            buttonStep: 0.5
+                                        )
                                     }
                                     HStack {
                                         Text("Selected")
@@ -1298,39 +1259,83 @@ struct ContentView: View {
         )
     }
 
-    @ViewBuilder
-    private func numericAdjustmentControl(
-        value: Binding<Double>,
-        formatter: NumberFormatter,
-        range: ClosedRange<Double>,
-        step: Double
-    ) -> some View {
-        HStack(spacing: 6) {
-            Button {
-                value.wrappedValue = max(range.lowerBound, value.wrappedValue - step)
-            } label: {
-                Image(systemName: "minus")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.mini)
+    private struct ColumnTuningRow: View {
+        let title: String
+        let formatter: NumberFormatter
+        let range: ClosedRange<Double>
+        let sliderStep: Double
+        let buttonStep: Double
+        @Binding var value: Double
 
-            TextField(
-                "0.0",
-                value: value,
-                formatter: formatter
+        init(
+            title: String,
+            value: Binding<Double>,
+            formatter: NumberFormatter,
+            range: ClosedRange<Double>,
+            sliderStep: Double,
+            buttonStep: Double? = nil
+        ) {
+            self.title = title
+            self._value = value
+            self.formatter = formatter
+            self.range = range
+            self.sliderStep = sliderStep
+            self.buttonStep = buttonStep ?? sliderStep
+        }
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(title)
+                        .font(.callout)
+                        .fontWeight(.semibold)
+                    Spacer()
+                    Text(formattedValue)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 8) {
+                    Slider(value: $value, in: range, step: sliderStep)
+                        .frame(maxWidth: .infinity)
+                    HStack(spacing: 4) {
+                        Button {
+                                adjust(-buttonStep)
+                        } label: {
+                            Image(systemName: "minus")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+
+                        TextField(
+                            "",
+                            value: $value,
+                            formatter: formatter
+                        )
+                        .frame(width: 60)
+                        .textFieldStyle(.roundedBorder)
+
+                        Button {
+                                adjust(buttonStep)
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                    }
+                }
+            }
+        }
+
+        private var formattedValue: String {
+            formatter.string(from: NSNumber(value: value)) ??
+                String(format: "%.2f", value)
+        }
+
+        private func adjust(_ delta: Double) {
+            value = min(
+                max(range.lowerBound, value + delta),
+                range.upperBound
             )
-            .frame(width: 60)
-
-            Button {
-                value.wrappedValue = min(range.upperBound, value.wrappedValue + step)
-            } label: {
-                Image(systemName: "plus")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.mini)
-
-            Slider(value: value, in: range, step: step)
-                .frame(maxWidth: .infinity)
         }
     }
 
