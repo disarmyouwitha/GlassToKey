@@ -1107,39 +1107,54 @@ private final class KeyEventDispatcher: @unchecked Sendable {
         label: "com.kyome.GlassToKey.KeyDispatch",
         qos: .userInteractive
     )
+    private var eventSource: CGEventSource?
 
     func postKeyStroke(code: CGKeyCode, flags: CGEventFlags) {
         queue.async {
-            guard let keyDown = CGEvent(
-                keyboardEventSource: nil,
-                virtualKey: code,
-                keyDown: true
-            ),
-            let keyUp = CGEvent(
-                keyboardEventSource: nil,
-                virtualKey: code,
-                keyDown: false
-            ) else {
-                return
+            autoreleasepool {
+                guard let source = self.eventSource
+                    ?? CGEventSource(stateID: .hidSystemState) else {
+                    return
+                }
+                self.eventSource = source
+                guard let keyDown = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: code,
+                    keyDown: true
+                ),
+                let keyUp = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: code,
+                    keyDown: false
+                ) else {
+                    return
+                }
+                keyDown.flags = flags
+                keyUp.flags = flags
+                keyDown.post(tap: .cghidEventTap)
+                keyUp.post(tap: .cghidEventTap)
             }
-            keyDown.flags = flags
-            keyUp.flags = flags
-            keyDown.post(tap: .cghidEventTap)
-            keyUp.post(tap: .cghidEventTap)
         }
     }
 
     func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool) {
         queue.async {
-            guard let event = CGEvent(
-                keyboardEventSource: nil,
-                virtualKey: code,
-                keyDown: keyDown
-            ) else {
-                return
+            autoreleasepool {
+                guard let source = self.eventSource
+                    ?? CGEventSource(stateID: .hidSystemState) else {
+                    return
+                }
+                self.eventSource = source
+                guard let event = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: code,
+                    keyDown: keyDown
+                ) else {
+                    return
+                }
+                event.flags = flags
+                event.post(tap: .cghidEventTap)
             }
-            event.flags = flags
-            event.post(tap: .cghidEventTap)
         }
     }
 }

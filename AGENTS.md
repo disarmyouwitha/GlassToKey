@@ -38,16 +38,23 @@
 1. Edit files under `Sources/OpenMultitouchSupport/`.
 2. Commit and push (consumers tracking `main` pick up changes).
 
+## Performance notes
+- UI visuals are coalesced by touch revision (only redraw on new touch frames).
+- Key dispatch posts on a dedicated queue with a cached `CGEventSource`.
+- OMS touch timestamps can be disabled for the app (`OMSManager.shared.isTimestampEnabled = false`).
+
 ## Important notes for next instance of Codex
 - no notes left.
 
 ## TODO
-- Lets move Typing Test underneat the Layouts!
+- Need to make sure 2 finger taps do not trigger key presses.
 - Create a virtual keyboard device (robust, more work): macOS has official support for virtual HID devices via CoreHID, including HIDVirtualDevice: https://developer.apple.com/documentation/corehid/hidvirtualdevice
-- Performant, efficient re-write of codebase. 
-- Need to make sure 2 finger taps do not trigger key presses../
+- Lets move Typing Test underneath the Layouts!
+###
+- Clicking the OffsetX/Y up/down too much gets very laggy and starts to repeat clicks. re: clamping doesn't seem to work and I can't type into the field without resetting it? Can we fix? is there a better GUI element? 
 - Issue with starting 2-finger drag when starting from SPACE area
-###.
+###
 - "Auto" set column x,y based on finger splay "4 finger touch"
 - Maybe I can turn off single-finger tap at the Mac OS level but implement single finger tap-to-click if under a minimum ms typing term?
+###
 - Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight

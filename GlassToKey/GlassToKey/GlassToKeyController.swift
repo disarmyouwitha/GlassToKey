@@ -16,6 +16,7 @@ final class GlassToKeyController: ObservableObject {
 
     func start() {
         guard !isRunning else { return }
+        OMSManager.shared.isTimestampEnabled = false
         configureFromDefaults()
         viewModel.start()
         viewModel.onAppear()
