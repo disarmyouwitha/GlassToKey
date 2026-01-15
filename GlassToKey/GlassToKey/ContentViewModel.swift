@@ -102,6 +102,7 @@ final class ContentViewModel: ObservableObject {
     private var repeatTasks: [TouchKey: Task<Void, Never>] = [:]
     private var repeatTokens: [TouchKey: RepeatToken] = [:]
     private var toggleTouchStarts: [TouchKey: Date] = [:]
+    private var toggleTouchRects: [TouchKey: CGRect] = [:]
     private var layerToggleTouchStarts: [TouchKey: Int] = [:]
     private var momentaryLayerTouches: [TouchKey: Int] = [:]
     private var touchInitialContactPoint: [TouchKey: CGPoint] = [:]
@@ -381,13 +382,23 @@ final class ContentViewModel: ObservableObject {
                 continue
             }
             if toggleTouchStarts[touchKey] != nil {
-                handleTypingToggleTouch(touchKey: touchKey, state: touch.state)
+                handleTypingToggleTouch(
+                    touchKey: touchKey,
+                    state: touch.state,
+                    bindingRect: bindingAtPoint?.rect,
+                    point: point
+                )
                 continue
             }
             if let binding = bindingAtPoint {
                 switch binding.action {
                 case .typingToggle:
-                    handleTypingToggleTouch(touchKey: touchKey, state: touch.state)
+                    handleTypingToggleTouch(
+                        touchKey: touchKey,
+                        state: touch.state,
+                        bindingRect: binding.rect,
+                        point: point
+                    )
                     continue
                 case let .layerToggle(targetLayer):
                     handleLayerToggleTouch(touchKey: touchKey, state: touch.state, targetLayer: targetLayer)
@@ -714,18 +725,40 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    private func handleTypingToggleTouch(touchKey: TouchKey, state: OMSState) {
+    private func handleTypingToggleTouch(
+        touchKey: TouchKey,
+        state: OMSState,
+        bindingRect: CGRect?,
+        point: CGPoint
+    ) {
         switch state {
         case .starting, .making, .touching:
             if toggleTouchStarts[touchKey] == nil {
                 toggleTouchStarts[touchKey] = Date()
             }
-        case .breaking, .leaving:
-            if toggleTouchStarts.removeValue(forKey: touchKey) != nil {
-                toggleTypingMode()
+            if let rect = bindingRect {
+                toggleTouchRects[touchKey] = rect
             }
-        case .notTouching:
+        case .breaking:
+            let rectToCheck = bindingRect ?? toggleTouchRects[touchKey]
+            toggleTouchRects.removeValue(forKey: touchKey)
+            let didStart = toggleTouchStarts.removeValue(forKey: touchKey)
+            if let rect = rectToCheck,
+               rect.contains(point),
+               didStart != nil {
+                let maxDistance = dragCancelDistance * dragCancelDistance
+                let initialPoint = touchInitialContactPoint[touchKey]
+                let distance = initialPoint
+                    .map { distanceSquared(from: $0, to: point) } ?? 0
+                if distance <= maxDistance {
+                    toggleTypingMode()
+                }
+            }
+            touchInitialContactPoint.removeValue(forKey: touchKey)
+        case .leaving, .notTouching:
             toggleTouchStarts.removeValue(forKey: touchKey)
+            toggleTouchRects.removeValue(forKey: touchKey)
+            touchInitialContactPoint.removeValue(forKey: touchKey)
         case .hovering, .lingering:
             break
         }
