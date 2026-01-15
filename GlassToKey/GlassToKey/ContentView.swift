@@ -572,10 +572,6 @@ struct ContentView: View {
                         RoundedRectangle(cornerRadius: 12)
                             .fill(Color.primary.opacity(0.05))
                     )
-<<<<<<< HEAD
-=======
-
->>>>>>> 4774ad1 (moving textbox for typing)
                 }
                 .frame(width: 420)
             }
