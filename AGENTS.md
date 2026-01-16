@@ -41,16 +41,12 @@
 ## Performance notes
 - UI visuals are coalesced by touch revision (only redraw on new touch frames).
 - Key dispatch posts on a dedicated queue with a cached `CGEventSource`.
-- OMS touch timestamps can be disabled for the app (`OMSManager.shared.isTimestampEnabled = false`).
+- OMS touch timestamps is disabled for the app but can be reunabled with the flag (`OMSManager.shared.isTimestampEnabled = True`).
 
 ## Important notes for next instance of Codex
-- no notes left.
+- no notes.
 
 ## TODO
-- PROBLEM: When I do 2-finger tap to click I am triggering 2 keypresses. I would like 2-finger taps to be ignored by they keyboard. ANALYZE CODE AND FIND SOLUTION: Need to make sure 2 finger taps do not trigger key presses. Maybe expose a slider for how many ms between taps is considered a 2-finger tap. CODE SHOULD BE HIGHLY PERFORMANT AND EFFICIENTY with emphasis on the immediacy of keystrokes firing. 
-###
-- Issue with starting 2-finger drag when starting from SPACE area
-###
 - "Auto" set column x,y based on finger splay "4 finger touch"
 ###
 - Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight
