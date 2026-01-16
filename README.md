@@ -16,14 +16,6 @@ Clicking the indicator light will allow you to view the Config or Quit the progr
 
 <img src="Screenshots/GTK_config.png" alt="GlassToKey" width="900px" />
 
-When mapping keys the GUI gets very laggy. If you turn visuals off/on again it works.
-
-## TODO
-
-This repo is not really in shape for users, but a developer could definitely get in and modify the code!
-
-**I have a todo list in the AGENTS.md file if you want to check it out! Or load up codex and say, "read agents.md" and start submitting PRs, lol!**
-
 ## FUTURE
 - Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight
 
