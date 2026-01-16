@@ -33,6 +33,7 @@ struct ContentView: View {
     @StateObject private var viewModel: ContentViewModel
     @State private var testText = ""
     @State private var visualsEnabled = true
+    @State private var editModeEnabled = false
     @State private var columnSettings: [ColumnLayoutSettings]
     @State private var leftLayout: ContentViewModel.Layout
     @State private var rightLayout: ContentViewModel.Layout
@@ -185,6 +186,8 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Toggle("Edit", isOn: $editModeEnabled)
+                    .toggleStyle(SwitchToggleStyle())
                 Toggle("Visuals", isOn: $visualsEnabled)
                     .toggleStyle(SwitchToggleStyle())
                 HStack(spacing: 6) {
@@ -222,6 +225,7 @@ struct ContentView: View {
                         leftGridLabels: leftGridLabels,
                         rightGridLabels: rightGridLabels,
                         customButtons: customButtons,
+                        editModeEnabled: $editModeEnabled,
                         visualsEnabled: $visualsEnabled,
                         selectedButtonID: $selectedButtonID,
                         selectedColumn: $selectedColumn,
@@ -432,6 +436,38 @@ struct ContentView: View {
                                             buttonStep: 0.5,
                                             showSlider: false
                                         )
+                                        let widthBinding = sizePercentBinding(
+                                            for: selectedIndex,
+                                            dimension: .width
+                                        )
+                                        ColumnTuningRow(
+                                            title: "Width (%)",
+                                            value: widthBinding,
+                                            formatter: Self.columnOffsetFormatter,
+                                            range: sizePercentRange(
+                                                for: selectedIndex,
+                                                dimension: .width
+                                            ),
+                                            sliderStep: 1.0,
+                                            buttonStep: 0.5,
+                                            showSlider: false
+                                        )
+                                        let heightBinding = sizePercentBinding(
+                                            for: selectedIndex,
+                                            dimension: .height
+                                        )
+                                        ColumnTuningRow(
+                                            title: "Height (%)",
+                                            value: heightBinding,
+                                            formatter: Self.columnOffsetFormatter,
+                                            range: sizePercentRange(
+                                                for: selectedIndex,
+                                                dimension: .height
+                                            ),
+                                            sliderStep: 1.0,
+                                            buttonStep: 0.5,
+                                            showSlider: false
+                                        )
                                     }
                                     HStack {
                                         Text("Selected")
@@ -554,6 +590,15 @@ struct ContentView: View {
             }
             saveSettings()
         }
+        .onChange(of: editModeEnabled) { enabled in
+            if enabled {
+                visualsEnabled = true
+            } else {
+                selectedButtonID = nil
+                selectedColumn = nil
+                selectedGridKey = nil
+            }
+        }
         .onChange(of: columnSettings) { newValue in
             applyColumnSettings(newValue)
             saveSettings()
@@ -591,6 +636,7 @@ struct ContentView: View {
         let leftGridLabels: [[String]]
         let rightGridLabels: [[String]]
         let customButtons: [CustomButton]
+        @Binding var editModeEnabled: Bool
         @Binding var visualsEnabled: Bool
         @Binding var selectedButtonID: UUID?
         @Binding var selectedColumn: Int?
@@ -704,15 +750,15 @@ struct ContentView: View {
                                 trackpadSize: trackpadSize
                             )
                             .equatable()
-                            TrackpadSelectionLayer(
-                                keyRects: layout.keyRects,
-                                selectedColumn: selectedColumn,
-                                selectedKey: selectedKeyForCanvas
-                            )
-                            .equatable()
-                            if visualsEnabled {
-                                TrackpadTouchLayer(
-                                    revision: lastTouchRevision,
+                        TrackpadSelectionLayer(
+                            keyRects: layout.keyRects,
+                            selectedColumn: editModeEnabled ? selectedColumn : nil,
+                            selectedKey: editModeEnabled ? selectedKeyForCanvas : nil
+                        )
+                        .equatable()
+                        if visualsEnabled {
+                            TrackpadTouchLayer(
+                                revision: lastTouchRevision,
                                     touches: touches,
                                     trackpadSize: trackpadSize
                                 )
@@ -723,15 +769,15 @@ struct ContentView: View {
                             .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
                     }
                 }
-                .frame(width: trackpadSize.width, height: trackpadSize.height)
-                .border(Color.primary)
-                .overlay {
-                    if visualsEnabled || selectedButtonID != nil {
-                        let layout = mirrored ? leftLayout : rightLayout
-                        customButtonsOverlay(
-                            side: side,
-                            layout: layout,
-                            buttons: customButtons,
+            .frame(width: trackpadSize.width, height: trackpadSize.height)
+            .border(Color.primary)
+            .overlay {
+                if editModeEnabled {
+                    let layout = mirrored ? leftLayout : rightLayout
+                    customButtonsOverlay(
+                        side: side,
+                        layout: layout,
+                        buttons: customButtons,
                             selectedButtonID: $selectedButtonID,
                             selectedColumn: $selectedColumn,
                             selectedGridKey: $selectedGridKey,
@@ -1548,6 +1594,11 @@ struct ContentView: View {
         case y
     }
 
+    private enum CustomButtonDimension {
+        case width
+        case height
+    }
+
     private func positionPercentBinding(
         for index: Int,
         axis: CustomButtonAxis
@@ -1589,6 +1640,56 @@ struct ContentView: View {
             : (1.0 - rect.height)
         let upper = max(0.0, Double(maxNormalized)) * 100.0
         return 0.0...upper
+    }
+
+    private func sizePercentBinding(
+        for index: Int,
+        dimension: CustomButtonDimension
+    ) -> Binding<Double> {
+        Binding(
+            get: {
+                let rect = customButtons[index].rect
+                let value = dimension == .width ? rect.width : rect.height
+                return Double(value * 100.0)
+            },
+            set: { newValue in
+                let rect = customButtons[index].rect
+                let maxNormalized = dimension == .width
+                    ? (1.0 - rect.x)
+                    : (1.0 - rect.y)
+                let minNormalized = dimension == .width
+                    ? Self.minCustomButtonSize.width
+                    : Self.minCustomButtonSize.height
+                let upper = max(minNormalized, maxNormalized)
+                let normalized = min(max(newValue / 100.0, minNormalized), upper)
+                var updated = rect
+                if dimension == .width {
+                    updated.width = CGFloat(normalized)
+                } else {
+                    updated.height = CGFloat(normalized)
+                }
+                customButtons[index].rect = updated.clamped(
+                    minWidth: Self.minCustomButtonSize.width,
+                    minHeight: Self.minCustomButtonSize.height
+                )
+            }
+        )
+    }
+
+    private func sizePercentRange(
+        for index: Int,
+        dimension: CustomButtonDimension
+    ) -> ClosedRange<Double> {
+        let rect = customButtons[index].rect
+        let maxNormalized = dimension == .width
+            ? (1.0 - rect.x)
+            : (1.0 - rect.y)
+        let minNormalized = dimension == .width
+            ? Self.minCustomButtonSize.width
+            : Self.minCustomButtonSize.height
+        let upper = max(minNormalized, maxNormalized) * 100.0
+        let lower = minNormalized * 100.0
+        return lower...upper
     }
 
     private func deviceForID(_ deviceID: String) -> OMSDeviceInfo? {
