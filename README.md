@@ -16,6 +16,11 @@ Clicking the indicator light will allow you to view the Config or Quit the progr
 
 <img src="Screenshots/GTK_config.png" alt="GlassToKey" width="900px" />
 
+## Typing Behavior:
+- Tap/Hold (ms): Time in miliseconds until a tap becomds a hold
+- Drag Cancel (px): How far you need to move before top becomes a drag
+- 2-Finger Tap (ms): Time in miliseconds of 2-finger tap detection. [0 = no detection; quickest rollovers]
+
 ## FUTURE
 - Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight
 
