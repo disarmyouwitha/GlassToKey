@@ -48,6 +48,15 @@
 - no notes.
 
 ## TODO
+- Toggle for capturing clicks using CGEventTapCreate
+###
+Implement Click Shield:
+clickShieldWindowMs = 250
+Arm it on any triggerBinding(.key...) and on any modifier down (since those often cause accidental clicks too)
+Swallow only mouseDown/mouseUp while armed
+Expose the window as a slider in settings (150–400ms)
+That will feel “invisible” in use and won’t require heroic device identification.
+###
 - "Auto" set column x,y based on finger splay "4 finger touch"
 ###
 - Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight
