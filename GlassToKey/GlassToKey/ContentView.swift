@@ -53,6 +53,7 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.customButtons) private var storedCustomButtonsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.keyMappings) private var storedKeyMappingsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = 200.0
+    @AppStorage(GlassToKeyDefaultsKeys.twoFingerTapInterval) private var twoFingerTapIntervalMs: Double = 80.0
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = 2.5
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
@@ -65,6 +66,7 @@ struct ContentView: View {
     static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
     private static let dragCancelDistanceRange: ClosedRange<Double> = 0.5...15.0
     private static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
+    private static let twoFingerTapIntervalRange: ClosedRange<Double> = 20.0...250.0
     private static let keyCornerRadius: CGFloat = 6.0
     private static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -100,6 +102,15 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 0
         formatter.minimum = NSNumber(value: ContentView.tapHoldDurationRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.tapHoldDurationRange.upperBound)
+        return formatter
+    }()
+    private static let twoFingerTapIntervalFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.minimum = NSNumber(value: ContentView.twoFingerTapIntervalRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.twoFingerTapIntervalRange.upperBound)
         return formatter
     }()
     private static let dragCancelDistanceFormatter: NumberFormatter = {
@@ -555,6 +566,21 @@ struct ContentView: View {
                                 )
                                 .frame(minWidth: 120)
                             }
+                            GridRow {
+                                Text("2-Finger Tap (ms)")
+                                TextField(
+                                    "80",
+                                    value: $twoFingerTapIntervalMs,
+                                    formatter: Self.twoFingerTapIntervalFormatter
+                                )
+                                .frame(width: 60)
+                                Slider(
+                                    value: $twoFingerTapIntervalMs,
+                                    in: Self.twoFingerTapIntervalRange,
+                                    step: 10
+                                )
+                                .frame(minWidth: 120)
+                            }
                         }
                     }
                     .padding(12)
@@ -620,6 +646,9 @@ struct ContentView: View {
         }
         .onChange(of: tapHoldDurationMs) { newValue in
             viewModel.updateHoldThreshold(newValue / 1000.0)
+        }
+        .onChange(of: twoFingerTapIntervalMs) { newValue in
+            viewModel.updateTwoFingerTapInterval(newValue / 1000.0)
         }
         .onChange(of: dragCancelDistanceSetting) { newValue in
             viewModel.updateDragCancelDistance(CGFloat(newValue))
@@ -1292,6 +1321,7 @@ struct ContentView: View {
             viewModel.selectRightDevice(rightDevice)
         }
         viewModel.updateHoldThreshold(tapHoldDurationMs / 1000.0)
+        viewModel.updateTwoFingerTapInterval(twoFingerTapIntervalMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragCancelDistanceSetting))
     }
 

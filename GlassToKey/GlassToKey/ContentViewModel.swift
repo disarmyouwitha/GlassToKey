@@ -109,6 +109,8 @@ final class ContentViewModel: ObservableObject {
     private var holdMinDuration: TimeInterval = 0.2
     private let modifierActivationDelay: TimeInterval = 0.05
     private var dragCancelDistance: CGFloat = 2.5
+    private var twoFingerTapMaxInterval: TimeInterval = 0.08
+    private var twoFingerTapCandidatesByDevice: [String: TwoFingerTapCandidate] = [:]
     private let repeatInitialDelay: UInt64 = 350_000_000
     private let repeatInterval: UInt64 = 50_000_000
     private let spaceRepeatMultiplier: UInt64 = 2
@@ -315,6 +317,11 @@ final class ContentViewModel: ObservableObject {
         var maxDistanceSquared: CGFloat
     }
 
+    private struct TwoFingerTapCandidate {
+        let touchKey: TouchKey
+        let startTime: Date
+    }
+
     func setPersistentLayer(_ layer: Int) {
         let clamped = max(0, min(layer, 1))
         persistentLayer = clamped
@@ -327,6 +334,10 @@ final class ContentViewModel: ObservableObject {
 
     func updateDragCancelDistance(_ distance: CGFloat) {
         dragCancelDistance = max(0, distance)
+    }
+
+    func updateTwoFingerTapInterval(_ seconds: TimeInterval) {
+        twoFingerTapMaxInterval = max(0, seconds)
     }
 
     func processTouches(
@@ -354,6 +365,23 @@ final class ContentViewModel: ObservableObject {
             labels: labels,
             canvasSize: canvasSize
         )
+        if twoFingerTapMaxInterval > 0, !touches.isEmpty {
+            var touchKeysInFrame = Set<TouchKey>()
+            touchKeysInFrame.reserveCapacity(touches.count)
+            for touch in touches {
+                touchKeysInFrame.insert(TouchKey(deviceID: touch.deviceID, id: touch.id))
+            }
+            let suppressed = collectTwoFingerTapSuppression(
+                in: touches,
+                now: now,
+                activeTouchKeys: touchKeysInFrame
+            )
+            if !suppressed.isEmpty {
+                for touchKey in suppressed {
+                    cancelTwoFingerTapTouch(touchKey)
+                }
+            }
+        }
 
         for touch in touches {
             let point = CGPoint(
@@ -366,6 +394,16 @@ final class ContentViewModel: ObservableObject {
                 touchInitialContactPoint[touchKey] = point
             }
             let bindingAtPoint = binding(at: point, bindings: bindings)
+
+            if disqualifiedTouches.contains(touchKey) {
+                switch touch.state {
+                case .breaking, .leaving, .notTouching:
+                    disqualifiedTouches.remove(touchKey)
+                case .starting, .making, .touching, .hovering, .lingering:
+                    break
+                }
+                continue
+            }
 
             if momentaryLayerTouches[touchKey] != nil {
                 handleMomentaryLayerTouch(
@@ -425,16 +463,6 @@ final class ContentViewModel: ObservableObject {
                 pendingTouches.removeValue(forKey: touchKey)
                 disqualifiedTouches.remove(touchKey)
                 touchInitialContactPoint.removeValue(forKey: touchKey)
-                continue
-            }
-
-            if disqualifiedTouches.contains(touchKey) {
-                switch touch.state {
-                case .breaking, .leaving, .notTouching:
-                    disqualifiedTouches.remove(touchKey)
-                case .starting, .making, .touching, .hovering, .lingering:
-                    break
-                }
                 continue
             }
 
@@ -540,6 +568,10 @@ final class ContentViewModel: ObservableObject {
                     }
                 }
             case .breaking, .leaving:
+                if let candidate = twoFingerTapCandidatesByDevice[touch.deviceID],
+                   candidate.touchKey == touchKey {
+                    twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceID)
+                }
                 touchInitialContactPoint.removeValue(forKey: touchKey)
                 if let pending = pendingTouches.removeValue(forKey: touchKey) {
                     maybeSendPendingContinuousTap(pending, at: point)
@@ -561,6 +593,10 @@ final class ContentViewModel: ObservableObject {
                     endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
                 }
             case .notTouching:
+                if let candidate = twoFingerTapCandidatesByDevice[touch.deviceID],
+                   candidate.touchKey == touchKey {
+                    twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceID)
+                }
                 touchInitialContactPoint.removeValue(forKey: touchKey)
                 if let pending = pendingTouches.removeValue(forKey: touchKey) {
                     maybeSendPendingContinuousTap(pending, at: point)
@@ -579,6 +615,45 @@ final class ContentViewModel: ObservableObject {
             case .hovering, .lingering:
                 break
             }
+        }
+    }
+
+    private func collectTwoFingerTapSuppression(
+        in touches: [OMSTouchData],
+        now: Date,
+        activeTouchKeys: Set<TouchKey>
+    ) -> [TouchKey] {
+        var suppressed: [TouchKey] = []
+        suppressed.reserveCapacity(2)
+        for touch in touches {
+            guard Self.isContactState(touch.state) else { continue }
+            let touchKey = TouchKey(deviceID: touch.deviceID, id: touch.id)
+            guard !disqualifiedTouches.contains(touchKey) else { continue }
+            guard touchInitialContactPoint[touchKey] == nil else { continue }
+            if let candidate = twoFingerTapCandidatesByDevice[touch.deviceID] {
+                if !activeTouchKeys.contains(candidate.touchKey) {
+                    twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceID)
+                } else if now.timeIntervalSince(candidate.startTime) <= twoFingerTapMaxInterval {
+                    suppressed.append(candidate.touchKey)
+                    suppressed.append(touchKey)
+                    twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceID)
+                    continue
+                }
+            }
+            twoFingerTapCandidatesByDevice[touch.deviceID] = TwoFingerTapCandidate(
+                touchKey: touchKey,
+                startTime: now
+            )
+        }
+        return suppressed
+    }
+
+    private func cancelTwoFingerTapTouch(_ touchKey: TouchKey) {
+        disqualifyTouch(touchKey)
+        toggleTouchStarts.removeValue(forKey: touchKey)
+        layerToggleTouchStarts.removeValue(forKey: touchKey)
+        if momentaryLayerTouches.removeValue(forKey: touchKey) != nil {
+            updateActiveLayer()
         }
     }
 
