@@ -25,9 +25,13 @@ struct ContentView: View {
         }
     }
 
+    private struct GridLabel: Equatable {
+        let primary: String
+        let hold: String?
+    }
+
     @StateObject private var viewModel: ContentViewModel
     @State private var testText = ""
-    @State private var displayTouchData = [OMSTouchData]()
     @State private var visualsEnabled = true
     @State private var columnSettings: [ColumnLayoutSettings]
     @State private var leftLayout: ContentViewModel.Layout
@@ -36,10 +40,10 @@ struct ContentView: View {
     @State private var selectedButtonID: UUID?
     @State private var selectedColumn: Int?
     @State private var selectedGridKey: SelectedGridKey?
-    @State private var resizeStartRects: [UUID: NormalizedRect] = [:]
     @State private var keyMappingsByLayer: LayeredKeyMappings = [:]
     @State private var layoutOption: TrackpadLayoutPreset = .sixByThree
-    @State private var lastTouchRevision: UInt64 = 0
+    @State private var leftGridLabelInfo: [[GridLabel]] = []
+    @State private var rightGridLabelInfo: [[GridLabel]] = []
     @AppStorage(GlassToKeyDefaultsKeys.leftDeviceID) private var storedLeftDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.rightDeviceID) private var storedRightDeviceID = ""
     @AppStorage(GlassToKeyDefaultsKeys.visualsEnabled) private var storedVisualsEnabled = true
@@ -55,7 +59,6 @@ struct ContentView: View {
     static let baseKeyWidthMM: CGFloat = 18.0
     static let baseKeyHeightMM: CGFloat = 17.0
     static let minCustomButtonSize = CGSize(width: 0.05, height: 0.05)
-    private static let resizeHandleSize: CGFloat = 10.0
     private static let columnScaleRange: ClosedRange<Double> = ColumnLayoutDefaults.scaleRange
     private static let columnOffsetPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.offsetPercentRange
     static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
@@ -107,7 +110,6 @@ struct ContentView: View {
         formatter.maximum = NSNumber(value: ContentView.dragCancelDistanceRange.upperBound)
         return formatter
     }()
-    private let displayRefreshInterval: TimeInterval = 1.0 / 60.0
     private static let legacyKeyScaleKey = "GlassToKey.keyScale"
     private static let legacyKeyOffsetXKey = "GlassToKey.keyOffsetX"
     private static let legacyKeyOffsetYKey = "GlassToKey.keyOffsetY"
@@ -210,28 +212,21 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Trackpad Deck")
                         .font(.headline)
-                    HStack(alignment: .top, spacing: 16) {
-                        trackpadCanvas(
-                            title: "Left Trackpad",
-                            side: .left,
-                            touches: visualsEnabled ? displayLeftTouches : [],
-                            mirrored: true,
-                            labels: leftGridLabels,
-                            customButtons: customButtons(for: .left),
-                            visualsEnabled: visualsEnabled,
-                            selectedButtonID: selectedButtonID
-                        )
-                        trackpadCanvas(
-                            title: "Right Trackpad",
-                            side: .right,
-                            touches: visualsEnabled ? displayRightTouches : [],
-                            mirrored: false,
-                            labels: rightGridLabels,
-                            customButtons: customButtons(for: .right),
-                            visualsEnabled: visualsEnabled,
-                            selectedButtonID: selectedButtonID
-                        )
-                    }
+                    TrackpadDeckView(
+                        viewModel: viewModel,
+                        trackpadSize: trackpadSize,
+                        leftLayout: leftLayout,
+                        rightLayout: rightLayout,
+                        leftGridLabelInfo: leftGridLabelInfo,
+                        rightGridLabelInfo: rightGridLabelInfo,
+                        leftGridLabels: leftGridLabels,
+                        rightGridLabels: rightGridLabels,
+                        customButtons: customButtons,
+                        visualsEnabled: $visualsEnabled,
+                        selectedButtonID: $selectedButtonID,
+                        selectedColumn: $selectedColumn,
+                        selectedGridKey: $selectedGridKey
+                    )
                     TextEditor(text: $testText)
                         .font(.system(.body, design: .monospaced))
                         .frame(height: 100)
@@ -347,7 +342,7 @@ struct ContentView: View {
                                             showSlider: false
                                         )
                                         ColumnTuningRow(
-                                            title: "Spacing",
+                                            title: "Pad",
                                             value: columnRowSpacingBinding(for: selectedColumn),
                                             formatter: Self.rowSpacingFormatter,
                                             range: Self.rowSpacingPercentRange,
@@ -550,13 +545,6 @@ struct ContentView: View {
         .frame(minWidth: trackpadSize.width * 2 + 520, minHeight: trackpadSize.height + 240)
         .onAppear {
             applySavedSettings()
-            if let snapshot = viewModel.snapshotTouchDataIfUpdated(since: 0) {
-                displayTouchData = snapshot.data
-                lastTouchRevision = snapshot.revision
-            } else {
-                displayTouchData = viewModel.snapshotTouchData()
-                lastTouchRevision = 0
-            }
         }
         .onChange(of: visualsEnabled) { enabled in
             if !enabled {
@@ -565,16 +553,6 @@ struct ContentView: View {
                 selectedGridKey = nil
             }
             saveSettings()
-            if enabled {
-                if let snapshot = viewModel.snapshotTouchDataIfUpdated(since: 0) {
-                    displayTouchData = snapshot.data
-                    lastTouchRevision = snapshot.revision
-                } else {
-                    displayTouchData = viewModel.snapshotTouchData()
-                }
-            } else {
-                displayTouchData = []
-            }
         }
         .onChange(of: columnSettings) { newValue in
             applyColumnSettings(newValue)
@@ -588,10 +566,12 @@ struct ContentView: View {
             selectedButtonID = nil
             selectedColumn = nil
             selectedGridKey = nil
+            updateGridLabelInfo()
         }
         .onChange(of: keyMappingsByLayer) { newValue in
             viewModel.updateKeyMappings(newValue)
             saveKeyMappings(newValue)
+            updateGridLabelInfo()
         }
         .onChange(of: tapHoldDurationMs) { newValue in
             viewModel.updateHoldThreshold(newValue / 1000.0)
@@ -599,90 +579,431 @@ struct ContentView: View {
         .onChange(of: dragCancelDistanceSetting) { newValue in
             viewModel.updateDragCancelDistance(CGFloat(newValue))
         }
-        .task(id: visualsEnabled) {
-            guard visualsEnabled else { return }
-            for await _ in Timer.publish(
-                every: displayRefreshInterval,
-                on: .main,
-                in: .common
-            )
-            .autoconnect()
-            .values {
-                if let snapshot = viewModel.snapshotTouchDataIfUpdated(since: lastTouchRevision) {
-                    displayTouchData = snapshot.data
-                    lastTouchRevision = snapshot.revision
+    }
+
+    private struct TrackpadDeckView: View {
+        @ObservedObject var viewModel: ContentViewModel
+        let trackpadSize: CGSize
+        let leftLayout: ContentViewModel.Layout
+        let rightLayout: ContentViewModel.Layout
+        let leftGridLabelInfo: [[GridLabel]]
+        let rightGridLabelInfo: [[GridLabel]]
+        let leftGridLabels: [[String]]
+        let rightGridLabels: [[String]]
+        let customButtons: [CustomButton]
+        @Binding var visualsEnabled: Bool
+        @Binding var selectedButtonID: UUID?
+        @Binding var selectedColumn: Int?
+        @Binding var selectedGridKey: SelectedGridKey?
+        @State private var displayTouchData = [OMSTouchData]()
+        @State private var lastTouchRevision: UInt64 = 0
+        private let displayRefreshInterval: TimeInterval = 1.0 / 60.0
+
+        var body: some View {
+            HStack(alignment: .top, spacing: 16) {
+                trackpadCanvas(
+                    title: "Left Trackpad",
+                    side: .left,
+                    touches: visualsEnabled ? displayLeftTouches : [],
+                    mirrored: true,
+                    labelInfo: leftGridLabelInfo,
+                    labels: leftGridLabels,
+                    customButtons: customButtons(for: .left),
+                    visualsEnabled: visualsEnabled,
+                    selectedButtonID: selectedButtonID
+                )
+                trackpadCanvas(
+                    title: "Right Trackpad",
+                    side: .right,
+                    touches: visualsEnabled ? displayRightTouches : [],
+                    mirrored: false,
+                    labelInfo: rightGridLabelInfo,
+                    labels: rightGridLabels,
+                    customButtons: customButtons(for: .right),
+                    visualsEnabled: visualsEnabled,
+                    selectedButtonID: selectedButtonID
+                )
+            }
+            .onAppear {
+                refreshTouchSnapshot(resetRevision: true)
+            }
+            .onChange(of: visualsEnabled) { enabled in
+                if enabled {
+                    refreshTouchSnapshot(resetRevision: true)
+                } else {
+                    displayTouchData = []
+                }
+            }
+            .task(id: visualsEnabled) {
+                guard visualsEnabled else { return }
+                for await _ in Timer.publish(
+                    every: displayRefreshInterval,
+                    on: .main,
+                    in: .common
+                )
+                .autoconnect()
+                .values {
+                    refreshTouchSnapshot(resetRevision: false)
                 }
             }
         }
-    }
 
-    private func trackpadCanvas(
-        title: String,
-        side: TrackpadSide,
-        touches: [OMSTouchData],
-        mirrored: Bool,
-        labels: [[String]],
-        customButtons: [CustomButton],
-        visualsEnabled: Bool,
-        selectedButtonID: UUID?
-    ) -> some View {
-        let labelProvider = labelInfoProvider(for: labels, side: side)
-        return VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.subheadline)
-            Group {
-                if visualsEnabled || selectedButtonID != nil {
-                    Canvas { context, _ in
+        private func refreshTouchSnapshot(resetRevision: Bool) {
+            let sinceRevision: UInt64 = resetRevision ? 0 : lastTouchRevision
+            if let snapshot = viewModel.snapshotTouchDataIfUpdated(since: sinceRevision) {
+                displayTouchData = snapshot.data
+                lastTouchRevision = snapshot.revision
+            } else if resetRevision {
+                displayTouchData = viewModel.snapshotTouchData()
+            }
+        }
+
+        private var displayLeftTouches: [OMSTouchData] {
+            touches(for: viewModel.leftDevice, in: displayTouchData)
+        }
+
+        private var displayRightTouches: [OMSTouchData] {
+            touches(for: viewModel.rightDevice, in: displayTouchData)
+        }
+
+        private func customButtons(for side: TrackpadSide) -> [CustomButton] {
+            customButtons.filter { $0.side == side && $0.layer == viewModel.activeLayer }
+        }
+
+        private func touches(
+            for device: OMSDeviceInfo?,
+            in touches: [OMSTouchData]
+        ) -> [OMSTouchData] {
+            guard let deviceID = device?.deviceID else { return [] }
+            return touches.filter { $0.deviceID == deviceID }
+        }
+
+        private func trackpadCanvas(
+            title: String,
+            side: TrackpadSide,
+            touches: [OMSTouchData],
+            mirrored: Bool,
+            labelInfo: [[GridLabel]],
+            labels: [[String]],
+            customButtons: [CustomButton],
+            visualsEnabled: Bool,
+            selectedButtonID: UUID?
+        ) -> some View {
+            return VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.subheadline)
+                Group {
+                    if visualsEnabled || selectedButtonID != nil {
                         let layout = mirrored ? leftLayout : rightLayout
-                        drawSensorGrid(context: &context, size: trackpadSize, columns: 30, rows: 22)
                         let selectedKeyForCanvas = selectedGridKey?.side == side ? selectedGridKey : nil
-                        drawKeyGrid(
-                            context: &context,
-                            keyRects: layout.keyRects,
-                            selectedColumn: selectedColumn,
-                            selectedKey: selectedKeyForCanvas
-                        )
-                        drawCustomButtons(
-                            context: &context,
+                        ZStack {
+                            TrackpadBaseLayer(
+                                keyRects: layout.keyRects,
+                                labelInfo: labelInfo,
+                                customButtons: customButtons,
+                                trackpadSize: trackpadSize
+                            )
+                            .equatable()
+                            TrackpadSelectionLayer(
+                                keyRects: layout.keyRects,
+                                selectedColumn: selectedColumn,
+                                selectedKey: selectedKeyForCanvas
+                            )
+                            .equatable()
+                            if visualsEnabled {
+                                TrackpadTouchLayer(
+                                    revision: lastTouchRevision,
+                                    touches: touches,
+                                    trackpadSize: trackpadSize
+                                )
+                            }
+                        }
+                    } else {
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
+                    }
+                }
+                .frame(width: trackpadSize.width, height: trackpadSize.height)
+                .border(Color.primary)
+                .overlay {
+                    if visualsEnabled || selectedButtonID != nil {
+                        let layout = mirrored ? leftLayout : rightLayout
+                        customButtonsOverlay(
+                            side: side,
+                            layout: layout,
                             buttons: customButtons,
-                            selectedButtonID: selectedButtonID
+                            selectedButtonID: $selectedButtonID,
+                            selectedColumn: $selectedColumn,
+                            selectedGridKey: $selectedGridKey,
+                            gridLabels: labels
                         )
-                        drawGridLabels(
-                            context: &context,
-                            keyRects: layout.keyRects,
-                            labels: labels,
-                            labelProvider: labelProvider
+                    }
+                }
+            }
+        }
+
+        private func customButtonsOverlay(
+            side: TrackpadSide,
+            layout: ContentViewModel.Layout,
+            buttons: [CustomButton],
+            selectedButtonID: Binding<UUID?>,
+            selectedColumn: Binding<Int?>,
+            selectedGridKey: Binding<SelectedGridKey?>,
+            gridLabels: [[String]]
+        ) -> some View {
+            ZStack(alignment: .topLeading) {
+                let columnRects = columnRects(for: layout.keyRects, trackpadSize: trackpadSize)
+                let selectGesture = DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                    .onEnded { value in
+                        viewModel.clearTouchState()
+                        let point = value.location
+                        if let matched = buttons.last(where: { button in
+                            button.rect.rect(in: trackpadSize).contains(point)
+                        }) {
+                            selectedButtonID.wrappedValue = matched.id
+                            selectedColumn.wrappedValue = nil
+                            selectedGridKey.wrappedValue = nil
+                            return
+                        }
+                        selectedButtonID.wrappedValue = nil
+                        if let key = gridKey(at: point, keyRects: layout.keyRects, labels: gridLabels, side: side) {
+                            selectedGridKey.wrappedValue = key
+                            selectedColumn.wrappedValue = key.column
+                            return
+                        }
+                        selectedGridKey.wrappedValue = nil
+                        let resolvedColumnIndex = columnIndex(for: point, columnRects: columnRects)
+                        #if DEBUG
+                        logColumnSelection(
+                            point: point,
+                            columnRects: columnRects,
+                            resolvedIndex: resolvedColumnIndex
                         )
-                        touches.forEach { touch in
-                            let path = makeEllipse(touch: touch, size: trackpadSize)
-                            context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
+                        #endif
+                        if let columnIndex = resolvedColumnIndex {
+                            selectedColumn.wrappedValue = columnIndex
+                        } else {
+                            selectedColumn.wrappedValue = nil
                         }
                     }
-                } else {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
+                Color.clear
+                    .frame(width: trackpadSize.width, height: trackpadSize.height)
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(selectGesture)
+                ForEach(buttons) { button in
+                    let rect = button.rect.rect(in: trackpadSize)
+                    let isSelected = button.id == selectedButtonID.wrappedValue
+
+                    let baseButton = RoundedRectangle(cornerRadius: ContentView.keyCornerRadius)
+                        .stroke(
+                            isSelected ? Color.accentColor.opacity(0.9) : Color.clear,
+                            lineWidth: 1.5
+                        )
+                        .background(
+                            RoundedRectangle(cornerRadius: ContentView.keyCornerRadius)
+                                .fill(Color.accentColor.opacity(isSelected ? 0.08 : 0.02))
+                        )
+                        .frame(width: rect.width, height: rect.height)
+                        .offset(x: rect.minX, y: rect.minY)
+                        .contentShape(Rectangle())
+                        .allowsHitTesting(false)
+
+                    baseButton
+                    if isSelected {
+                        VStack(spacing: 2) {
+                            Text(button.action.label)
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                            if let holdLabel = button.hold?.label {
+                                Text(holdLabel)
+                                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(.secondary.opacity(0.7))
+                            }
+                        }
+                        .frame(width: rect.width, height: rect.height)
+                        .offset(x: rect.minX, y: rect.minY)
+                        .allowsHitTesting(false)
+                    }
                 }
             }
-            .frame(width: trackpadSize.width, height: trackpadSize.height)
-            .border(Color.primary)
-            .overlay {
-                if visualsEnabled || selectedButtonID != nil {
-                    let layout = mirrored ? leftLayout : rightLayout
-                    customButtonsOverlay(
-                        side: side,
-                        layout: layout,
-                        buttons: customButtons,
-                        selectedButtonID: $selectedButtonID,
-                        selectedColumn: $selectedColumn,
-                        selectedGridKey: $selectedGridKey,
-                        gridLabels: labels
-                    )
+        }
+
+        private func columnRects(
+            for keyRects: [[CGRect]],
+            trackpadSize: CGSize
+        ) -> [CGRect] {
+            guard let columnCount = keyRects.first?.count else { return [] }
+            var rects = Array(repeating: CGRect.null, count: columnCount)
+            for row in 0..<keyRects.count {
+                for col in 0..<columnCount {
+                    let rect = keyRects[row][col]
+                    rects[col] = rects[col].union(rect)
+                }
+            }
+
+            let width = trackpadSize.width
+            let height = trackpadSize.height
+            let sortedIndices = rects.enumerated()
+                .sorted { lhs, rhs in
+                    let lhsMid = lhs.element.isNull ? 0 : lhs.element.midX
+                    let rhsMid = rhs.element.isNull ? 0 : rhs.element.midX
+                    return lhsMid < rhsMid
+                }
+                .map(\.offset)
+
+            var boundaries = Array(repeating: CGFloat.zero, count: columnCount + 1)
+            boundaries[0] = 0
+
+            for physicalIndex in 0..<max(0, sortedIndices.count - 1) {
+                let current = rects[sortedIndices[physicalIndex]]
+                let next = rects[sortedIndices[physicalIndex + 1]]
+                let currentMid = current.isNull ? 0 : current.midX
+                let nextMid = next.isNull ? width : next.midX
+                boundaries[physicalIndex + 1] = (currentMid + nextMid) / 2.0
+            }
+
+            boundaries[columnCount] = width
+
+            let columnHeight = height
+            var expandedRects = rects
+            for physicalIndex in 0..<sortedIndices.count {
+                let colIndex = sortedIndices[physicalIndex]
+                let left = boundaries[physicalIndex]
+                let right = boundaries[physicalIndex + 1]
+                expandedRects[colIndex] = CGRect(
+                    x: left,
+                    y: 0,
+                    width: max(0, right - left),
+                    height: columnHeight
+                )
+            }
+
+            return expandedRects
+        }
+
+        private func gridKey(
+            at point: CGPoint,
+            keyRects: [[CGRect]],
+            labels: [[String]],
+            side: TrackpadSide
+        ) -> SelectedGridKey? {
+            for rowIndex in 0..<keyRects.count {
+                guard rowIndex < labels.count else { continue }
+                for colIndex in 0..<keyRects[rowIndex].count {
+                    guard colIndex < labels[rowIndex].count else { continue }
+                    let rect = keyRects[rowIndex][colIndex]
+                    if rect.contains(point) {
+                        return SelectedGridKey(
+                            row: rowIndex,
+                            column: colIndex,
+                            label: labels[rowIndex][colIndex],
+                            side: side
+                        )
+                    }
+                }
+            }
+            return nil
+        }
+
+        private func columnIndex(
+            for point: CGPoint,
+            columnRects: [CGRect]
+        ) -> Int? {
+            if let index = columnRects.firstIndex(where: { $0.contains(point) }) {
+                return index
+            }
+            let columnCount = columnRects.count
+            guard trackpadSize.width > 0, columnCount > 0 else { return nil }
+            let normalizedX = min(max(point.x / trackpadSize.width, 0), 1)
+            var index = Int(normalizedX * CGFloat(columnCount))
+            if index == columnCount {
+                index = columnCount - 1
+            }
+            return index
+        }
+
+        private func logColumnSelection(
+            point: CGPoint,
+            columnRects: [CGRect],
+            resolvedIndex: Int?
+        ) {
+            #if DEBUG
+            var debugInfo = "Point: \(point)"
+            if let resolvedIndex {
+                debugInfo += " resolvedIndex=\(resolvedIndex)"
+            }
+            debugInfo += " columnRects="
+            let rectStrings = columnRects.enumerated().map { index, rect in
+                "\(index):\(rect)"
+            }
+            debugInfo += rectStrings.joined(separator: ",")
+            print(debugInfo)
+            #endif
+        }
+    }
+
+    private struct TrackpadBaseLayer: View, Equatable {
+        let keyRects: [[CGRect]]
+        let labelInfo: [[GridLabel]]
+        let customButtons: [CustomButton]
+        let trackpadSize: CGSize
+
+        var body: some View {
+            Canvas { context, _ in
+                ContentView.drawSensorGrid(
+                    context: &context,
+                    size: trackpadSize,
+                    columns: 30,
+                    rows: 22
+                )
+                ContentView.drawKeyGrid(context: &context, keyRects: keyRects)
+                ContentView.drawCustomButtons(
+                    context: &context,
+                    buttons: customButtons,
+                    trackpadSize: trackpadSize
+                )
+                ContentView.drawGridLabels(
+                    context: &context,
+                    keyRects: keyRects,
+                    labelInfo: labelInfo
+                )
+            }
+        }
+    }
+
+    private struct TrackpadSelectionLayer: View, Equatable {
+        let keyRects: [[CGRect]]
+        let selectedColumn: Int?
+        let selectedKey: SelectedGridKey?
+
+        var body: some View {
+            Canvas { context, _ in
+                ContentView.drawKeySelection(
+                    context: &context,
+                    keyRects: keyRects,
+                    selectedColumn: selectedColumn,
+                    selectedKey: selectedKey
+                )
+            }
+        }
+    }
+
+    private struct TrackpadTouchLayer: View {
+        let revision: UInt64
+        let touches: [OMSTouchData]
+        let trackpadSize: CGSize
+
+        var body: some View {
+            Canvas { context, _ in
+                touches.forEach { touch in
+                    let path = ContentView.makeEllipse(touch: touch, size: trackpadSize)
+                    context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
                 }
             }
         }
     }
 
-    private func makeEllipse(touch: OMSTouchData, size: CGSize) -> Path {
+    private static func makeEllipse(touch: OMSTouchData, size: CGSize) -> Path {
         let x = Double(touch.position.x) * size.width
         let y = Double(1.0 - touch.position.y) * size.height
         let u = size.width / 100.0
@@ -854,6 +1175,7 @@ struct ContentView: View {
         selectedGridKey = nil
         selectedButtonID = nil
         columnSettings = columnSettings(for: newLayout)
+        updateGridLabelInfo()
         applyColumnSettings(columnSettings)
         saveSettings()
     }
@@ -915,6 +1237,7 @@ struct ContentView: View {
         columnSettings = columnSettings(for: resolvedLayout)
         loadCustomButtons()
         loadKeyMappings()
+        updateGridLabelInfo()
         applyColumnSettings(columnSettings)
         if let leftDevice = deviceForID(storedLeftDeviceID) {
             viewModel.selectLeftDevice(leftDevice)
@@ -1080,131 +1403,6 @@ struct ContentView: View {
             minWidth: Self.minCustomButtonSize.width,
             minHeight: Self.minCustomButtonSize.height
         )
-    }
-
-    private func customButtonsOverlay(
-        side: TrackpadSide,
-        layout: ContentViewModel.Layout,
-        buttons: [CustomButton],
-        selectedButtonID: Binding<UUID?>,
-        selectedColumn: Binding<Int?>,
-        selectedGridKey: Binding<SelectedGridKey?>,
-        gridLabels: [[String]]
-    ) -> some View {
-        ZStack(alignment: .topLeading) {
-            let columnRects = columnRects(for: layout.keyRects, trackpadSize: trackpadSize)
-            let selectGesture = DragGesture(minimumDistance: 0, coordinateSpace: .local)
-                .onEnded { value in
-                    viewModel.clearTouchState()
-                    let point = value.location
-                    if let matched = buttons.last(where: { button in
-                        button.rect.rect(in: trackpadSize).contains(point)
-                    }) {
-                        selectedButtonID.wrappedValue = matched.id
-                        selectedColumn.wrappedValue = nil
-                        selectedGridKey.wrappedValue = nil
-                        return
-                    }
-                    selectedButtonID.wrappedValue = nil
-                    if let key = gridKey(at: point, keyRects: layout.keyRects, labels: gridLabels, side: side) {
-                        selectedGridKey.wrappedValue = key
-                        selectedColumn.wrappedValue = key.column
-                        return
-                    }
-                    selectedGridKey.wrappedValue = nil
-                    let resolvedColumnIndex = columnIndex(for: point, columnRects: columnRects)
-                    #if DEBUG
-                    logColumnSelection(
-                        point: point,
-                        columnRects: columnRects,
-                        resolvedIndex: resolvedColumnIndex
-                    )
-                    #endif
-                    if let columnIndex = resolvedColumnIndex {
-                        selectedColumn.wrappedValue = columnIndex
-                    } else {
-                        selectedColumn.wrappedValue = nil
-                    }
-                }
-            Color.clear
-                .frame(width: trackpadSize.width, height: trackpadSize.height)
-                .contentShape(Rectangle())
-                .simultaneousGesture(selectGesture)
-            ForEach(buttons) { button in
-                let rect = button.rect.rect(in: trackpadSize)
-                let isSelected = button.id == selectedButtonID.wrappedValue
-
-                let baseButton = RoundedRectangle(cornerRadius: Self.keyCornerRadius)
-                    .stroke(
-                        isSelected ? Color.accentColor.opacity(0.9) : Color.clear,
-                        lineWidth: 1.5
-                    )
-                    .background(
-                        RoundedRectangle(cornerRadius: Self.keyCornerRadius)
-                            .fill(Color.accentColor.opacity(isSelected ? 0.08 : 0.02))
-                    )
-                    .frame(width: rect.width, height: rect.height)
-                    .offset(x: rect.minX, y: rect.minY)
-                    .contentShape(Rectangle())
-                    .allowsHitTesting(false)
-
-                baseButton
-                if isSelected {
-                    VStack(spacing: 2) {
-                        Text(button.action.label)
-                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                        if let holdLabel = button.hold?.label {
-                            Text(holdLabel)
-                                .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(.secondary.opacity(0.7))
-                        }
-                    }
-                    .frame(width: rect.width, height: rect.height)
-                    .offset(x: rect.minX, y: rect.minY)
-                    .allowsHitTesting(false)
-                    Circle()
-                        .fill(Color.accentColor)
-                        .frame(
-                            width: Self.resizeHandleSize,
-                            height: Self.resizeHandleSize
-                        )
-                        .offset(
-                            x: rect.maxX - Self.resizeHandleSize / 2.0,
-                            y: rect.maxY - Self.resizeHandleSize / 2.0
-                        )
-                        .gesture(
-                            DragGesture()
-                                .onChanged { value in
-                                    let start = resizeStartRects[button.id] ?? button.rect
-                                    resizeStartRects[button.id] = start
-                                    let dw = value.translation.width / trackpadSize.width
-                                    let dh = value.translation.height / trackpadSize.height
-                                    let maxWidth = 1.0 - start.x
-                                    let maxHeight = 1.0 - start.y
-                                    let width = min(
-                                        maxWidth,
-                                        max(Self.minCustomButtonSize.width, start.width + dw)
-                                    )
-                                    let height = min(
-                                        maxHeight,
-                                        max(Self.minCustomButtonSize.height, start.height + dh)
-                                    )
-                                    let updated = NormalizedRect(
-                                        x: start.x,
-                                        y: start.y,
-                                        width: width,
-                                        height: height
-                                    )
-                                    updateCustomButton(id: button.id) { $0.rect = updated }
-                                }
-                                .onEnded { _ in
-                                    resizeStartRects.removeValue(forKey: button.id)
-                                }
-                        )
-                }
-            }
-        }
     }
 
     private enum ColumnAxis {
@@ -1398,7 +1596,7 @@ struct ContentView: View {
         return viewModel.availableDevices.first { $0.deviceID == deviceID }
     }
 
-    private func drawSensorGrid(
+    private static func drawSensorGrid(
         context: inout GraphicsContext,
         size: CGSize,
         columns: Int,
@@ -1430,7 +1628,19 @@ struct ContentView: View {
         }
     }
 
-    private func drawKeyGrid(
+    private static func drawKeyGrid(
+        context: inout GraphicsContext,
+        keyRects: [[CGRect]]
+    ) {
+        for row in keyRects {
+            for rect in row {
+                let keyPath = Path(roundedRect: rect, cornerRadius: Self.keyCornerRadius)
+                context.stroke(keyPath, with: .color(.secondary.opacity(0.6)), lineWidth: 1)
+            }
+        }
+    }
+
+    private static func drawKeySelection(
         context: inout GraphicsContext,
         keyRects: [[CGRect]],
         selectedColumn: Int?,
@@ -1442,29 +1652,6 @@ struct ContentView: View {
                 let rect = row[selectedColumn]
                 let keyPath = Path(roundedRect: rect, cornerRadius: Self.keyCornerRadius)
                 context.fill(keyPath, with: .color(Color.accentColor.opacity(0.12)))
-            }
-        }
-
-        if let key = selectedKey,
-           keyRects.indices.contains(key.row),
-           keyRects[key.row].indices.contains(key.column) {
-            let rect = keyRects[key.row][key.column]
-            let keyPath = Path(roundedRect: rect, cornerRadius: Self.keyCornerRadius)
-            context.fill(keyPath, with: .color(Color.accentColor.opacity(0.18)))
-        }
-
-        for row in keyRects {
-            for rect in row {
-                let keyPath = Path(roundedRect: rect, cornerRadius: Self.keyCornerRadius)
-                context.stroke(keyPath, with: .color(.secondary.opacity(0.6)), lineWidth: 1)
-            }
-        }
-
-        if let selectedColumn,
-           keyRects.first?.indices.contains(selectedColumn) == true {
-            for row in keyRects {
-                let rect = row[selectedColumn]
-                let keyPath = Path(roundedRect: rect, cornerRadius: Self.keyCornerRadius)
                 context.stroke(keyPath, with: .color(Color.accentColor.opacity(0.8)), lineWidth: 1.5)
             }
         }
@@ -1474,14 +1661,15 @@ struct ContentView: View {
            keyRects[key.row].indices.contains(key.column) {
             let rect = keyRects[key.row][key.column]
             let keyPath = Path(roundedRect: rect, cornerRadius: Self.keyCornerRadius)
+            context.fill(keyPath, with: .color(Color.accentColor.opacity(0.18)))
             context.stroke(keyPath, with: .color(Color.accentColor.opacity(0.9)), lineWidth: 1.5)
         }
     }
 
-    private func drawCustomButtons(
+    private static func drawCustomButtons(
         context: inout GraphicsContext,
         buttons: [CustomButton],
-        selectedButtonID: UUID?
+        trackpadSize: CGSize
     ) {
         let primaryStyle = Font.system(size: 10, weight: .semibold, design: .monospaced)
         let holdStyle = Font.system(size: 8, weight: .semibold, design: .monospaced)
@@ -1491,103 +1679,48 @@ struct ContentView: View {
             context.fill(buttonPath, with: .color(Color.blue.opacity(0.12)))
             context.stroke(buttonPath, with: .color(.secondary.opacity(0.6)), lineWidth: 1)
             let center = CGPoint(x: rect.midX, y: rect.midY)
-            if button.id != selectedButtonID {
-                let primaryText = Text(button.action.displayText)
-                    .font(primaryStyle)
-                    .foregroundColor(.secondary)
-                let primaryY = center.y - (button.hold != nil ? 4 : 0)
-                context.draw(primaryText, at: CGPoint(x: center.x, y: primaryY))
-                if let holdLabel = button.hold?.label {
-                    let holdText = Text(holdLabel)
-                        .font(holdStyle)
-                        .foregroundColor(.secondary.opacity(0.7))
-                    context.draw(holdText, at: CGPoint(x: center.x, y: center.y + 6))
-                }
+            let primaryText = Text(button.action.displayText)
+                .font(primaryStyle)
+                .foregroundColor(.secondary)
+            let primaryY = center.y - (button.hold != nil ? 4 : 0)
+            context.draw(primaryText, at: CGPoint(x: center.x, y: primaryY))
+            if let holdLabel = button.hold?.label {
+                let holdText = Text(holdLabel)
+                    .font(holdStyle)
+                    .foregroundColor(.secondary.opacity(0.7))
+                context.draw(holdText, at: CGPoint(x: center.x, y: center.y + 6))
             }
         }
-    }
-
-    private func columnRects(
-        for keyRects: [[CGRect]],
-        trackpadSize: CGSize
-    ) -> [CGRect] {
-        guard let columnCount = keyRects.first?.count else { return [] }
-
-        var rects = Array(repeating: CGRect.null, count: columnCount)
-        for row in keyRects {
-            for col in 0..<columnCount {
-                let rect = row[col]
-                rects[col] = rects[col].isNull ? rect : rects[col].union(rect)
-            }
-        }
-
-        let width = trackpadSize.width
-        let height = trackpadSize.height
-        let sortedIndices = rects.enumerated()
-            .sorted { lhs, rhs in
-                let lhsMid = lhs.element.isNull ? 0 : lhs.element.midX
-                let rhsMid = rhs.element.isNull ? 0 : rhs.element.midX
-                return lhsMid < rhsMid
-            }
-            .map(\.offset)
-
-        var boundaries = Array(repeating: CGFloat.zero, count: columnCount + 1)
-        boundaries[0] = 0
-
-        for physicalIndex in 0..<max(0, sortedIndices.count - 1) {
-            let current = rects[sortedIndices[physicalIndex]]
-            let next = rects[sortedIndices[physicalIndex + 1]]
-            let currentMid = current.isNull ? 0 : current.midX
-            let nextMid = next.isNull ? width : next.midX
-            boundaries[physicalIndex + 1] = (currentMid + nextMid) / 2.0
-        }
-
-        boundaries[columnCount] = width
-
-        let columnHeight = height
-        var expandedRects = rects
-        for physicalIndex in 0..<sortedIndices.count {
-            let colIndex = sortedIndices[physicalIndex]
-            let left = boundaries[physicalIndex]
-            let right = boundaries[physicalIndex + 1]
-            expandedRects[colIndex] = CGRect(
-                x: left,
-                y: 0,
-                width: max(0, right - left),
-                height: columnHeight
-            )
-        }
-
-        return expandedRects
-    }
-
-    private func gridKey(
-        at point: CGPoint,
-        keyRects: [[CGRect]],
-        labels: [[String]],
-        side: TrackpadSide
-    ) -> SelectedGridKey? {
-        for rowIndex in 0..<keyRects.count {
-            guard rowIndex < labels.count else { continue }
-            for colIndex in 0..<keyRects[rowIndex].count {
-                guard colIndex < labels[rowIndex].count else { continue }
-                let rect = keyRects[rowIndex][colIndex]
-                if rect.contains(point) {
-                    return SelectedGridKey(
-                        row: rowIndex,
-                        column: colIndex,
-                        label: labels[rowIndex][colIndex],
-                        side: side
-                    )
-                }
-            }
-        }
-        return nil
     }
 
     private func labelInfo(for key: SelectedGridKey) -> (primary: String, hold: String?) {
         let mapping = effectiveKeyMapping(for: key)
         return (primary: mapping.primary.displayText, hold: mapping.hold?.label)
+    }
+
+    private func updateGridLabelInfo() {
+        leftGridLabelInfo = gridLabelInfo(for: leftGridLabels, side: .left)
+        rightGridLabelInfo = gridLabelInfo(for: rightGridLabels, side: .right)
+    }
+
+    private func gridLabelInfo(
+        for labels: [[String]],
+        side: TrackpadSide
+    ) -> [[GridLabel]] {
+        var output = labels.map { Array(repeating: GridLabel(primary: "", hold: nil), count: $0.count) }
+        for row in 0..<labels.count {
+            for col in 0..<labels[row].count {
+                let key = SelectedGridKey(
+                    row: row,
+                    column: col,
+                    label: labels[row][col],
+                    side: side
+                )
+                let info = labelInfo(for: key)
+                output[row][col] = GridLabel(primary: info.primary, hold: info.hold)
+            }
+        }
+        return output
     }
 
     private func pickerLabel(for action: KeyAction) -> some View {
@@ -1637,20 +1770,6 @@ struct ContentView: View {
         return KeyMapping(primary: primary, hold: KeyActionCatalog.holdAction(for: label))
     }
 
-    private func labelInfoProvider(
-        for labels: [[String]],
-        side: TrackpadSide
-    ) -> (Int, Int) -> (primary: String, hold: String?) {
-        { row, col in
-            guard row < labels.count,
-                  col < labels[row].count else {
-                return (primary: "", hold: nil)
-            }
-            let key = SelectedGridKey(row: row, column: col, label: labels[row][col], side: side)
-            return labelInfo(for: key)
-        }
-    }
-
     private func keyActionBinding(for key: SelectedGridKey) -> Binding<KeyAction> {
         Binding(
             get: {
@@ -1673,62 +1792,25 @@ struct ContentView: View {
         )
     }
 
-    private func columnIndex(
-        for point: CGPoint,
-        columnRects: [CGRect]
-    ) -> Int? {
-        if let index = columnRects.firstIndex(where: { $0.contains(point) }) {
-            return index
-        }
-        let columnCount = columnRects.count
-        guard trackpadSize.width > 0, columnCount > 0 else { return nil }
-        let normalizedX = min(max(point.x / trackpadSize.width, 0.0), 1.0)
-        var index = Int(normalizedX * CGFloat(columnCount))
-        if index == columnCount {
-            index = columnCount - 1
-        }
-        return index
-    }
-
-    #if DEBUG
-    private func logColumnSelection(
-        point: CGPoint,
-        columnRects: [CGRect],
-        resolvedIndex: Int?
-    ) {
-        guard trackpadSize.width > 0, trackpadSize.height > 0 else { return }
-        let normalizedX = min(max(point.x / trackpadSize.width, 0.0), 1.0)
-        let normalizedY = min(max(point.y / trackpadSize.height, 0.0), 1.0)
-        let containsIndex = columnRects.enumerated().first(where: { $0.element.contains(point) })?.offset
-        let method = containsIndex == nil ? "fallback" : "rect"
-        let formattedPointX = String(format: "%.1f", point.x)
-        let formattedPointY = String(format: "%.1f", point.y)
-        let formattedNormX = String(format: "%.2f", normalizedX)
-        let formattedNormY = String(format: "%.2f", normalizedY)
-        print("[ColumnSelection] point=(\(formattedPointX),\(formattedPointY)) norm=(\(formattedNormX),\(formattedNormY)) method=\(method) rectIndex=\(containsIndex.map(String.init) ?? "none") resolved=\(resolvedIndex.map(String.init) ?? "nil")")
-    }
-    #endif
-
-    private func drawGridLabels(
+    private static func drawGridLabels(
         context: inout GraphicsContext,
         keyRects: [[CGRect]],
-        labels: [[String]],
-        labelProvider: (Int, Int) -> (primary: String, hold: String?)
+        labelInfo: [[GridLabel]]
     ) {
         let textStyle = Font.system(size: 10, weight: .semibold, design: .monospaced)
 
         for row in 0..<keyRects.count {
             for col in 0..<keyRects[row].count {
-                guard row < labels.count,
-                      col < labels[row].count else { continue }
+                guard row < labelInfo.count,
+                      col < labelInfo[row].count else { continue }
                 let rect = keyRects[row][col]
                 let center = CGPoint(x: rect.midX, y: rect.midY)
-                let provided = labelProvider(row, col)
-                let primaryText = Text(provided.primary)
+                let info = labelInfo[row][col]
+                let primaryText = Text(info.primary)
                     .font(textStyle)
                     .foregroundColor(.secondary)
                 context.draw(primaryText, at: CGPoint(x: center.x, y: center.y - 4))
-                if let holdLabel = provided.hold {
+                if let holdLabel = info.hold {
                     let holdText = Text(holdLabel)
                         .font(.system(size: 8, weight: .semibold, design: .monospaced))
                         .foregroundColor(.secondary.opacity(0.7))
@@ -1736,26 +1818,6 @@ struct ContentView: View {
                 }
             }
         }
-    }
-
-    private var displayLeftTouches: [OMSTouchData] {
-        touches(for: viewModel.leftDevice, in: displayTouchData)
-    }
-
-    private var displayRightTouches: [OMSTouchData] {
-        touches(for: viewModel.rightDevice, in: displayTouchData)
-    }
-
-    private func customButtons(for side: TrackpadSide) -> [CustomButton] {
-        customButtons.filter { $0.side == side && $0.layer == viewModel.activeLayer }
-    }
-
-    private func touches(
-        for device: OMSDeviceInfo?,
-        in touches: [OMSTouchData]
-    ) -> [OMSTouchData] {
-        guard let deviceID = device?.deviceID else { return [] }
-        return touches.filter { $0.deviceID == deviceID }
     }
 
     private var layerToggleBinding: Binding<Bool> {
