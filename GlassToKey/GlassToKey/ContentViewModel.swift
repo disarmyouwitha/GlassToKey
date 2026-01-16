@@ -102,7 +102,6 @@ final class ContentViewModel: ObservableObject {
     private var repeatTasks: [TouchKey: Task<Void, Never>] = [:]
     private var repeatTokens: [TouchKey: RepeatToken] = [:]
     private var toggleTouchStarts: [TouchKey: Date] = [:]
-    private var toggleTouchRects: [TouchKey: CGRect] = [:]
     private var layerToggleTouchStarts: [TouchKey: Int] = [:]
     private var momentaryLayerTouches: [TouchKey: Int] = [:]
     private var touchInitialContactPoint: [TouchKey: CGPoint] = [:]
@@ -385,7 +384,6 @@ final class ContentViewModel: ObservableObject {
                 handleTypingToggleTouch(
                     touchKey: touchKey,
                     state: touch.state,
-                    bindingRect: bindingAtPoint?.rect,
                     point: point
                 )
                 continue
@@ -396,7 +394,6 @@ final class ContentViewModel: ObservableObject {
                     handleTypingToggleTouch(
                         touchKey: touchKey,
                         state: touch.state,
-                        bindingRect: binding.rect,
                         point: point
                     )
                     continue
@@ -728,7 +725,6 @@ final class ContentViewModel: ObservableObject {
     private func handleTypingToggleTouch(
         touchKey: TouchKey,
         state: OMSState,
-        bindingRect: CGRect?,
         point: CGPoint
     ) {
         switch state {
@@ -736,16 +732,9 @@ final class ContentViewModel: ObservableObject {
             if toggleTouchStarts[touchKey] == nil {
                 toggleTouchStarts[touchKey] = Date()
             }
-            if let rect = bindingRect {
-                toggleTouchRects[touchKey] = rect
-            }
-        case .breaking:
-            let rectToCheck = bindingRect ?? toggleTouchRects[touchKey]
-            toggleTouchRects.removeValue(forKey: touchKey)
+        case .breaking, .leaving:
             let didStart = toggleTouchStarts.removeValue(forKey: touchKey)
-            if let rect = rectToCheck,
-               rect.contains(point),
-               didStart != nil {
+            if didStart != nil {
                 let maxDistance = dragCancelDistance * dragCancelDistance
                 let initialPoint = touchInitialContactPoint[touchKey]
                 let distance = initialPoint
@@ -755,9 +744,8 @@ final class ContentViewModel: ObservableObject {
                 }
             }
             touchInitialContactPoint.removeValue(forKey: touchKey)
-        case .leaving, .notTouching:
+        case .notTouching:
             toggleTouchStarts.removeValue(forKey: touchKey)
-            toggleTouchRects.removeValue(forKey: touchKey)
             touchInitialContactPoint.removeValue(forKey: touchKey)
         case .hovering, .lingering:
             break
