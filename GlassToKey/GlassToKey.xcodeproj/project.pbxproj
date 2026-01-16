@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		31AB052C2F14DA2600EEE33E /* ColumnLayoutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31AB052B2F14DA2600EEE33E /* ColumnLayoutSettings.swift */; };
+		E0B1C2D3E4F5678901234568 /* KeyEventDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0B1C2D3E4F5678901234567 /* KeyEventDispatcher.swift */; };
 		77292A882B931953001CA3F6 /* GlassToKeyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77292A872B931953001CA3F6 /* GlassToKeyApp.swift */; };
 		77292A8A2B931953001CA3F6 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77292A892B931953001CA3F6 /* ContentView.swift */; };
 		77292A8C2B931954001CA3F6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 77292A8B2B931954001CA3F6 /* Assets.xcassets */; };
@@ -20,6 +21,7 @@
 
 /* Begin PBXFileReference section */
 		31AB052B2F14DA2600EEE33E /* ColumnLayoutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnLayoutSettings.swift; sourceTree = "<group>"; };
+		E0B1C2D3E4F5678901234567 /* KeyEventDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyEventDispatcher.swift; sourceTree = "<group>"; };
 		77292A842B931953001CA3F6 /* GlassToKey.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GlassToKey.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		77292A872B931953001CA3F6 /* GlassToKeyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassToKeyApp.swift; sourceTree = "<group>"; };
 		77292A892B931953001CA3F6 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -70,6 +72,7 @@
 				77292A892B931953001CA3F6 /* ContentView.swift */,
 				D1E2F3A4B5C6D7E8F9012345 /* TrackpadLayoutPreset.swift */,
 				77292A972B931D60001CA3F6 /* ContentViewModel.swift */,
+				E0B1C2D3E4F5678901234567 /* KeyEventDispatcher.swift */,
 				A1B2C3D4E5F6A7B8C9D0E1F3 /* GlassToKeyDefaultsKeys.swift */,
 				31AB052B2F14DA2600EEE33E /* ColumnLayoutSettings.swift */,
 			);
@@ -159,6 +162,7 @@
 				77292A982B931D60001CA3F6 /* ContentViewModel.swift in Sources */,
 				77292A882B931953001CA3F6 /* GlassToKeyApp.swift in Sources */,
 				A1B2C3D4E5F6A7B8C9D0E1F4 /* GlassToKeyController.swift in Sources */,
+				E0B1C2D3E4F5678901234568 /* KeyEventDispatcher.swift in Sources */,
 				D1E2F3A4B5C6D7E8F9012346 /* TrackpadLayoutPreset.swift in Sources */,
 				31AB052C2F14DA2600EEE33E /* ColumnLayoutSettings.swift in Sources */,
 				A1B2C3D4E5F6A7B8C9D0E1F5 /* GlassToKeyDefaultsKeys.swift in Sources */,

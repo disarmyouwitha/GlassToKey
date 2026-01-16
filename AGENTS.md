@@ -47,10 +47,11 @@
 - no notes left.
 
 ## TODO
-- Need to make sure 2 finger taps do not trigger key presses.
 - Create a virtual keyboard device (robust, more work): macOS has official support for virtual HID devices via CoreHID, including HIDVirtualDevice: https://developer.apple.com/documentation/corehid/hidvirtualdevice
+- Need to make sure 2 finger taps do not trigger key presses.
 ###
-- Clicking the OffsetX/Y up/down too much gets very laggy and starts to repeat clicks. re: clamping doesn't seem to work and I can't type into the field without resetting it? Can we fix? is there a better GUI element? 
+- Selecting custom buttons or keys makes the GUI incredibly laggy, Can you examine the code and see why this is? Please refactor the GUI to be the most efficient and performant code possible.
+- Clicking the OffsetX/Y up/down too much gets very laggy and starts to repeat clicks. re: clamping doesmn't seem to work and I can't type into the field without resetting it? Can we fix? is there a better GUI element? 
 - Issue with starting 2-finger drag when starting from SPACE area
 ###
 - "Auto" set column x,y based on finger splay "4 finger touch"

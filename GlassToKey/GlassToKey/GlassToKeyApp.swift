@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
               window == configWindow else {
             return
         }
+        disableVisuals()
         configWindow = nil
     }
 
@@ -117,6 +118,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
+    }
+
+    private func disableVisuals() {
+        UserDefaults.standard.set(false, forKey: GlassToKeyDefaultsKeys.visualsEnabled)
     }
 
     private func makeConfigWindow() -> NSWindow {

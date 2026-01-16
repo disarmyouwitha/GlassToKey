@@ -102,6 +102,7 @@ final class ContentViewModel: ObservableObject {
     private var repeatTasks: [TouchKey: Task<Void, Never>] = [:]
     private var repeatTokens: [TouchKey: RepeatToken] = [:]
     private var toggleTouchStarts: [TouchKey: Date] = [:]
+    private var toggleTouchRects: [TouchKey: CGRect] = [:]
     private var layerToggleTouchStarts: [TouchKey: Int] = [:]
     private var momentaryLayerTouches: [TouchKey: Int] = [:]
     private var touchInitialContactPoint: [TouchKey: CGPoint] = [:]
@@ -111,6 +112,7 @@ final class ContentViewModel: ObservableObject {
     private var dragCancelDistance: CGFloat = 2.5
     private let repeatInitialDelay: UInt64 = 350_000_000
     private let repeatInterval: UInt64 = 50_000_000
+    private let spaceRepeatMultiplier: UInt64 = 2
     private var leftLayout: Layout?
     private var rightLayout: Layout?
     private var leftLabels: [[String]] = []
@@ -380,13 +382,23 @@ final class ContentViewModel: ObservableObject {
                 continue
             }
             if toggleTouchStarts[touchKey] != nil {
-                handleTypingToggleTouch(touchKey: touchKey, state: touch.state)
+                handleTypingToggleTouch(
+                    touchKey: touchKey,
+                    state: touch.state,
+                    bindingRect: bindingAtPoint?.rect,
+                    point: point
+                )
                 continue
             }
             if let binding = bindingAtPoint {
                 switch binding.action {
                 case .typingToggle:
-                    handleTypingToggleTouch(touchKey: touchKey, state: touch.state)
+                    handleTypingToggleTouch(
+                        touchKey: touchKey,
+                        state: touch.state,
+                        bindingRect: binding.rect,
+                        point: point
+                    )
                     continue
                 case let .layerToggle(targetLayer):
                     handleLayerToggleTouch(touchKey: touchKey, state: touch.state, targetLayer: targetLayer)
@@ -441,6 +453,12 @@ final class ContentViewModel: ObservableObject {
                        !active.isContinuousKey,
                        !active.didHold,
                        active.maxDistanceSquared > dragCancelDistanceSquared {
+                        disqualifyTouch(touchKey)
+                        continue
+                    }
+
+                    if active.isContinuousKey,
+                       !active.binding.rect.contains(point) {
                         disqualifyTouch(touchKey)
                         continue
                     }
@@ -707,18 +725,40 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    private func handleTypingToggleTouch(touchKey: TouchKey, state: OMSState) {
+    private func handleTypingToggleTouch(
+        touchKey: TouchKey,
+        state: OMSState,
+        bindingRect: CGRect?,
+        point: CGPoint
+    ) {
         switch state {
         case .starting, .making, .touching:
             if toggleTouchStarts[touchKey] == nil {
                 toggleTouchStarts[touchKey] = Date()
             }
-        case .breaking, .leaving:
-            if toggleTouchStarts.removeValue(forKey: touchKey) != nil {
-                toggleTypingMode()
+            if let rect = bindingRect {
+                toggleTouchRects[touchKey] = rect
             }
-        case .notTouching:
+        case .breaking:
+            let rectToCheck = bindingRect ?? toggleTouchRects[touchKey]
+            toggleTouchRects.removeValue(forKey: touchKey)
+            let didStart = toggleTouchStarts.removeValue(forKey: touchKey)
+            if let rect = rectToCheck,
+               rect.contains(point),
+               didStart != nil {
+                let maxDistance = dragCancelDistance * dragCancelDistance
+                let initialPoint = touchInitialContactPoint[touchKey]
+                let distance = initialPoint
+                    .map { distanceSquared(from: $0, to: point) } ?? 0
+                if distance <= maxDistance {
+                    toggleTypingMode()
+                }
+            }
+            touchInitialContactPoint.removeValue(forKey: touchKey)
+        case .leaving, .notTouching:
             toggleTouchStarts.removeValue(forKey: touchKey)
+            toggleTouchRects.removeValue(forKey: touchKey)
+            touchInitialContactPoint.removeValue(forKey: touchKey)
         case .hovering, .lingering:
             break
         }
@@ -887,7 +927,7 @@ final class ContentViewModel: ObservableObject {
         guard case let .key(code, flags) = binding.action else { return }
         let repeatFlags = flags.union(currentModifierFlags())
         let initialDelay = repeatInitialDelay
-        let interval = repeatInterval
+        let interval = repeatInterval(for: binding.action)
         let token = RepeatToken()
         repeatTokens[touchKey] = token
         repeatTasks[touchKey] = Task.detached(priority: .userInitiated) { [dispatcher = keyDispatcher] in
@@ -897,6 +937,15 @@ final class ContentViewModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: interval)
             }
         }
+    }
+
+    private func repeatInterval(for action: KeyBindingAction) -> UInt64 {
+        if case let .key(code, flags) = action,
+           code == CGKeyCode(kVK_Space),
+           flags.isEmpty {
+            return repeatInterval * spaceRepeatMultiplier
+        }
+        return repeatInterval
     }
 
     private func stopRepeat(for touchKey: TouchKey) {
@@ -959,6 +1008,10 @@ final class ContentViewModel: ObservableObject {
     private func postKey(binding: KeyBinding, keyDown: Bool) {
         guard case let .key(code, flags) = binding.action else { return }
         keyDispatcher.postKey(code: code, flags: flags, keyDown: keyDown)
+    }
+
+    func clearTouchState() {
+        releaseHeldKeys()
     }
 
     private func releaseHeldKeys() {
@@ -1098,7 +1151,7 @@ final class ContentViewModel: ObservableObject {
     }
 }
 
-private final class RepeatToken: @unchecked Sendable {
+final class RepeatToken: @unchecked Sendable {
     private let isActiveLock = OSAllocatedUnfairLock<Bool>(uncheckedState: true)
 
     var isActive: Bool {
@@ -1107,77 +1160,6 @@ private final class RepeatToken: @unchecked Sendable {
 
     func deactivate() {
         isActiveLock.withLockUnchecked { $0 = false }
-    }
-}
-
-private final class KeyEventDispatcher: @unchecked Sendable {
-    static let shared = KeyEventDispatcher()
-
-    private let queue = DispatchQueue(
-        label: "com.kyome.GlassToKey.KeyDispatch",
-        qos: .userInteractive
-    )
-    private var eventSource: CGEventSource?
-
-    func postKeyStroke(code: CGKeyCode, flags: CGEventFlags, token: RepeatToken? = nil) {
-        queue.async {
-            if let token, !token.isActive {
-                return
-            }
-            autoreleasepool {
-                if let token, !token.isActive {
-                    return
-                }
-                guard let source = self.eventSource
-                    ?? CGEventSource(stateID: .hidSystemState) else {
-                    return
-                }
-                self.eventSource = source
-                guard let keyDown = CGEvent(
-                    keyboardEventSource: source,
-                    virtualKey: code,
-                    keyDown: true
-                ),
-                let keyUp = CGEvent(
-                    keyboardEventSource: source,
-                    virtualKey: code,
-                    keyDown: false
-                ) else {
-                    return
-                }
-                keyDown.flags = flags
-                keyUp.flags = flags
-                keyDown.post(tap: .cghidEventTap)
-                keyUp.post(tap: .cghidEventTap)
-            }
-        }
-    }
-
-    func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool, token: RepeatToken? = nil) {
-        queue.async {
-            if let token, !token.isActive {
-                return
-            }
-            autoreleasepool {
-                if let token, !token.isActive {
-                    return
-                }
-                guard let source = self.eventSource
-                    ?? CGEventSource(stateID: .hidSystemState) else {
-                    return
-                }
-                self.eventSource = source
-                guard let event = CGEvent(
-                    keyboardEventSource: source,
-                    virtualKey: code,
-                    keyDown: keyDown
-                ) else {
-                    return
-                }
-                event.flags = flags
-                event.post(tap: .cghidEventTap)
-            }
-        }
     }
 }
 
