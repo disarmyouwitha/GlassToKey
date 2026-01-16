@@ -41,7 +41,8 @@
 ## Performance notes
 - UI visuals are coalesced by touch revision (only redraw on new touch frames).
 - Key dispatch posts on a dedicated queue with a cached `CGEventSource`.
-- OMS touch timestamps is disabled for the app but can be reunabled with the flag (`OMSManager.shared.isTimestampEnabled = True`).
+- OMS touch timestamps are disabled by default (`OMSManager.shared.isTimestampEnabled = false`) but can be re-enabled with the flag.
+- Two-finger tap suppression uses a configurable interval (0–250 ms) in the settings so accidental taps don’t fire key presses.
 
 ## Important notes for next instance of Codex
 - no notes.

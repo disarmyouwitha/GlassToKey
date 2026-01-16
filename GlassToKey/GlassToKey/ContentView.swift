@@ -66,7 +66,7 @@ struct ContentView: View {
     static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
     private static let dragCancelDistanceRange: ClosedRange<Double> = 0.5...15.0
     private static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
-    private static let twoFingerTapIntervalRange: ClosedRange<Double> = 20.0...250.0
+    private static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...250.0
     private static let keyCornerRadius: CGFloat = 6.0
     private static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
