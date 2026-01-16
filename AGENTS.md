@@ -47,8 +47,7 @@
 - no notes left.
 
 ## TODO
-- Maybe I can turn off single-finger tap at the Mac OS level but implement single finger tap-to-click if under a minimum ms typing term?
-- Need to make sure 2 finger taps do not trigger key presses.
+- PROBLEM: When I do 2-finger tap to click I am triggering 2 keypresses. I would like 2-finger taps to be ignored by they keyboard. ANALYZE CODE AND FIND SOLUTION: Need to make sure 2 finger taps do not trigger key presses. Maybe expose a slider for how many ms between taps is considered a 2-finger tap. CODE SHOULD BE HIGHLY PERFORMANT AND EFFICIENTY with emphasis on the immediacy of keystrokes firing. 
 ###
 - Issue with starting 2-finger drag when starting from SPACE area
 ###
