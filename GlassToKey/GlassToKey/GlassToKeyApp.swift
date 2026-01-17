@@ -171,7 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func makeConfigWindow() -> NSWindow {
         let contentView = ContentView(viewModel: controller.viewModel)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 984, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: 984, height: 960),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false

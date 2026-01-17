@@ -37,7 +37,7 @@
 ## Common workflows
 ### Swift wrapper changes only
 1. Edit files under `Sources/OpenMultitouchSupport/`.
-2. Commit and push (consumers tracking `main` pick up changes).^
+2. Commit and push (consumers tracking `main` pick up changes).
   
 ## Important notes for next instance of Codex
 - Debug logging: `ContentViewModel.TouchProcessor` logs key dispatches and disqualification reasons under

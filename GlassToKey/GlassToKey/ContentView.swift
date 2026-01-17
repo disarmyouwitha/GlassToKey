@@ -674,7 +674,7 @@ struct ContentView: View {
                 endRadius: 420
             )
         )
-        .frame(minWidth: trackpadSize.width * 2 + 520, minHeight: trackpadSize.height + 240)
+        .frame(minWidth: trackpadSize.width * 2 + 520, minHeight: trackpadSize.height + 440)
         .onAppear {
             applySavedSettings()
         }
