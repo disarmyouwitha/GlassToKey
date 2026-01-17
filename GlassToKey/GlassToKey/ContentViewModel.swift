@@ -677,7 +677,7 @@ final class ContentViewModel: ObservableObject {
                    candidate.touchKey == touchKey {
                     twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceID)
                 }
-                touchInitialContactPoint.removeValue(forKey: touchKey)
+                let releaseStartPoint = touchInitialContactPoint.removeValue(forKey: touchKey)
                 if var pending = pendingTouches.removeValue(forKey: touchKey) {
                     let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
                     pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
@@ -687,8 +687,11 @@ final class ContentViewModel: ObservableObject {
                     continue
                 }
                 if var active = activeTouches.removeValue(forKey: touchKey) {
-                    let distanceSquared = distanceSquared(from: active.startPoint, to: point)
-                    active.maxDistanceSquared = max(active.maxDistanceSquared, distanceSquared)
+                    let releaseDistanceSquared = distanceSquared(
+                        from: releaseStartPoint ?? active.startPoint,
+                        to: point
+                    )
+                    active.maxDistanceSquared = max(active.maxDistanceSquared, releaseDistanceSquared)
                     let guardTriggered = active.forceGuardTriggered
                     if let modifierKey = active.modifierKey {
                         handleModifierUp(modifierKey, binding: active.binding)
@@ -698,7 +701,7 @@ final class ContentViewModel: ObservableObject {
                               !active.didHold,
                               now.timeIntervalSince(active.startTime) <= tapMaxDuration,
                               (!isDragDetectionEnabled
-                               || active.maxDistanceSquared <= dragCancelDistanceSquared) {
+                               || releaseDistanceSquared <= dragCancelDistanceSquared) {
                         triggerBinding(active.binding, touchKey: touchKey)
                     }
                     endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
@@ -1076,11 +1079,12 @@ final class ContentViewModel: ObservableObject {
     }
 
     private func maybeSendPendingContinuousTap(_ pending: PendingTouch, at point: CGPoint) {
+        let releaseDistanceSquared = distanceSquared(from: pending.startPoint, to: point)
         guard isContinuousKey(pending.binding),
               Date().timeIntervalSince(pending.startTime) <= tapMaxDuration,
               pending.binding.rect.contains(point),
               (!isDragDetectionEnabled
-               || pending.maxDistanceSquared <= dragCancelDistance * dragCancelDistance),
+               || releaseDistanceSquared <= dragCancelDistance * dragCancelDistance),
               !pending.forceGuardTriggered else {
             return
         }
