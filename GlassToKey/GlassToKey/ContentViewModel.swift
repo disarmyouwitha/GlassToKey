@@ -666,7 +666,7 @@ final class ContentViewModel: ObservableObject {
                 labels: labels,
                 canvasSize: canvasSize
             )
-            if twoFingerTapMaxInterval > 0, !touches.isEmpty {
+            if isTypingEnabled, twoFingerTapMaxInterval > 0, !touches.isEmpty {
                 var touchKeysInFrame = Set<TouchKey>()
                 touchKeysInFrame.reserveCapacity(touches.count)
                 for touch in touches {

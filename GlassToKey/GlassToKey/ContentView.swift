@@ -52,11 +52,11 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.layoutPreset) private var storedLayoutPreset = TrackpadLayoutPreset.sixByThree.rawValue
     @AppStorage(GlassToKeyDefaultsKeys.customButtons) private var storedCustomButtonsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.keyMappings) private var storedKeyMappingsData = Data()
-    @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = 200.0
-    @AppStorage(GlassToKeyDefaultsKeys.twoFingerTapInterval) private var twoFingerTapIntervalMs: Double = 80.0
-    @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = 1.0
-    @AppStorage(GlassToKeyDefaultsKeys.forceClickThreshold) private var forceClickThresholdSetting: Double = 0.7
-    @AppStorage(GlassToKeyDefaultsKeys.forceClickHoldDuration) private var forceClickHoldDurationMs: Double = 0.0
+    @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = GlassToKeySettings.tapHoldDurationMs
+    @AppStorage(GlassToKeyDefaultsKeys.twoFingerTapInterval) private var twoFingerTapIntervalMs: Double = GlassToKeySettings.twoFingerTapIntervalMs
+    @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
+    @AppStorage(GlassToKeyDefaultsKeys.forceClickThreshold) private var forceClickThresholdSetting: Double = GlassToKeySettings.forceClickThreshold
+    @AppStorage(GlassToKeyDefaultsKeys.forceClickHoldDuration) private var forceClickHoldDurationMs: Double = GlassToKeySettings.forceClickHoldDurationMs
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
