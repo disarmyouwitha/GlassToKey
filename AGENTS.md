@@ -19,7 +19,7 @@
 - `Framework/OpenMultitouchSupportXCF/OpenMTManager.m`: device enumeration, device ID mapping, callbacks.
 - `Framework/OpenMultitouchSupportXCF/OpenMTEvent.h` / `OpenMTEvent.m`: event payloads (includes deviceID).
 - `Sources/OpenMultitouchSupport/OMSManager.swift`: Swift API for device selection and event streaming.
-- `Sources/OpenMultitouchSupport/OMSTouchData.swift`: touch data model (includes deviceID).
+- `Sources/OpenMultitouchSupport/OMSTouchData.swift`: touch data model (includes deviceID + deviceIndex).
 - `GlassToKey/GlassToKeyApp.swift`: menu bar status item + app lifecycle.
 - `GlassToKey/ContentView.swift`: main UI for trackpad visualization and settings.
 - `GlassToKey/ContentViewModel.swift`: touch filtering, typing mode state, key dispatch.
@@ -43,17 +43,20 @@
 - Key dispatch posts on a dedicated queue with a cached `CGEventSource`.
 - OMS touch timestamps are disabled by default (`OMSManager.shared.isTimestampEnabled = false`) but can be re-enabled with the flag.
 - Two-finger tap suppression uses a configurable interval (0–250 ms) in the settings so accidental taps don’t fire key presses.
+- Touch routing now uses a stable `deviceIndex` for cheaper comparisons in hot paths.
   
 ## Important notes for next instance of Codex
-- no notes
+- Debug logging: `ContentViewModel.TouchProcessor` logs key dispatches and disqualification reasons under `KeyDiagnostics` in DEBUG builds.
 
 ## TODO
-- Refactor from the driver/api layer, any efficiency we can gain by rewrites?
 - If 1 or more trackpads are disconnected, show a warning triangle in the status bar to sync. (Or would it be better to try and resync every 5-10sec while trackpad is not connected?)
 - refactor 2 finger click??
+- Refactor from the driver/api layer, any efficiency we can gain by rewrites?
+###
 - Have Codex refactor the code for compiler efficiency and runtime efficiency. Leave no stone unturned!
 - Have Codex refactor the GUI for effiency
 - "Auto" set column x,y based on finger splay "4 finger touch"
 - Toggle for capturing clicks using CGEventTapCreate??
-###
+
+## FUTURE
 - Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight

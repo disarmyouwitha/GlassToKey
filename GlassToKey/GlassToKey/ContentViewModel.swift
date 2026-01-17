@@ -348,6 +348,15 @@ final class ContentViewModel: ObservableObject {
             case command
         }
 
+        private enum DisqualifyReason: String {
+            case dragCancelled
+            case pendingDragCancelled
+            case leftContinuousRect
+            case pendingLeftRect
+            case twoFingerSuppressed
+            case typingDisabled
+        }
+
         private struct TouchKey: Hashable {
             let deviceIndex: Int
             let id: Int32
@@ -497,6 +506,10 @@ final class ContentViewModel: ObservableObject {
         private let signposter = OSSignposter(
             subsystem: "com.kyome.GlassToKey",
             category: "TouchProcessing"
+        )
+        private let keyLogger = Logger(
+            subsystem: "com.kyome.GlassToKey",
+            category: "KeyDiagnostics"
         )
 #endif
 
@@ -752,6 +765,7 @@ final class ContentViewModel: ObservableObject {
                     pendingTouches.removeValue(forKey: touchKey)
                     disqualifiedTouches.remove(touchKey)
                     touchInitialContactPoint.removeValue(forKey: touchKey)
+                    logDisqualify(touchKey, reason: .typingDisabled)
                     continue
                 }
 
@@ -766,13 +780,13 @@ final class ContentViewModel: ObservableObject {
                            active.modifierKey == nil,
                            !active.didHold,
                            active.maxDistanceSquared > dragCancelDistanceSquared {
-                            disqualifyTouch(touchKey)
+                            disqualifyTouch(touchKey, reason: .dragCancelled)
                             continue
                         }
 
                         if active.isContinuousKey,
                            !active.binding.rect.contains(point) {
-                            disqualifyTouch(touchKey)
+                            disqualifyTouch(touchKey, reason: .leftContinuousRect)
                             continue
                         }
 
@@ -793,7 +807,7 @@ final class ContentViewModel: ObservableObject {
 
                         if isDragDetectionEnabled,
                            pending.maxDistanceSquared > dragCancelDistanceSquared {
-                            disqualifyTouch(touchKey)
+                            disqualifyTouch(touchKey, reason: .pendingDragCancelled)
                             continue
                         }
 
@@ -823,7 +837,7 @@ final class ContentViewModel: ObservableObject {
                                     startRepeat(for: touchKey, binding: pending.binding)
                                 }
                             } else if isDragDetectionEnabled {
-                                disqualifyTouch(touchKey)
+                                disqualifyTouch(touchKey, reason: .pendingLeftRect)
                             } else {
                                 pendingTouches.removeValue(forKey: touchKey)
                             }
@@ -992,7 +1006,7 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func cancelTwoFingerTapTouch(_ touchKey: TouchKey) {
-            disqualifyTouch(touchKey)
+            disqualifyTouch(touchKey, reason: .twoFingerSuppressed)
             toggleTouchStarts.removeValue(forKey: touchKey)
             layerToggleTouchStarts.removeValue(forKey: touchKey)
             if momentaryLayerTouches.removeValue(forKey: touchKey) != nil {
@@ -1354,6 +1368,7 @@ final class ContentViewModel: ObservableObject {
             case .none:
                 break
             case let .key(code, flags):
+                logKeyDispatch(label: binding.label, code: code, flags: flags)
                 sendKey(code: code, flags: flags)
             }
         }
@@ -1382,6 +1397,7 @@ final class ContentViewModel: ObservableObject {
 
         private func sendKey(binding: KeyBinding) {
             guard case let .key(code, flags) = binding.action else { return }
+            logKeyDispatch(label: binding.label, code: code, flags: flags)
             sendKey(code: code, flags: flags)
         }
 
@@ -1470,6 +1486,7 @@ final class ContentViewModel: ObservableObject {
 
         private func postKey(binding: KeyBinding, keyDown: Bool) {
             guard case let .key(code, flags) = binding.action else { return }
+            logKeyDispatch(label: binding.label, code: code, flags: flags, keyDown: keyDown)
             keyDispatcher.postKey(code: code, flags: flags, keyDown: keyDown)
         }
 
@@ -1531,7 +1548,7 @@ final class ContentViewModel: ObservableObject {
             updateActiveLayer()
         }
 
-        private func disqualifyTouch(_ touchKey: TouchKey) {
+        private func disqualifyTouch(_ touchKey: TouchKey, reason: DisqualifyReason) {
             touchInitialContactPoint.removeValue(forKey: touchKey)
             disqualifiedTouches.insert(touchKey)
             pendingTouches.removeValue(forKey: touchKey)
@@ -1543,6 +1560,7 @@ final class ContentViewModel: ObservableObject {
                 }
                 endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
             }
+            logDisqualify(touchKey, reason: reason)
         }
 
         private func distanceSquared(from start: CGPoint, to end: CGPoint) -> CGFloat {
@@ -1584,6 +1602,27 @@ final class ContentViewModel: ObservableObject {
 
         private static func now() -> TimeInterval {
             CACurrentMediaTime()
+        }
+
+        private func logDisqualify(_ touchKey: TouchKey, reason: DisqualifyReason) {
+            #if DEBUG
+            keyLogger.debug("disqualify deviceIndex=\(touchKey.deviceIndex) id=\(touchKey.id) reason=\(reason.rawValue)")
+            #endif
+        }
+
+        private func logKeyDispatch(
+            label: String,
+            code: CGKeyCode,
+            flags: CGEventFlags,
+            keyDown: Bool? = nil
+        ) {
+            #if DEBUG
+            if let keyDown {
+                keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue) keyDown=\(keyDown)")
+            } else {
+                keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue)")
+            }
+            #endif
         }
 
         private func invalidateBindingsCache() {
