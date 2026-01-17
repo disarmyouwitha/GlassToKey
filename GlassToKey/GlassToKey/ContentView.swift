@@ -52,6 +52,7 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.layoutPreset) private var storedLayoutPreset = TrackpadLayoutPreset.sixByThree.rawValue
     @AppStorage(GlassToKeyDefaultsKeys.customButtons) private var storedCustomButtonsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.keyMappings) private var storedKeyMappingsData = Data()
+    @AppStorage(GlassToKeyDefaultsKeys.autoResyncMissingTrackpads) private var storedAutoResyncMissingTrackpads = false
     @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = GlassToKeySettings.tapHoldDurationMs
     @AppStorage(GlassToKeyDefaultsKeys.twoFingerTapInterval) private var twoFingerTapIntervalMs: Double = GlassToKeySettings.twoFingerTapIntervalMs
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
@@ -324,6 +325,20 @@ struct ContentView: View {
                                 }
                             }
                             .pickerStyle(MenuPickerStyle())
+                        }
+                        Toggle("Auto-resync missing trackpads", isOn: Binding(
+                            get: { storedAutoResyncMissingTrackpads },
+                            set: { newValue in
+                                storedAutoResyncMissingTrackpads = newValue
+                                viewModel.setAutoResyncEnabled(newValue)
+                            }
+                        ))
+                        .toggleStyle(SwitchToggleStyle())
+                        .help("Polls for missing trackpads every 8 seconds while enabled.")
+                        if viewModel.hasDisconnectedTrackpads {
+                            Text("Status icon warns when a selected trackpad is unavailable.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     .padding(12)
@@ -684,6 +699,9 @@ struct ContentView: View {
                 selectedColumn = nil
                 selectedGridKey = nil
             }
+        }
+        .onAppear {
+            viewModel.setAutoResyncEnabled(storedAutoResyncMissingTrackpads)
         }
         .onChange(of: columnSettings) { newValue in
             applyColumnSettings(newValue)
