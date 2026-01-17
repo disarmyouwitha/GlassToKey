@@ -53,6 +53,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         )
         configItem.target = self
         menu.addItem(configItem)
+        let syncItem = NSMenuItem(
+            title: "Sync devices",
+            action: #selector(syncDevices),
+            keyEquivalent: "s"
+        )
+        syncItem.target = self
+        menu.addItem(syncItem)
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
@@ -67,38 +74,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem = item
         updateStatusIndicator(
             isTypingEnabled: controller.viewModel.isTypingEnabled,
-            activeLayer: controller.viewModel.activeLayer
+            activeLayer: controller.viewModel.activeLayer,
+            hasDisconnectedTrackpads: controller.viewModel.hasDisconnectedTrackpads
         )
     }
 
     private func observeStatus() {
-        statusCancellable = Publishers.CombineLatest(
+        statusCancellable = Publishers.CombineLatest3(
             controller.viewModel.$isTypingEnabled.removeDuplicates(),
-            controller.viewModel.$activeLayer.removeDuplicates()
+            controller.viewModel.$activeLayer.removeDuplicates(),
+            controller.viewModel.$hasDisconnectedTrackpads.removeDuplicates()
         )
-        .sink { [weak self] isTypingEnabled, activeLayer in
+        .sink { [weak self] isTypingEnabled, activeLayer, hasDisconnected in
             self?.updateStatusIndicator(
                 isTypingEnabled: isTypingEnabled,
-                activeLayer: activeLayer
+                activeLayer: activeLayer,
+                hasDisconnectedTrackpads: hasDisconnected
             )
         }
     }
 
     private func updateStatusIndicator(
         isTypingEnabled: Bool,
-        activeLayer: Int
+        activeLayer: Int,
+        hasDisconnectedTrackpads: Bool
     ) {
         guard let button = statusItem?.button else { return }
         button.image = statusIndicatorImage(
             isTypingEnabled: isTypingEnabled,
-            activeLayer: activeLayer
+            activeLayer: activeLayer,
+            hasWarning: hasDisconnectedTrackpads
         )
-        button.toolTip = isTypingEnabled ? "Keyboard mode" : "Mouse mode"
+        let modeText = isTypingEnabled ? "Keyboard mode" : "Mouse mode"
+        button.toolTip = hasDisconnectedTrackpads
+            ? "\(modeText) – missing trackpad"
+            : modeText
     }
 
     private func statusIndicatorImage(
         isTypingEnabled: Bool,
-        activeLayer: Int
+        activeLayer: Int,
+        hasWarning: Bool
     ) -> NSImage {
         let size = NSSize(width: 10, height: 10)
         let image = NSImage(size: size)
@@ -111,6 +127,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             : (isTypingEnabled ? NSColor.systemGreen : NSColor.systemRed)
         color.setFill()
         path.fill()
+
+        if hasWarning {
+            let dotRadius: CGFloat = 3.5
+            let dotCenter = CGPoint(
+                x: rect.maxX - dotRadius - 0.5,
+                y: rect.maxY - dotRadius - 0.5
+            )
+            let warning = NSBezierPath()
+            warning.appendArc(
+                withCenter: dotCenter,
+                radius: dotRadius,
+                startAngle: 0,
+                endAngle: 360
+            )
+            NSColor.systemYellow.setFill()
+            warning.fill()
+        }
+
         image.unlockFocus()
         return image
     }
@@ -120,6 +154,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         configWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func syncDevices() {
+        controller.viewModel.loadDevices(preserveSelection: true)
     }
 
     @objc private func quitApp() {

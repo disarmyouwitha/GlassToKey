@@ -98,14 +98,14 @@ final class ContentViewModel: ObservableObject {
     @Published var availableDevices = [OMSDeviceInfo]()
     @Published var leftDevice: OMSDeviceInfo?
     @Published var rightDevice: OMSDeviceInfo?
-    private var hasDisconnectedTrackpads = false
+    @Published private(set) var hasDisconnectedTrackpads = false
 
     private var requestedLeftDeviceID: String?
     private var requestedRightDeviceID: String?
     private var autoResyncTask: Task<Void, Never>?
     private var autoResyncEnabled = false
     private static let connectedResyncIntervalSeconds: TimeInterval = 10.0
-    private static let disconnectedResyncIntervalSeconds: TimeInterval = 2.0
+    private static let disconnectedResyncIntervalSeconds: TimeInterval = 1.0
     private static let connectedResyncIntervalNanoseconds = UInt64(connectedResyncIntervalSeconds * 1_000_000_000)
     private static let disconnectedResyncIntervalNanoseconds = UInt64(disconnectedResyncIntervalSeconds * 1_000_000_000)
 
@@ -191,7 +191,7 @@ final class ContentViewModel: ObservableObject {
            let matchingLeft = availableDevices.first(where: { $0.deviceID == matchingLeftID }) {
             leftDevice = matchingLeft
         } else if preserveSelection, previousLeftDeviceID != nil {
-            leftDevice = availableDevices.first
+            leftDevice = nil
         } else if !preserveSelection {
             leftDevice = availableDevices.first
         } else {
@@ -247,7 +247,9 @@ final class ContentViewModel: ObservableObject {
            !availableIDs.contains(rightID) {
             hasMissing = true
         }
-        hasDisconnectedTrackpads = hasMissing
+        if hasDisconnectedTrackpads != hasMissing {
+            hasDisconnectedTrackpads = hasMissing
+        }
     }
 
     func setAutoResyncEnabled(_ enabled: Bool) {
