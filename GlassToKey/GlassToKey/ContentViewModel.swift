@@ -766,6 +766,7 @@ final class ContentViewModel: ObservableObject {
     ) {
         guard forceClickThreshold > 0 else { return }
         if var active = activeTouches[touchKey] {
+            guard !active.isContinuousKey else { return }
             let triggered = active.registerForce(
                 pressure: pressure,
                 threshold: forceClickThreshold,
@@ -777,6 +778,7 @@ final class ContentViewModel: ObservableObject {
             }
             activeTouches[touchKey] = active
         } else if var pending = pendingTouches[touchKey] {
+            guard !isContinuousKey(pending.binding) else { return }
             _ = pending.registerForce(
                 pressure: pressure,
                 threshold: forceClickThreshold,
