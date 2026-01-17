@@ -43,12 +43,17 @@
 - Key dispatch posts on a dedicated queue with a cached `CGEventSource`.
 - OMS touch timestamps are disabled by default (`OMSManager.shared.isTimestampEnabled = false`) but can be re-enabled with the flag.
 - Two-finger tap suppression uses a configurable interval (0–250 ms) in the settings so accidental taps don’t fire key presses.
-
+  
 ## Important notes for next instance of Codex
 - no notes.
 
 ## TODO
+- when you force click, keystroke should not fire. 
+- when starting drag from space/backspace it fires the keystroke, unlike other keys.
 - "Auto" set column x,y based on finger splay "4 finger touch"
+- If 1 or more trackpads are disconnected, show a warning triangle in the status bar to sync. (Or would it be better to try and resync every 5-10sec while trackpad is not connected?)
+- Have Codex refactor the code for compiler efficiency and runtime efficiency. Leave no stone unturned!
+- Have Codex refactor the GUI for effiency
 - Toggle for capturing clicks using CGEventTapCreate??
 ###
 - Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight
