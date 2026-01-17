@@ -777,7 +777,7 @@ final class ContentViewModel: ObservableObject {
             }
             activeTouches[touchKey] = active
         } else if var pending = pendingTouches[touchKey] {
-            let triggered = pending.registerForce(
+            _ = pending.registerForce(
                 pressure: pressure,
                 threshold: forceClickThreshold,
                 duration: forceClickHoldDuration,
