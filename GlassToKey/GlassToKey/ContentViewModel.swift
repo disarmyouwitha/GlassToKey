@@ -679,13 +679,17 @@ final class ContentViewModel: ObservableObject {
                     twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceID)
                 }
                 touchInitialContactPoint.removeValue(forKey: touchKey)
-                if let pending = pendingTouches.removeValue(forKey: touchKey) {
+                if var pending = pendingTouches.removeValue(forKey: touchKey) {
+                    let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
+                    pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
                     maybeSendPendingContinuousTap(pending, at: point)
                 }
                 if disqualifiedTouches.remove(touchKey) != nil {
                     continue
                 }
-                if let active = activeTouches.removeValue(forKey: touchKey) {
+                if var active = activeTouches.removeValue(forKey: touchKey) {
+                    let distanceSquared = distanceSquared(from: active.startPoint, to: point)
+                    active.maxDistanceSquared = max(active.maxDistanceSquared, distanceSquared)
                     let guardTriggered = active.forceGuardTriggered
                     if let modifierKey = active.modifierKey {
                         handleModifierUp(modifierKey, binding: active.binding)
@@ -709,13 +713,17 @@ final class ContentViewModel: ObservableObject {
                     twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceID)
                 }
                 touchInitialContactPoint.removeValue(forKey: touchKey)
-                if let pending = pendingTouches.removeValue(forKey: touchKey) {
+                if var pending = pendingTouches.removeValue(forKey: touchKey) {
+                    let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
+                    pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
                     maybeSendPendingContinuousTap(pending, at: point)
                 }
                 if disqualifiedTouches.remove(touchKey) != nil {
                     continue
                 }
-                if let active = activeTouches.removeValue(forKey: touchKey) {
+                if var active = activeTouches.removeValue(forKey: touchKey) {
+                    let distanceSquared = distanceSquared(from: active.startPoint, to: point)
+                    active.maxDistanceSquared = max(active.maxDistanceSquared, distanceSquared)
                     if let modifierKey = active.modifierKey {
                         handleModifierUp(modifierKey, binding: active.binding)
                     } else if active.isContinuousKey {
