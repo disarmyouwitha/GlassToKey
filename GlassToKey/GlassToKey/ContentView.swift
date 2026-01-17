@@ -55,6 +55,8 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = 200.0
     @AppStorage(GlassToKeyDefaultsKeys.twoFingerTapInterval) private var twoFingerTapIntervalMs: Double = 80.0
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = 2.5
+    @AppStorage(GlassToKeyDefaultsKeys.forceClickThreshold) private var forceClickThresholdSetting: Double = 0.7
+    @AppStorage(GlassToKeyDefaultsKeys.forceClickHoldDuration) private var forceClickHoldDurationMs: Double = 0.0
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -67,6 +69,8 @@ struct ContentView: View {
     private static let dragCancelDistanceRange: ClosedRange<Double> = 0.5...15.0
     private static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
     private static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...250.0
+    private static let forceClickThresholdRange: ClosedRange<Double> = 0.0...1.0
+    private static let forceClickHoldDurationRange: ClosedRange<Double> = 0.0...250.0
     private static let keyCornerRadius: CGFloat = 6.0
     private static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -120,6 +124,24 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 1
         formatter.minimum = NSNumber(value: ContentView.dragCancelDistanceRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.dragCancelDistanceRange.upperBound)
+        return formatter
+    }()
+    private static let forceClickThresholdFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        formatter.minimum = NSNumber(value: ContentView.forceClickThresholdRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.forceClickThresholdRange.upperBound)
+        return formatter
+    }()
+    private static let forceClickHoldDurationFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.minimum = NSNumber(value: ContentView.forceClickHoldDurationRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.forceClickHoldDurationRange.upperBound)
         return formatter
     }()
     private static let legacyKeyScaleKey = "GlassToKey.keyScale"
@@ -589,6 +611,36 @@ struct ContentView: View {
                                 )
                                 .frame(minWidth: 120)
                             }
+                            GridRow {
+                                Text("Force Delta")
+                                TextField(
+                                    "0.70",
+                                    value: $forceClickThresholdSetting,
+                                    formatter: Self.forceClickThresholdFormatter
+                                )
+                                .frame(width: 60)
+                                Slider(
+                                    value: $forceClickThresholdSetting,
+                                    in: Self.forceClickThresholdRange,
+                                    step: 0.05
+                                )
+                                .frame(minWidth: 120)
+                            }
+                            GridRow {
+                                Text("Force Guard (ms)")
+                                TextField(
+                                    "0",
+                                    value: $forceClickHoldDurationMs,
+                                    formatter: Self.forceClickHoldDurationFormatter
+                                )
+                                .frame(width: 60)
+                                Slider(
+                                    value: $forceClickHoldDurationMs,
+                                    in: Self.forceClickHoldDurationRange,
+                                    step: 10
+                                )
+                                .frame(minWidth: 120)
+                            }
                         }
                     }
                     .padding(12)
@@ -660,6 +712,12 @@ struct ContentView: View {
         }
         .onChange(of: dragCancelDistanceSetting) { newValue in
             viewModel.updateDragCancelDistance(CGFloat(newValue))
+        }
+        .onChange(of: forceClickThresholdSetting) { newValue in
+            viewModel.updateForceClickThreshold(newValue)
+        }
+        .onChange(of: forceClickHoldDurationMs) { newValue in
+            viewModel.updateForceClickHoldDuration(newValue / 1000.0)
         }
     }
 
@@ -1326,11 +1384,13 @@ struct ContentView: View {
             viewModel.selectLeftDevice(leftDevice)
         }
         if let rightDevice = deviceForID(storedRightDeviceID) {
-            viewModel.selectRightDevice(rightDevice)
+        viewModel.selectRightDevice(rightDevice)
         }
         viewModel.updateHoldThreshold(tapHoldDurationMs / 1000.0)
         viewModel.updateTwoFingerTapInterval(twoFingerTapIntervalMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragCancelDistanceSetting))
+        viewModel.updateForceClickThreshold(forceClickThresholdSetting)
+        viewModel.updateForceClickHoldDuration(forceClickHoldDurationMs / 1000.0)
     }
 
     private func saveSettings() {
