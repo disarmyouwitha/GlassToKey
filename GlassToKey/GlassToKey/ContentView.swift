@@ -326,7 +326,7 @@ struct ContentView: View {
                             }
                             .pickerStyle(MenuPickerStyle())
                         }
-                        Toggle("Auto-resync missing trackpads", isOn: Binding(
+                        Toggle("Auto-resync disconnected trackpads", isOn: Binding(
                             get: { storedAutoResyncMissingTrackpads },
                             set: { newValue in
                                 storedAutoResyncMissingTrackpads = newValue
@@ -334,7 +334,7 @@ struct ContentView: View {
                             }
                         ))
                         .toggleStyle(SwitchToggleStyle())
-                        .help("Polls for missing trackpads every 8 seconds while enabled.")
+                        .help("Polls every 8 seconds to detect disconnected trackpads.")
                         if viewModel.hasDisconnectedTrackpads {
                             Text("Status icon warns when a selected trackpad is unavailable.")
                                 .font(.caption2)

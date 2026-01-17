@@ -272,9 +272,7 @@ final class ContentViewModel: ObservableObject {
                 break
             }
             guard autoResyncEnabled else { break }
-            if hasDisconnectedTrackpads {
-                loadDevices(preserveSelection: true)
-            }
+            loadDevices(preserveSelection: true)
         }
     }
 
