@@ -336,6 +336,7 @@ final class ContentViewModel: ObservableObject {
         var maxDistanceSquared: CGFloat
         let initialPressure: Float
         var forceEntryTime: Date?
+        var forceGuardTriggered: Bool
 
         mutating func registerForce(
             pressure: Float,
@@ -347,12 +348,16 @@ final class ContentViewModel: ObservableObject {
                 forceEntryTime = nil
                 return false
             }
+            if forceGuardTriggered {
+                return true
+            }
             let delta = max(0, pressure - initialPressure)
             if delta >= threshold {
                 if forceEntryTime == nil {
                     forceEntryTime = now
                 }
                 if duration <= 0 || now.timeIntervalSince(forceEntryTime!) >= duration {
+                    forceGuardTriggered = true
                     return true
                 }
             } else {
@@ -369,6 +374,7 @@ final class ContentViewModel: ObservableObject {
         var maxDistanceSquared: CGFloat
         let initialPressure: Float
         var forceEntryTime: Date?
+        var forceGuardTriggered: Bool
 
         mutating func registerForce(
             pressure: Float,
@@ -380,12 +386,16 @@ final class ContentViewModel: ObservableObject {
                 forceEntryTime = nil
                 return false
             }
+            if forceGuardTriggered {
+                return true
+            }
             let delta = max(0, pressure - initialPressure)
             if delta >= threshold {
                 if forceEntryTime == nil {
                     forceEntryTime = now
                 }
                 if duration <= 0 || now.timeIntervalSince(forceEntryTime!) >= duration {
+                    forceGuardTriggered = true
                     return true
                 }
             } else {
@@ -479,9 +489,7 @@ final class ContentViewModel: ObservableObject {
                Self.isContactState(touch.state) {
                 touchInitialContactPoint[touchKey] = point
             }
-            if handleForceGuard(touchKey: touchKey, pressure: touch.pressure, now: now) {
-                continue
-            }
+            handleForceGuard(touchKey: touchKey, pressure: touch.pressure, now: now)
             let bindingAtPoint = binding(at: point, bindings: bindings)
 
             if disqualifiedTouches.contains(touchKey) {
@@ -613,7 +621,8 @@ final class ContentViewModel: ObservableObject {
                                 didHold: false,
                                 maxDistanceSquared: pending.maxDistanceSquared,
                                 initialPressure: pending.initialPressure,
-                                forceEntryTime: pending.forceEntryTime
+                                forceEntryTime: pending.forceEntryTime,
+                                forceGuardTriggered: pending.forceGuardTriggered
                             )
                             pendingTouches.removeValue(forKey: touchKey)
                             if let modifierKey {
@@ -639,7 +648,8 @@ final class ContentViewModel: ObservableObject {
                             startPoint: point,
                             maxDistanceSquared: 0,
                             initialPressure: touch.pressure,
-                            forceEntryTime: nil
+                            forceEntryTime: nil,
+                            forceGuardTriggered: false
                         )
                     } else {
                         activeTouches[touchKey] = ActiveTouch(
@@ -652,7 +662,8 @@ final class ContentViewModel: ObservableObject {
                             didHold: false,
                             maxDistanceSquared: 0,
                             initialPressure: touch.pressure,
-                            forceEntryTime: nil
+                            forceEntryTime: nil,
+                            forceGuardTriggered: false
                         )
                         if let modifierKey {
                             handleModifierDown(modifierKey, binding: binding)
@@ -675,17 +686,22 @@ final class ContentViewModel: ObservableObject {
                     continue
                 }
                 if let active = activeTouches.removeValue(forKey: touchKey) {
+                    let guardTriggered = active.forceGuardTriggered
                     if let modifierKey = active.modifierKey {
                         handleModifierUp(modifierKey, binding: active.binding)
                     } else if active.isContinuousKey {
                         stopRepeat(for: touchKey)
-                    } else if !active.didHold,
+                    } else if !guardTriggered,
+                              !active.didHold,
                               now.timeIntervalSince(active.startTime) <= tapMaxDuration,
                               (!isDragDetectionEnabled
                                || active.maxDistanceSquared <= dragCancelDistanceSquared) {
                         triggerBinding(active.binding, touchKey: touchKey)
                     }
                     endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
+                    if guardTriggered {
+                        continue
+                    }
                 }
             case .notTouching:
                 if let candidate = twoFingerTapCandidatesByDevice[touch.deviceID],
@@ -747,34 +763,28 @@ final class ContentViewModel: ObservableObject {
         touchKey: TouchKey,
         pressure: Float,
         now: Date
-    ) -> Bool {
-        guard forceClickThreshold > 0 else { return false }
+    ) {
+        guard forceClickThreshold > 0 else { return }
         if var active = activeTouches[touchKey] {
-            let disqualified = active.registerForce(
+            let triggered = active.registerForce(
                 pressure: pressure,
                 threshold: forceClickThreshold,
                 duration: forceClickHoldDuration,
                 now: now
             )
-            activeTouches[touchKey] = active
-            if disqualified {
-                disqualifyTouch(touchKey)
-                return true
+            if triggered {
+                stopRepeat(for: touchKey)
             }
+            activeTouches[touchKey] = active
         } else if var pending = pendingTouches[touchKey] {
-            let disqualified = pending.registerForce(
+            let triggered = pending.registerForce(
                 pressure: pressure,
                 threshold: forceClickThreshold,
                 duration: forceClickHoldDuration,
                 now: now
             )
             pendingTouches[touchKey] = pending
-            if disqualified {
-                disqualifyTouch(touchKey)
-                return true
-            }
         }
-        return false
     }
 
     private func cancelTwoFingerTapTouch(_ touchKey: TouchKey) {
@@ -1061,7 +1071,8 @@ final class ContentViewModel: ObservableObject {
               Date().timeIntervalSince(pending.startTime) <= tapMaxDuration,
               pending.binding.rect.contains(point),
               (!isDragDetectionEnabled
-               || pending.maxDistanceSquared <= dragCancelDistance * dragCancelDistance) else {
+               || pending.maxDistanceSquared <= dragCancelDistance * dragCancelDistance),
+              !pending.forceGuardTriggered else {
             return
         }
         sendKey(binding: pending.binding)

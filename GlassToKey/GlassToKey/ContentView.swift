@@ -267,7 +267,7 @@ struct ContentView: View {
                         rightGridLabels: rightGridLabels,
                         customButtons: customButtons,
                         editModeEnabled: $editModeEnabled,
-                         visualsEnabled: $visualsEnabled,
+                        visualsEnabled: $visualsEnabled,
                         selectedButtonID: $selectedButtonID,
                         selectedColumn: $selectedColumn,
                         selectedGridKey: $selectedGridKey
