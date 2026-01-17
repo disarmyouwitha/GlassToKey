@@ -54,7 +54,7 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.keyMappings) private var storedKeyMappingsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = 200.0
     @AppStorage(GlassToKeyDefaultsKeys.twoFingerTapInterval) private var twoFingerTapIntervalMs: Double = 80.0
-    @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = 2.5
+    @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = 1.0
     @AppStorage(GlassToKeyDefaultsKeys.forceClickThreshold) private var forceClickThresholdSetting: Double = 0.7
     @AppStorage(GlassToKeyDefaultsKeys.forceClickHoldDuration) private var forceClickHoldDurationMs: Double = 0.0
     static let trackpadWidthMM: CGFloat = 160.0
@@ -66,7 +66,7 @@ struct ContentView: View {
     private static let columnScaleRange: ClosedRange<Double> = ColumnLayoutDefaults.scaleRange
     private static let columnOffsetPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.offsetPercentRange
     static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
-    private static let dragCancelDistanceRange: ClosedRange<Double> = 0.5...15.0
+    private static let dragCancelDistanceRange: ClosedRange<Double> = 1.0...30.0
     private static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
     private static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...250.0
     private static let forceClickThresholdRange: ClosedRange<Double> = 0.0...1.0
@@ -584,7 +584,7 @@ struct ContentView: View {
                             GridRow {
                                 Text("Drag Cancel")
                                 TextField(
-                                    "2.5",
+                                    "1",
                                     value: $dragCancelDistanceSetting,
                                     formatter: Self.dragCancelDistanceFormatter
                                 )
@@ -592,7 +592,7 @@ struct ContentView: View {
                                 Slider(
                                     value: $dragCancelDistanceSetting,
                                     in: Self.dragCancelDistanceRange,
-                                    step: 0.5
+                                    step: 1
                                 )
                                 .frame(minWidth: 120)
                             }
@@ -1472,8 +1472,8 @@ struct ContentView: View {
     }
 
     private func loadKeyMappings() {
-        if let decoded = KeyActionMappingStore.decode(storedKeyMappingsData) {
-            keyMappingsByLayer = normalizedLayerMappings(decoded)
+        if let decoded = KeyActionMappingStore.decodeNormalized(storedKeyMappingsData) {
+            keyMappingsByLayer = decoded
         } else {
             keyMappingsByLayer = [0: [:], 1: [:]]
         }
@@ -2023,12 +2023,6 @@ struct ContentView: View {
                 viewModel.setPersistentLayer(isOn ? 1 : 0)
             }
         )
-    }
-
-    private func normalizedLayerMappings(_ mappings: LayeredKeyMappings) -> LayeredKeyMappings {
-        let layer0 = mappings[0] ?? [:]
-        let layer1 = mappings[1] ?? layer0
-        return [0: layer0, 1: layer1]
     }
 
     private func keyMappingsForActiveLayer() -> [String: KeyMapping] {

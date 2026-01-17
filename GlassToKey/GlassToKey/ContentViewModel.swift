@@ -2232,6 +2232,11 @@ enum KeyActionMappingStore {
         return nil
     }
 
+    static func decodeNormalized(_ data: Data) -> LayeredKeyMappings? {
+        guard let layered = decode(data) else { return nil }
+        return normalized(layered)
+    }
+
     static func encode(_ mappings: LayeredKeyMappings) -> Data? {
         guard !mappings.isEmpty else { return nil }
         do {
@@ -2239,5 +2244,11 @@ enum KeyActionMappingStore {
         } catch {
             return nil
         }
+    }
+
+    static func normalized(_ mappings: LayeredKeyMappings) -> LayeredKeyMappings {
+        let layer0 = mappings[0] ?? [:]
+        let layer1 = mappings[1] ?? layer0
+        return [0: layer0, 1: layer1]
     }
 }

@@ -75,6 +75,9 @@ final class GlassToKeyController: ObservableObject {
         let customButtons = loadCustomButtons()
         viewModel.updateCustomButtons(customButtons)
 
+        let keyMappings = loadKeyMappings()
+        viewModel.updateKeyMappings(keyMappings)
+
         let leftDeviceID = stringValue(forKey: GlassToKeyDefaultsKeys.leftDeviceID)
         let rightDeviceID = stringValue(forKey: GlassToKeyDefaultsKeys.rightDeviceID)
         if let leftDevice = deviceForID(leftDeviceID) {
@@ -102,6 +105,15 @@ final class GlassToKeyController: ObservableObject {
             trackpadHeight: ContentView.trackpadHeightMM,
             thumbAnchorsMM: ContentView.ThumbAnchorsMM
         )
+    }
+
+    private func loadKeyMappings() -> LayeredKeyMappings {
+        let defaults = UserDefaults.standard
+        if let data = defaults.data(forKey: GlassToKeyDefaultsKeys.keyMappings),
+           let mappings = KeyActionMappingStore.decodeNormalized(data) {
+            return mappings
+        }
+        return [0: [:], 1: [:]]
     }
 
     private func resolvedLayoutPreset() -> TrackpadLayoutPreset {
