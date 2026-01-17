@@ -49,7 +49,6 @@
 - Debug logging: `ContentViewModel.TouchProcessor` logs key dispatches and disqualification reasons under `KeyDiagnostics` in DEBUG builds.
 
 ## TODO
-- If 1 or more trackpads are disconnected, show a warning triangle in the status bar to sync. (Or would it be better to try and resync every 5-10sec while trackpad is not connected? - if so, it should be an option so ppl can use the program w 1 trackpad)
 - refactor 2 finger click??
 - Refactor from the driver/api layer, any efficiency we can gain by rewrites?
 ###
@@ -57,6 +56,3 @@
 - Have Codex refactor the GUI for effiency
 - "Auto" set column x,y based on finger splay "4 finger touch"
 - Toggle for capturing clicks using CGEventTapCreate??
-
-## FUTURE
-- Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight
