@@ -48,7 +48,7 @@
 - no notes
 
 ## TODO
-- › if mouseDown is further from mouseRelease than the Drag Cancel % the keystroke should be suppressed onrelease
+- Refactor from the driver/api layer, any efficiency we can gain by rewrites?
 - If 1 or more trackpads are disconnected, show a warning triangle in the status bar to sync. (Or would it be better to try and resync every 5-10sec while trackpad is not connected?)
 - refactor 2 finger click??
 - Have Codex refactor the code for compiler efficiency and runtime efficiency. Leave no stone unturned!
