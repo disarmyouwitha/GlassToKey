@@ -197,6 +197,14 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button(action: {
+                    viewModel.loadDevices()
+                }) {
+                    Image(systemName: "arrow.clockwise")
+                        .imageScale(.medium)
+                }
+                .buttonStyle(.bordered)
+                .help("Refresh trackpad list")
                 Toggle("Edit", isOn: $editModeEnabled)
                     .toggleStyle(SwitchToggleStyle())
                 Toggle("Visuals", isOn: $visualsEnabled)
