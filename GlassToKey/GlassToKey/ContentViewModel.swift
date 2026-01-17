@@ -8,6 +8,7 @@
 import Carbon
 import CoreGraphics
 import OpenMultitouchSupport
+import QuartzCore
 import SwiftUI
 import os
 
@@ -354,7 +355,7 @@ final class ContentViewModel: ObservableObject {
 
         private struct ActiveTouch {
             let binding: KeyBinding
-            let startTime: Date
+            let startTime: TimeInterval
             let startPoint: CGPoint
             let modifierKey: ModifierKey?
             let isContinuousKey: Bool
@@ -362,14 +363,14 @@ final class ContentViewModel: ObservableObject {
             var didHold: Bool
             var maxDistanceSquared: CGFloat
             let initialPressure: Float
-            var forceEntryTime: Date?
+            var forceEntryTime: TimeInterval?
             var forceGuardTriggered: Bool
 
             mutating func registerForce(
                 pressure: Float,
                 threshold: Float,
                 duration: TimeInterval,
-                now: Date
+                now: TimeInterval
             ) -> Bool {
                 guard threshold > 0 else {
                     forceEntryTime = nil
@@ -383,7 +384,7 @@ final class ContentViewModel: ObservableObject {
                     if forceEntryTime == nil {
                         forceEntryTime = now
                     }
-                    if duration <= 0 || now.timeIntervalSince(forceEntryTime!) >= duration {
+                    if duration <= 0 || now - (forceEntryTime ?? now) >= duration {
                         forceGuardTriggered = true
                         return true
                     }
@@ -396,18 +397,18 @@ final class ContentViewModel: ObservableObject {
 
         private struct PendingTouch {
             let binding: KeyBinding
-            let startTime: Date
+            let startTime: TimeInterval
             let startPoint: CGPoint
             var maxDistanceSquared: CGFloat
             let initialPressure: Float
-            var forceEntryTime: Date?
+            var forceEntryTime: TimeInterval?
             var forceGuardTriggered: Bool
 
             mutating func registerForce(
                 pressure: Float,
                 threshold: Float,
                 duration: TimeInterval,
-                now: Date
+                now: TimeInterval
             ) -> Bool {
                 guard threshold > 0 else {
                     forceEntryTime = nil
@@ -421,7 +422,7 @@ final class ContentViewModel: ObservableObject {
                     if forceEntryTime == nil {
                         forceEntryTime = now
                     }
-                    if duration <= 0 || now.timeIntervalSince(forceEntryTime!) >= duration {
+                    if duration <= 0 || now - (forceEntryTime ?? now) >= duration {
                         forceGuardTriggered = true
                         return true
                     }
@@ -434,7 +435,7 @@ final class ContentViewModel: ObservableObject {
 
         private struct TwoFingerTapCandidate {
             let touchKey: TouchKey
-            let startTime: Date
+            let startTime: TimeInterval
         }
 
         private struct BindingIndex {
@@ -467,7 +468,7 @@ final class ContentViewModel: ObservableObject {
         private var commandTouchCount = 0
         private var repeatTasks: [TouchKey: Task<Void, Never>] = [:]
         private var repeatTokens: [TouchKey: RepeatToken] = [:]
-        private var toggleTouchStarts: [TouchKey: Date] = [:]
+        private var toggleTouchStarts: [TouchKey: TimeInterval] = [:]
         private var layerToggleTouchStarts: [TouchKey: Int] = [:]
         private var momentaryLayerTouches: [TouchKey: Int] = [:]
         private var touchInitialContactPoint: [TouchKey: CGPoint] = [:]
@@ -643,7 +644,7 @@ final class ContentViewModel: ObservableObject {
             )
             defer { signposter.endInterval("ProcessTouches", state) }
             #endif
-            let now = Date()
+            let now = Self.now()
             let dragCancelDistanceSquared = dragCancelDistance * dragCancelDistance
             let side: TrackpadSide = isLeftSide ? .left : .right
             let bindings = bindings(
@@ -776,10 +777,10 @@ final class ContentViewModel: ObservableObject {
                         }
 
                         if active.modifierKey == nil,
-                           !active.isContinuousKey,
+                        !active.isContinuousKey,
                            !active.didHold,
-                            let holdBinding = active.holdBinding,
-                           now.timeIntervalSince(active.startTime) >= holdMinDuration,
+                           let holdBinding = active.holdBinding,
+                           now - active.startTime >= holdMinDuration,
                            (!isDragDetectionEnabled || active.maxDistanceSquared <= dragCancelDistanceSquared) {
                             triggerBinding(holdBinding, touchKey: touchKey)
                             active.didHold = true
@@ -796,7 +797,7 @@ final class ContentViewModel: ObservableObject {
                             continue
                         }
 
-                        if now.timeIntervalSince(pending.startTime) >= modifierActivationDelay {
+                        if now - pending.startTime >= modifierActivationDelay {
                             if pending.binding.rect.contains(point) {
                                 let modifierKey = modifierKey(for: pending.binding)
                                 let isContinuousKey = isContinuousKey(pending.binding)
@@ -834,8 +835,8 @@ final class ContentViewModel: ObservableObject {
                         if isDragDetectionEnabled, (modifierKey != nil || isContinuousKey) {
                             pendingTouches[touchKey] = PendingTouch(
                                 binding: binding,
-                                startTime: now,
-                                startPoint: point,
+                        startTime: now,
+                        startPoint: point,
                                 maxDistanceSquared: 0,
                                 initialPressure: touch.pressure,
                                 forceEntryTime: nil,
@@ -872,7 +873,7 @@ final class ContentViewModel: ObservableObject {
                     if var pending = pendingTouches.removeValue(forKey: touchKey) {
                         let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
                         pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
-                        maybeSendPendingContinuousTap(pending, at: point)
+                        maybeSendPendingContinuousTap(pending, at: point, now: now)
                     }
                     if disqualifiedTouches.remove(touchKey) != nil {
                         continue
@@ -890,7 +891,7 @@ final class ContentViewModel: ObservableObject {
                             stopRepeat(for: touchKey)
                         } else if !guardTriggered,
                                   !active.didHold,
-                                  now.timeIntervalSince(active.startTime) <= tapMaxDuration,
+                                  now - active.startTime <= tapMaxDuration,
                                   (!isDragDetectionEnabled
                                    || releaseDistanceSquared <= dragCancelDistanceSquared) {
                             triggerBinding(active.binding, touchKey: touchKey)
@@ -909,7 +910,7 @@ final class ContentViewModel: ObservableObject {
                     if var pending = pendingTouches.removeValue(forKey: touchKey) {
                         let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
                         pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
-                        maybeSendPendingContinuousTap(pending, at: point)
+                        maybeSendPendingContinuousTap(pending, at: point, now: now)
                     }
                     if disqualifiedTouches.remove(touchKey) != nil {
                         continue
@@ -932,7 +933,7 @@ final class ContentViewModel: ObservableObject {
 
         private func collectTwoFingerTapSuppression(
             in touches: [OMSTouchData],
-            now: Date,
+            now: TimeInterval,
             activeTouchKeys: Set<TouchKey>
         ) -> [TouchKey] {
             var suppressed: [TouchKey] = []
@@ -945,7 +946,7 @@ final class ContentViewModel: ObservableObject {
                 if let candidate = twoFingerTapCandidatesByDevice[touch.deviceIndex] {
                     if !activeTouchKeys.contains(candidate.touchKey) {
                         twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
-                    } else if now.timeIntervalSince(candidate.startTime) <= twoFingerTapMaxInterval {
+                    } else if now - candidate.startTime <= twoFingerTapMaxInterval {
                         suppressed.append(candidate.touchKey)
                         suppressed.append(touchKey)
                         twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
@@ -963,7 +964,7 @@ final class ContentViewModel: ObservableObject {
         private func handleForceGuard(
             touchKey: TouchKey,
             pressure: Float,
-            now: Date
+            now: TimeInterval
         ) {
             guard forceClickThreshold > 0 else { return }
             if var active = activeTouches[touchKey] {
@@ -1165,7 +1166,7 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func binding(at point: CGPoint, index: BindingIndex) -> KeyBinding? {
-            if let row = index.rowRanges.firstIndex(where: { $0.contains(point.y) }) {
+            for row in index.rowRanges.indices where index.rowRanges[row].contains(point.y) {
                 let colRanges = index.colRangesByRow[row]
                 if let col = colRanges.firstIndex(where: { $0.contains(point.x) }) {
                     if let binding = index.gridBindings[row][col],
@@ -1194,7 +1195,7 @@ final class ContentViewModel: ObservableObject {
             switch state {
             case .starting, .making, .touching:
                 if toggleTouchStarts[touchKey] == nil {
-                    toggleTouchStarts[touchKey] = Date()
+                    toggleTouchStarts[touchKey] = Self.now()
                 }
             case .breaking, .leaving:
                 let didStart = toggleTouchStarts.removeValue(forKey: touchKey)
@@ -1320,10 +1321,14 @@ final class ContentViewModel: ObservableObject {
             )
         }
 
-        private func maybeSendPendingContinuousTap(_ pending: PendingTouch, at point: CGPoint) {
+        private func maybeSendPendingContinuousTap(
+            _ pending: PendingTouch,
+            at point: CGPoint,
+            now: TimeInterval
+        ) {
             let releaseDistanceSquared = distanceSquared(from: pending.startPoint, to: point)
             guard isContinuousKey(pending.binding),
-                  Date().timeIntervalSince(pending.startTime) <= tapMaxDuration,
+                  now - pending.startTime <= tapMaxDuration,
                   pending.binding.rect.contains(point),
                   (!isDragDetectionEnabled
                    || releaseDistanceSquared <= dragCancelDistance * dragCancelDistance),
@@ -1575,6 +1580,10 @@ final class ContentViewModel: ObservableObject {
             default:
                 break
             }
+        }
+
+        private static func now() -> TimeInterval {
+            CACurrentMediaTime()
         }
 
         private func invalidateBindingsCache() {
