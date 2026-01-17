@@ -13,4 +13,5 @@ enum GlassToKeyDefaultsKeys {
     static let forceClickThreshold = "GlassToKey.forceClickThreshold"
     static let forceClickHoldDuration = "GlassToKey.forceClickHoldDuration"
     static let layoutPreset = "GlassToKey.layoutPreset"
+    static let autoResyncMissingTrackpads = "GlassToKey.autoResyncMissingTrackpads"
 }

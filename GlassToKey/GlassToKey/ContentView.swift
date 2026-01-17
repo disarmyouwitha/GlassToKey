@@ -52,6 +52,7 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.layoutPreset) private var storedLayoutPreset = TrackpadLayoutPreset.sixByThree.rawValue
     @AppStorage(GlassToKeyDefaultsKeys.customButtons) private var storedCustomButtonsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.keyMappings) private var storedKeyMappingsData = Data()
+    @AppStorage(GlassToKeyDefaultsKeys.autoResyncMissingTrackpads) private var storedAutoResyncMissingTrackpads = false
     @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = GlassToKeySettings.tapHoldDurationMs
     @AppStorage(GlassToKeyDefaultsKeys.twoFingerTapInterval) private var twoFingerTapIntervalMs: Double = GlassToKeySettings.twoFingerTapIntervalMs
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
@@ -325,6 +326,15 @@ struct ContentView: View {
                             }
                             .pickerStyle(MenuPickerStyle())
                         }
+                        Toggle("Auto-resync disconnected trackpads", isOn: Binding(
+                            get: { storedAutoResyncMissingTrackpads },
+                            set: { newValue in
+                                storedAutoResyncMissingTrackpads = newValue
+                                viewModel.setAutoResyncEnabled(newValue)
+                            }
+                        ))
+                        .toggleStyle(SwitchToggleStyle())
+                        .help("Polls every 8 seconds to detect disconnected trackpads.")
                     }
                     .padding(12)
                     .background(
@@ -684,6 +694,9 @@ struct ContentView: View {
                 selectedColumn = nil
                 selectedGridKey = nil
             }
+        }
+        .onAppear {
+            viewModel.setAutoResyncEnabled(storedAutoResyncMissingTrackpads)
         }
         .onChange(of: columnSettings) { newValue in
             applyColumnSettings(newValue)

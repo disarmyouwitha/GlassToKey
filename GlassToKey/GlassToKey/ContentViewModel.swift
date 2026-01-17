@@ -98,6 +98,16 @@ final class ContentViewModel: ObservableObject {
     @Published var availableDevices = [OMSDeviceInfo]()
     @Published var leftDevice: OMSDeviceInfo?
     @Published var rightDevice: OMSDeviceInfo?
+    @Published private(set) var hasDisconnectedTrackpads = false
+
+    private var requestedLeftDeviceID: String?
+    private var requestedRightDeviceID: String?
+    private var autoResyncTask: Task<Void, Never>?
+    private var autoResyncEnabled = false
+    private static let connectedResyncIntervalSeconds: TimeInterval = 10.0
+    private static let disconnectedResyncIntervalSeconds: TimeInterval = 1.0
+    private static let connectedResyncIntervalNanoseconds = UInt64(connectedResyncIntervalSeconds * 1_000_000_000)
+    private static let disconnectedResyncIntervalNanoseconds = UInt64(disconnectedResyncIntervalSeconds * 1_000_000_000)
 
     private let manager = OMSManager.shared
     private var task: Task<Void, Never>?
@@ -173,48 +183,102 @@ final class ContentViewModel: ObservableObject {
     }
     
     func loadDevices(preserveSelection: Bool = false) {
-        let previousLeftDeviceID = preserveSelection ? leftDevice?.deviceID : nil
-        let previousRightDeviceID = preserveSelection ? rightDevice?.deviceID : nil
+        let previousLeftDeviceID = preserveSelection ? requestedLeftDeviceID : nil
+        let previousRightDeviceID = preserveSelection ? requestedRightDeviceID : nil
         availableDevices = manager.availableDevices
 
-        func device(matching deviceID: String?, excluding excludedID: String? = nil) -> OMSDeviceInfo? {
-            guard let deviceID else { return nil }
-            return availableDevices.first {
-                $0.deviceID == deviceID && $0.deviceID != excludedID
-            }
-        }
-
-        if preserveSelection {
-            leftDevice = device(matching: previousLeftDeviceID)
-            if leftDevice == nil {
-                leftDevice = availableDevices.first
-            }
-            rightDevice = device(matching: previousRightDeviceID, excluding: leftDevice?.deviceID)
-            if rightDevice == nil {
-                rightDevice = availableDevices.first(where: {
-                    $0.deviceID != leftDevice?.deviceID
-                })
-            }
-        } else {
+        if let matchingLeftID = previousLeftDeviceID,
+           let matchingLeft = availableDevices.first(where: { $0.deviceID == matchingLeftID }) {
+            leftDevice = matchingLeft
+        } else if preserveSelection, previousLeftDeviceID != nil {
+            leftDevice = nil
+        } else if !preserveSelection {
             leftDevice = availableDevices.first
-            if availableDevices.count > 1 {
-                rightDevice = availableDevices[1]
-            } else {
-                rightDevice = nil
-            }
+        } else {
+            leftDevice = nil
         }
 
+        let shouldFallbackRight = !preserveSelection || (preserveSelection && previousRightDeviceID != nil)
+        if let matchingRightID = previousRightDeviceID,
+           let matchingRight = availableDevices.first(where: { $0.deviceID == matchingRightID }) {
+            rightDevice = matchingRight
+        } else if shouldFallbackRight {
+            rightDevice = availableDevices.first(where: { candidate in
+                guard let leftID = leftDevice?.deviceID else { return true }
+                return candidate.deviceID != leftID
+            })
+        } else {
+            rightDevice = nil
+        }
+
+        if !preserveSelection {
+            requestedLeftDeviceID = leftDevice?.deviceID
+            requestedRightDeviceID = rightDevice?.deviceID
+        }
+
+        updateDisconnectedTrackpadState()
         updateActiveDevices()
     }
     
     func selectLeftDevice(_ device: OMSDeviceInfo?) {
+        requestedLeftDeviceID = device?.deviceID
         leftDevice = device
+        updateDisconnectedTrackpadState()
         updateActiveDevices()
     }
 
     func selectRightDevice(_ device: OMSDeviceInfo?) {
+        requestedRightDeviceID = device?.deviceID
         rightDevice = device
+        updateDisconnectedTrackpadState()
         updateActiveDevices()
+    }
+
+    private func updateDisconnectedTrackpadState() {
+        let availableIDs = Set(availableDevices.map(\.deviceID))
+        var hasMissing = false
+        if let leftID = requestedLeftDeviceID,
+           !leftID.isEmpty,
+           !availableIDs.contains(leftID) {
+            hasMissing = true
+        }
+        if let rightID = requestedRightDeviceID,
+           !rightID.isEmpty,
+           !availableIDs.contains(rightID) {
+            hasMissing = true
+        }
+        if hasDisconnectedTrackpads != hasMissing {
+            hasDisconnectedTrackpads = hasMissing
+        }
+    }
+
+    func setAutoResyncEnabled(_ enabled: Bool) {
+        guard autoResyncEnabled != enabled else { return }
+        autoResyncEnabled = enabled
+        autoResyncTask?.cancel()
+        autoResyncTask = nil
+        if enabled {
+            loadDevices(preserveSelection: true)
+            autoResyncTask = Task { [weak self] in
+                guard let self = self else { return }
+                await self.autoResyncLoop()
+            }
+        }
+    }
+
+    private func autoResyncLoop() async {
+        while autoResyncEnabled {
+            let interval = hasDisconnectedTrackpads
+                ? Self.disconnectedResyncIntervalNanoseconds
+                : Self.connectedResyncIntervalNanoseconds
+            do {
+                try await Task.sleep(nanoseconds: interval)
+            } catch {
+                break
+            }
+            guard autoResyncEnabled else { break }
+            loadDevices(preserveSelection: true)
+        }
     }
 
     func configureLayouts(
@@ -338,6 +402,10 @@ final class ContentViewModel: ObservableObject {
         Task { [processor] in
             await processor.resetState()
         }
+    }
+
+    deinit {
+        autoResyncTask?.cancel()
     }
 
     private actor TouchProcessor {
