@@ -198,7 +198,7 @@ struct ContentView: View {
                 }
                 Spacer()
                 Button(action: {
-                    viewModel.loadDevices()
+                    viewModel.loadDevices(preserveSelection: true)
                 }) {
                     Image(systemName: "arrow.clockwise")
                         .imageScale(.medium)

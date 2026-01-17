@@ -94,6 +94,7 @@
 @property (strong, readwrite) NSMutableDictionary<NSValue *, NSString *> *deviceIDsByRef;
 @property (copy, readwrite) NSString *primaryDeviceID;
 
+- (NSArray<OpenMTDeviceInfo *> *)collectAvailableDevices;
 @end
 
 @implementation OpenMTManager
@@ -125,7 +126,7 @@
 }
 
 
-- (void)enumerateDevices {
+- (NSArray<OpenMTDeviceInfo *> *)collectAvailableDevices {
     NSMutableArray<OpenMTDeviceInfo *> *devices = [NSMutableArray array];
     
     if (MTDeviceCreateList) {
@@ -134,7 +135,6 @@
             CFIndex count = CFArrayGetCount(deviceList);
             for (CFIndex i = 0; i < count; i++) {
                 MTDeviceRef deviceRef = (MTDeviceRef)CFArrayGetValueAtIndex(deviceList, i);
-                // No need to retain deviceRef for device info objects
                 OpenMTDeviceInfo *deviceInfo = [[OpenMTDeviceInfo alloc] initWithDeviceRef:deviceRef];
                 [devices addObject:deviceInfo];
             }
@@ -142,17 +142,21 @@
         }
     }
     
-    // Fallback to default device if no devices found
     if (devices.count == 0 && MTDeviceIsAvailable()) {
         MTDeviceRef defaultDevice = MTDeviceCreateDefault();
         if (defaultDevice) {
             OpenMTDeviceInfo *deviceInfo = [[OpenMTDeviceInfo alloc] initWithDeviceRef:defaultDevice];
             [devices addObject:deviceInfo];
-            // Don't release defaultDevice here since we store the reference
+            // Don't release defaultDevice here since we store the reference elsewhere
         }
     }
     
-    self.availableDeviceInfos = [devices copy];
+    return [devices copy];
+}
+
+- (void)enumerateDevices {
+    NSArray<OpenMTDeviceInfo *> *devices = [self collectAvailableDevices];
+    self.availableDeviceInfos = devices;
     if (devices.count > 0) {
         OpenMTDeviceInfo *defaultDevice = devices[0];
         self.activeDeviceInfos = @[defaultDevice];
@@ -346,6 +350,10 @@
 }
 
 // Public Functions
+- (void)refreshAvailableDevices {
+    self.availableDeviceInfos = [self collectAvailableDevices];
+}
+
 - (NSArray<OpenMTDeviceInfo *> *)availableDevices {
     return self.availableDeviceInfos;
 }

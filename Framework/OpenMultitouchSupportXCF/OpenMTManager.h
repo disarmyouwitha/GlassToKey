@@ -27,6 +27,7 @@
 - (NSArray<OpenMTDeviceInfo *> *)availableDevices;
 - (BOOL)setActiveDevices:(NSArray<OpenMTDeviceInfo *> *)deviceInfos;
 - (NSArray<OpenMTDeviceInfo *> *)activeDevices;
+- (void)refreshAvailableDevices;
 
 - (OpenMTListener *)addListenerWithTarget:(id)target selector:(SEL)selector;
 - (void)removeListener:(OpenMTListener *)listener;

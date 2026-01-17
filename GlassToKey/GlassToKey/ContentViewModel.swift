@@ -209,14 +209,38 @@ final class ContentViewModel: ObservableObject {
         }
     }
     
-    func loadDevices() {
+    func loadDevices(preserveSelection: Bool = false) {
+        let previousLeftDeviceID = preserveSelection ? leftDevice?.deviceID : nil
+        let previousRightDeviceID = preserveSelection ? rightDevice?.deviceID : nil
         availableDevices = manager.availableDevices
-        leftDevice = availableDevices.first
-        if availableDevices.count > 1 {
-            rightDevice = availableDevices[1]
-        } else {
-            rightDevice = nil
+
+        func device(matching deviceID: String?, excluding excludedID: String? = nil) -> OMSDeviceInfo? {
+            guard let deviceID else { return nil }
+            return availableDevices.first {
+                $0.deviceID == deviceID && $0.deviceID != excludedID
+            }
         }
+
+        if preserveSelection {
+            leftDevice = device(matching: previousLeftDeviceID)
+            if leftDevice == nil {
+                leftDevice = availableDevices.first
+            }
+            rightDevice = device(matching: previousRightDeviceID, excluding: leftDevice?.deviceID)
+            if rightDevice == nil {
+                rightDevice = availableDevices.first(where: {
+                    $0.deviceID != leftDevice?.deviceID
+                })
+            }
+        } else {
+            leftDevice = availableDevices.first
+            if availableDevices.count > 1 {
+                rightDevice = availableDevices[1]
+            } else {
+                rightDevice = nil
+            }
+        }
+
         updateActiveDevices()
     }
     

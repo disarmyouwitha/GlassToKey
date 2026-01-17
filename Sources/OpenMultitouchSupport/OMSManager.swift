@@ -65,6 +65,7 @@ public final class OMSManager: Sendable {
     
     public var availableDevices: [OMSDeviceInfo] {
         guard let xcfManager = protectedManager.withLockUnchecked(\.self) else { return [] }
+        xcfManager.refreshAvailableDevices()
         return xcfManager.availableDevices().map { OMSDeviceInfo($0) }
     }
     

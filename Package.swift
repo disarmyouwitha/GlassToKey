@@ -20,8 +20,8 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "OpenMultitouchSupportXCF",
-            url: "https://github.com/disarmyouwitha/GlassToKey/releases/download/v1.1.0/OpenMultitouchSupportXCF.xcframework.zip",
-            checksum: "0d5bf40281fd0afd0045f52453464b5ba901b5779b381fbf6dacfd867efd09ad"
+            url: "https://github.com/disarmyouwitha/GlassToKey/releases/download/v1.1.1/OpenMultitouchSupportXCF.xcframework.zip",
+            checksum: "50bba4ff479e4cf0ea100a45e22c94ed38a597b2174da04b2e29e074e01d939b"
         ),
         .target(
             name: "OpenMultitouchSupport",
