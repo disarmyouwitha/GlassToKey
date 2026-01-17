@@ -20,6 +20,8 @@ Clicking the indicator light will allow you to view the Config or Quit the progr
 - Tap/Hold (ms): Time in miliseconds until a tap becomds a hold
 - Drag Cancel (px): How far you need to move before top becomes a drag
 - 2-Finger Tap (ms): Time in miliseconds of 2-finger tap detection. [0 = no detection; quickest rollovers]
+- Force Delta: Pressure delta (0.0–1.0) beyond the initial touch pressure that counts as a force click, used to suppress accidental typing while clicking/dragging.
+- Force Guard (ms): Optional hold duration after the force delta is detected before keystrokes are blocked, giving you control over how aggressively force press gestures cancel typing.
 
 ## FUTURE
 - Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight
