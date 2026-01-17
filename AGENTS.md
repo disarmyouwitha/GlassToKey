@@ -50,7 +50,7 @@
 ## TODO
 - when a tap is started but release happens more than X pixels away, it should not send the keystroke (Is that what Drag Cancel does???)
 - 2-finger tap is back =x 
-- when starting drag from space/backspace it fires the keystroke, un,like other keys.
+- when starting drag from space/backspace it fires the keystroke, unlike other keys.
 - "Auto" set column x,y based on finger splay "4 finger touch"
 - If 1 or more trackpads are disconnected, show a warning triangle in the status bar to sync. (Or would it be better to try and resync every 5-10sec while trackpad is not connected?)
 - Have Codex refactor the code for compiler efficiency and runtime efficiency. Leave no stone unturned!

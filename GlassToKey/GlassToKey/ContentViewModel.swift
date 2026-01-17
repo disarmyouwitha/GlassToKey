@@ -572,7 +572,6 @@ final class ContentViewModel: ObservableObject {
 
                     if isDragDetectionEnabled,
                        active.modifierKey == nil,
-                       !active.isContinuousKey,
                        !active.didHold,
                        active.maxDistanceSquared > dragCancelDistanceSquared {
                         disqualifyTouch(touchKey)
