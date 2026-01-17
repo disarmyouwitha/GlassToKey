@@ -52,11 +52,11 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.layoutPreset) private var storedLayoutPreset = TrackpadLayoutPreset.sixByThree.rawValue
     @AppStorage(GlassToKeyDefaultsKeys.customButtons) private var storedCustomButtonsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.keyMappings) private var storedKeyMappingsData = Data()
-    @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = 200.0
-    @AppStorage(GlassToKeyDefaultsKeys.twoFingerTapInterval) private var twoFingerTapIntervalMs: Double = 80.0
-    @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = 2.5
-    @AppStorage(GlassToKeyDefaultsKeys.forceClickThreshold) private var forceClickThresholdSetting: Double = 0.7
-    @AppStorage(GlassToKeyDefaultsKeys.forceClickHoldDuration) private var forceClickHoldDurationMs: Double = 0.0
+    @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = GlassToKeySettings.tapHoldDurationMs
+    @AppStorage(GlassToKeyDefaultsKeys.twoFingerTapInterval) private var twoFingerTapIntervalMs: Double = GlassToKeySettings.twoFingerTapIntervalMs
+    @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
+    @AppStorage(GlassToKeyDefaultsKeys.forceClickThreshold) private var forceClickThresholdSetting: Double = GlassToKeySettings.forceClickThreshold
+    @AppStorage(GlassToKeyDefaultsKeys.forceClickHoldDuration) private var forceClickHoldDurationMs: Double = GlassToKeySettings.forceClickHoldDurationMs
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -66,7 +66,7 @@ struct ContentView: View {
     private static let columnScaleRange: ClosedRange<Double> = ColumnLayoutDefaults.scaleRange
     private static let columnOffsetPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.offsetPercentRange
     static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
-    private static let dragCancelDistanceRange: ClosedRange<Double> = 0.5...15.0
+    private static let dragCancelDistanceRange: ClosedRange<Double> = 1.0...30.0
     private static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
     private static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...250.0
     private static let forceClickThresholdRange: ClosedRange<Double> = 0.0...1.0
@@ -584,7 +584,7 @@ struct ContentView: View {
                             GridRow {
                                 Text("Drag Cancel")
                                 TextField(
-                                    "2.5",
+                                    "1",
                                     value: $dragCancelDistanceSetting,
                                     formatter: Self.dragCancelDistanceFormatter
                                 )
@@ -592,7 +592,7 @@ struct ContentView: View {
                                 Slider(
                                     value: $dragCancelDistanceSetting,
                                     in: Self.dragCancelDistanceRange,
-                                    step: 0.5
+                                    step: 1
                                 )
                                 .frame(minWidth: 120)
                             }
@@ -736,7 +736,8 @@ struct ContentView: View {
         @Binding var selectedButtonID: UUID?
         @Binding var selectedColumn: Int?
         @Binding var selectedGridKey: SelectedGridKey?
-        @State private var displayTouchData = [OMSTouchData]()
+        @State private var displayLeftTouchesState = [OMSTouchData]()
+        @State private var displayRightTouchesState = [OMSTouchData]()
         @State private var lastTouchRevision: UInt64 = 0
         private let displayRefreshInterval: TimeInterval = 1.0 / 60.0
 
@@ -772,7 +773,8 @@ struct ContentView: View {
                 if enabled {
                     refreshTouchSnapshot(resetRevision: true)
                 } else {
-                    displayTouchData = []
+                    displayLeftTouchesState = []
+                    displayRightTouchesState = []
                 }
             }
             .task(id: visualsEnabled) {
@@ -792,31 +794,26 @@ struct ContentView: View {
         private func refreshTouchSnapshot(resetRevision: Bool) {
             let sinceRevision: UInt64 = resetRevision ? 0 : lastTouchRevision
             if let snapshot = viewModel.snapshotTouchDataIfUpdated(since: sinceRevision) {
-                displayTouchData = snapshot.data
+                displayLeftTouchesState = snapshot.left
+                displayRightTouchesState = snapshot.right
                 lastTouchRevision = snapshot.revision
             } else if resetRevision {
-                displayTouchData = viewModel.snapshotTouchData()
+                let snapshot = viewModel.snapshotTouchData()
+                displayLeftTouchesState = snapshot.left
+                displayRightTouchesState = snapshot.right
             }
         }
 
         private var displayLeftTouches: [OMSTouchData] {
-            touches(for: viewModel.leftDevice, in: displayTouchData)
+            displayLeftTouchesState
         }
 
         private var displayRightTouches: [OMSTouchData] {
-            touches(for: viewModel.rightDevice, in: displayTouchData)
+            displayRightTouchesState
         }
 
         private func customButtons(for side: TrackpadSide) -> [CustomButton] {
             customButtons.filter { $0.side == side && $0.layer == viewModel.activeLayer }
-        }
-
-        private func touches(
-            for device: OMSDeviceInfo?,
-            in touches: [OMSTouchData]
-        ) -> [OMSTouchData] {
-            guard let deviceID = device?.deviceID else { return [] }
-            return touches.filter { $0.deviceID == deviceID }
         }
 
         private func trackpadCanvas(
@@ -1475,8 +1472,8 @@ struct ContentView: View {
     }
 
     private func loadKeyMappings() {
-        if let decoded = KeyActionMappingStore.decode(storedKeyMappingsData) {
-            keyMappingsByLayer = normalizedLayerMappings(decoded)
+        if let decoded = KeyActionMappingStore.decodeNormalized(storedKeyMappingsData) {
+            keyMappingsByLayer = decoded
         } else {
             keyMappingsByLayer = [0: [:], 1: [:]]
         }
@@ -2026,12 +2023,6 @@ struct ContentView: View {
                 viewModel.setPersistentLayer(isOn ? 1 : 0)
             }
         )
-    }
-
-    private func normalizedLayerMappings(_ mappings: LayeredKeyMappings) -> LayeredKeyMappings {
-        let layer0 = mappings[0] ?? [:]
-        let layer1 = mappings[1] ?? layer0
-        return [0: layer0, 1: layer1]
     }
 
     private func keyMappingsForActiveLayer() -> [String: KeyMapping] {

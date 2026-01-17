@@ -1,6 +1,25 @@
 import OpenMultitouchSupport
 import SwiftUI
 
+enum GlassToKeySettings {
+    static let tapHoldDurationMs: Double = 220.0
+    static let twoFingerTapIntervalMs: Double = 70.0
+    static let dragCancelDistanceMm: Double = 15.0
+    static let forceClickThreshold: Double = 0.7
+    static let forceClickHoldDurationMs: Double = 160.0
+
+    static func persistedDouble(
+        forKey key: String,
+        defaults: UserDefaults = .standard,
+        fallback: Double
+    ) -> Double {
+        if let value = defaults.object(forKey: key) as? Double {
+            return value
+        }
+        return fallback
+    }
+}
+
 @MainActor
 final class GlassToKeyController: ObservableObject {
     let viewModel: ContentViewModel
@@ -75,6 +94,11 @@ final class GlassToKeyController: ObservableObject {
         let customButtons = loadCustomButtons()
         viewModel.updateCustomButtons(customButtons)
 
+        let keyMappings = loadKeyMappings()
+        viewModel.updateKeyMappings(keyMappings)
+
+        applySavedInteractionSettings()
+
         let leftDeviceID = stringValue(forKey: GlassToKeyDefaultsKeys.leftDeviceID)
         let rightDeviceID = stringValue(forKey: GlassToKeyDefaultsKeys.rightDeviceID)
         if let leftDevice = deviceForID(leftDeviceID) {
@@ -104,6 +128,15 @@ final class GlassToKeyController: ObservableObject {
         )
     }
 
+    private func loadKeyMappings() -> LayeredKeyMappings {
+        let defaults = UserDefaults.standard
+        if let data = defaults.data(forKey: GlassToKeyDefaultsKeys.keyMappings),
+           let mappings = KeyActionMappingStore.decodeNormalized(data) {
+            return mappings
+        }
+        return [0: [:], 1: [:]]
+    }
+
     private func resolvedLayoutPreset() -> TrackpadLayoutPreset {
         let stored = UserDefaults.standard.string(forKey: GlassToKeyDefaultsKeys.layoutPreset)
         return TrackpadLayoutPreset(rawValue: stored ?? "") ?? .sixByThree
@@ -125,6 +158,41 @@ final class GlassToKeyController: ObservableObject {
             return migrated
         }
         return ColumnLayoutDefaults.defaultSettings(columns: columns)
+    }
+
+    private func applySavedInteractionSettings() {
+        let defaults = UserDefaults.standard
+        let tapHoldMs = GlassToKeySettings.persistedDouble(
+            forKey: GlassToKeyDefaultsKeys.tapHoldDuration,
+            defaults: defaults,
+            fallback: GlassToKeySettings.tapHoldDurationMs
+        )
+        let twoFingerMs = GlassToKeySettings.persistedDouble(
+            forKey: GlassToKeyDefaultsKeys.twoFingerTapInterval,
+            defaults: defaults,
+            fallback: GlassToKeySettings.twoFingerTapIntervalMs
+        )
+        let dragDistance = GlassToKeySettings.persistedDouble(
+            forKey: GlassToKeyDefaultsKeys.dragCancelDistance,
+            defaults: defaults,
+            fallback: GlassToKeySettings.dragCancelDistanceMm
+        )
+        let forceThreshold = GlassToKeySettings.persistedDouble(
+            forKey: GlassToKeyDefaultsKeys.forceClickThreshold,
+            defaults: defaults,
+            fallback: GlassToKeySettings.forceClickThreshold
+        )
+        let forceHoldMs = GlassToKeySettings.persistedDouble(
+            forKey: GlassToKeyDefaultsKeys.forceClickHoldDuration,
+            defaults: defaults,
+            fallback: GlassToKeySettings.forceClickHoldDurationMs
+        )
+
+        viewModel.updateHoldThreshold(tapHoldMs / 1000.0)
+        viewModel.updateTwoFingerTapInterval(twoFingerMs / 1000.0)
+        viewModel.updateDragCancelDistance(CGFloat(dragDistance))
+        viewModel.updateForceClickThreshold(forceThreshold)
+        viewModel.updateForceClickHoldDuration(forceHoldMs / 1000.0)
     }
 
     private func legacyColumnSettings(

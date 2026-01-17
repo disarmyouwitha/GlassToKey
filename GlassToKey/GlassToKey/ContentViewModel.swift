@@ -8,6 +8,7 @@
 import Carbon
 import CoreGraphics
 import OpenMultitouchSupport
+import QuartzCore
 import SwiftUI
 import os
 
@@ -72,7 +73,24 @@ final class ContentViewModel: ObservableObject {
         let keyRects: [[CGRect]]
     }
 
-    private var latestTouchData = [OMSTouchData]()
+    struct TouchSnapshot: Sendable {
+        var data: [OMSTouchData] = []
+        var left: [OMSTouchData] = []
+        var right: [OMSTouchData] = []
+        var revision: UInt64 = 0
+    }
+
+    private struct DeviceSelection: Sendable {
+        var leftIndex: Int?
+        var rightIndex: Int?
+    }
+
+    nonisolated private let touchSnapshotLock = OSAllocatedUnfairLock<TouchSnapshot>(
+        uncheckedState: TouchSnapshot()
+    )
+    nonisolated private let deviceSelectionLock = OSAllocatedUnfairLock<DeviceSelection>(
+        uncheckedState: DeviceSelection()
+    )
     @Published var isListening: Bool = false
     @Published var isTypingEnabled: Bool = true
     @Published private(set) var activeLayer: Int = 0
@@ -83,112 +101,49 @@ final class ContentViewModel: ObservableObject {
 
     private let manager = OMSManager.shared
     private var task: Task<Void, Never>?
-    private struct TouchKey: Hashable {
-        let deviceID: String
-        let id: Int32
-    }
-    private var customButtons: [CustomButton] = []
-    private var customButtonsByLayerAndSide: [Int: [TrackpadSide: [CustomButton]]] = [:]
-    private var customKeyMappingsByLayer: LayeredKeyMappings = [:]
-    private var persistentLayer: Int = 0
-
-    private var activeTouches: [TouchKey: ActiveTouch] = [:]
-    private var pendingTouches: [TouchKey: PendingTouch] = [:]
-    private var disqualifiedTouches: Set<TouchKey> = []
-    private var leftShiftTouchCount = 0
-    private var controlTouchCount = 0
-    private var optionTouchCount = 0
-    private var commandTouchCount = 0
-    private var repeatTasks: [TouchKey: Task<Void, Never>] = [:]
-    private var repeatTokens: [TouchKey: RepeatToken] = [:]
-    private var toggleTouchStarts: [TouchKey: Date] = [:]
-    private var layerToggleTouchStarts: [TouchKey: Int] = [:]
-    private var momentaryLayerTouches: [TouchKey: Int] = [:]
-    private var touchInitialContactPoint: [TouchKey: CGPoint] = [:]
-    private let tapMaxDuration: TimeInterval = 0.2
-    private var holdMinDuration: TimeInterval = 0.2
-    private let modifierActivationDelay: TimeInterval = 0.05
-    private var dragCancelDistance: CGFloat = 2.5
-    private var twoFingerTapMaxInterval: TimeInterval = 0.08
-    private var forceClickThreshold: Float = 0
-    private var forceClickHoldDuration: TimeInterval = 0
-    private var twoFingerTapCandidatesByDevice: [String: TwoFingerTapCandidate] = [:]
-    private let repeatInitialDelay: UInt64 = 350_000_000
-    private let repeatInterval: UInt64 = 50_000_000
-    private let spaceRepeatMultiplier: UInt64 = 2
-    private var leftLayout: Layout?
-    private var rightLayout: Layout?
-    private var leftLabels: [[String]] = []
-    private var rightLabels: [[String]] = []
-    private var trackpadSize: CGSize = .zero
-    private var bindingsCache: [TrackpadSide: [KeyBinding]] = [:]
-    private var bindingsCacheLayer: Int = -1
-    private var bindingsGeneration = 0
-    private var bindingsGenerationBySide: [TrackpadSide: Int] = [:]
-    private var touchRevision: UInt64 = 0
-    private let keyDispatcher = KeyEventDispatcher.shared
-#if DEBUG
-    private let signposter = OSSignposter(
-        subsystem: "com.kyome.GlassToKey",
-        category: "TouchProcessing"
-    )
-#endif
+    private let processor: TouchProcessor
 
     init() {
+        weak var weakSelf: ContentViewModel?
+        processor = TouchProcessor(
+            keyDispatcher: KeyEventDispatcher.shared,
+            onTypingEnabledChanged: { isEnabled in
+                Task { @MainActor in
+                    weakSelf?.isTypingEnabled = isEnabled
+                }
+            },
+            onActiveLayerChanged: { layer in
+                Task { @MainActor in
+                    weakSelf?.activeLayer = layer
+                }
+            }
+        )
+        weakSelf = self
         loadDevices()
     }
 
     var leftTouches: [OMSTouchData] {
-        guard let deviceID = leftDevice?.deviceID else { return [] }
-        return latestTouchData.filter { $0.deviceID == deviceID }
+        touchSnapshotLock.withLockUnchecked { $0.left }
     }
 
     var rightTouches: [OMSTouchData] {
-        guard let deviceID = rightDevice?.deviceID else { return [] }
-        return latestTouchData.filter { $0.deviceID == deviceID }
+        touchSnapshotLock.withLockUnchecked { $0.right }
     }
 
     func onAppear() {
-        task = Task { [weak self, manager] in
+        let snapshotLock = touchSnapshotLock
+        let selectionLock = deviceSelectionLock
+        task = Task.detached { [manager, processor, snapshotLock, selectionLock] in
             for await touchData in manager.touchDataStream {
-                await MainActor.run {
-                    guard let self else { return }
-                    self.latestTouchData = touchData
-                    self.touchRevision &+= 1
-                    guard let leftLayout = self.leftLayout,
-                          let rightLayout = self.rightLayout else {
-                        return
-                    }
-                    let leftID = self.leftDevice?.deviceID
-                    let rightID = self.rightDevice?.deviceID
-                    var leftTouches: [OMSTouchData] = []
-                    var rightTouches: [OMSTouchData] = []
-                    if leftID != nil || rightID != nil {
-                        leftTouches.reserveCapacity(touchData.count / 2)
-                        rightTouches.reserveCapacity(touchData.count / 2)
-                        for touch in touchData {
-                            if touch.deviceID == leftID {
-                                leftTouches.append(touch)
-                            } else if touch.deviceID == rightID {
-                                rightTouches.append(touch)
-                            }
-                        }
-                    }
-                    self.processTouches(
-                        leftTouches,
-                        keyRects: leftLayout.keyRects,
-                        canvasSize: self.trackpadSize,
-                        labels: self.leftLabels,
-                        isLeftSide: true
-                    )
-                    self.processTouches(
-                        rightTouches,
-                        keyRects: rightLayout.keyRects,
-                        canvasSize: self.trackpadSize,
-                        labels: self.rightLabels,
-                        isLeftSide: false
-                    )
+                let selection = selectionLock.withLockUnchecked { $0 }
+                let split = Self.splitTouches(touchData, selection: selection)
+                snapshotLock.withLockUnchecked { snapshot in
+                    snapshot.data = touchData
+                    snapshot.left = split.left
+                    snapshot.right = split.right
+                    snapshot.revision &+= 1
                 }
+                await processor.processTouchFrame(touchData)
             }
         }
     }
@@ -201,13 +156,19 @@ final class ContentViewModel: ObservableObject {
     func start() {
         if manager.startListening() {
             isListening = true
+            Task { [processor] in
+                await processor.setListening(true)
+            }
         }
     }
 
     func stop() {
         if manager.stopListening() {
             isListening = false
-            releaseHeldKeys()
+            Task { [processor] in
+                await processor.setListening(false)
+                await processor.resetState()
+            }
         }
     }
     
@@ -263,1094 +224,1440 @@ final class ContentViewModel: ObservableObject {
         rightLabels: [[String]],
         trackpadSize: CGSize
     ) {
-        self.leftLayout = leftLayout
-        self.rightLayout = rightLayout
-        self.leftLabels = leftLabels
-        self.rightLabels = rightLabels
-        self.trackpadSize = trackpadSize
-        invalidateBindingsCache()
+        Task { [processor] in
+            await processor.updateLayouts(
+                leftLayout: leftLayout,
+                rightLayout: rightLayout,
+                leftLabels: leftLabels,
+                rightLabels: rightLabels,
+                trackpadSize: trackpadSize
+            )
+        }
     }
 
     func updateCustomButtons(_ buttons: [CustomButton]) {
-        customButtons = buttons
-        rebuildCustomButtonsIndex()
-        invalidateBindingsCache()
-    }
-
-    private func rebuildCustomButtonsIndex() {
-        var mapping: [Int: [TrackpadSide: [CustomButton]]] = [:]
-        for button in customButtons {
-            var layerMap = mapping[button.layer] ?? [:]
-            var sideButtons = layerMap[button.side] ?? []
-            sideButtons.append(button)
-            layerMap[button.side] = sideButtons
-            mapping[button.layer] = layerMap
+        Task { [processor] in
+            await processor.updateCustomButtons(buttons)
         }
-        customButtonsByLayerAndSide = mapping
-    }
-
-    private func customButtons(for layer: Int, side: TrackpadSide) -> [CustomButton] {
-        customButtonsByLayerAndSide[layer]?[side] ?? []
     }
 
     func updateKeyMappings(_ actions: LayeredKeyMappings) {
-        customKeyMappingsByLayer = actions
-        invalidateBindingsCache()
+        Task { [processor] in
+            await processor.updateKeyMappings(actions)
+        }
     }
 
-    func snapshotTouchData() -> [OMSTouchData] {
-        latestTouchData
+    func snapshotTouchData() -> TouchSnapshot {
+        touchSnapshotLock.withLockUnchecked { $0 }
     }
 
     func snapshotTouchDataIfUpdated(
         since revision: UInt64
-    ) -> (data: [OMSTouchData], revision: UInt64)? {
-        guard touchRevision != revision else { return nil }
-        return (latestTouchData, touchRevision)
+    ) -> TouchSnapshot? {
+        touchSnapshotLock.withLockUnchecked { snapshot in
+            guard snapshot.revision != revision else { return nil }
+            return snapshot
+        }
+    }
+
+    nonisolated private static func splitTouches(
+        _ touches: [OMSTouchData],
+        selection: DeviceSelection
+    ) -> (left: [OMSTouchData], right: [OMSTouchData]) {
+        var left: [OMSTouchData] = []
+        var right: [OMSTouchData] = []
+        left.reserveCapacity(touches.count / 2)
+        right.reserveCapacity(touches.count / 2)
+        for touch in touches {
+            if let leftIndex = selection.leftIndex,
+               touch.deviceIndex == leftIndex {
+                left.append(touch)
+            } else if let rightIndex = selection.rightIndex,
+                      touch.deviceIndex == rightIndex {
+                right.append(touch)
+            }
+        }
+        return (left, right)
     }
 
     private func updateActiveDevices() {
         let devices = [leftDevice, rightDevice].compactMap { $0 }
         guard !devices.isEmpty else { return }
         if manager.setActiveDevices(devices) {
-            releaseHeldKeys()
+            Task { [processor] in
+                await processor.resetState()
+            }
+        }
+        let leftIndex = leftDevice.flatMap { manager.deviceIndex(for: $0.deviceID) }
+        let rightIndex = rightDevice.flatMap { manager.deviceIndex(for: $0.deviceID) }
+        deviceSelectionLock.withLockUnchecked { selection in
+            selection.leftIndex = leftIndex
+            selection.rightIndex = rightIndex
+        }
+        Task { [processor] in
+            await processor.updateActiveDevices(leftIndex: leftIndex, rightIndex: rightIndex)
         }
     }
-
-    // MARK: - Key Tap Handling
-    private enum ModifierKey {
-        case shift
-        case control
-        case option
-        case command
-    }
-
-    private struct ActiveTouch {
-        let binding: KeyBinding
-        let startTime: Date
-        let startPoint: CGPoint
-        let modifierKey: ModifierKey?
-        let isContinuousKey: Bool
-        let holdBinding: KeyBinding?
-        var didHold: Bool
-        var maxDistanceSquared: CGFloat
-        let initialPressure: Float
-        var forceEntryTime: Date?
-        var forceGuardTriggered: Bool
-
-        mutating func registerForce(
-            pressure: Float,
-            threshold: Float,
-            duration: TimeInterval,
-            now: Date
-        ) -> Bool {
-            guard threshold > 0 else {
-                forceEntryTime = nil
-                return false
-            }
-            if forceGuardTriggered {
-                return true
-            }
-            let delta = max(0, pressure - initialPressure)
-            if delta >= threshold {
-                if forceEntryTime == nil {
-                    forceEntryTime = now
-                }
-                if duration <= 0 || now.timeIntervalSince(forceEntryTime!) >= duration {
-                    forceGuardTriggered = true
-                    return true
-                }
-            } else {
-                forceEntryTime = nil
-            }
-            return false
-        }
-    }
-
-    private struct PendingTouch {
-        let binding: KeyBinding
-        let startTime: Date
-        let startPoint: CGPoint
-        var maxDistanceSquared: CGFloat
-        let initialPressure: Float
-        var forceEntryTime: Date?
-        var forceGuardTriggered: Bool
-
-        mutating func registerForce(
-            pressure: Float,
-            threshold: Float,
-            duration: TimeInterval,
-            now: Date
-        ) -> Bool {
-            guard threshold > 0 else {
-                forceEntryTime = nil
-                return false
-            }
-            if forceGuardTriggered {
-                return true
-            }
-            let delta = max(0, pressure - initialPressure)
-            if delta >= threshold {
-                if forceEntryTime == nil {
-                    forceEntryTime = now
-                }
-                if duration <= 0 || now.timeIntervalSince(forceEntryTime!) >= duration {
-                    forceGuardTriggered = true
-                    return true
-                }
-            } else {
-                forceEntryTime = nil
-            }
-            return false
-        }
-    }
-
-    private struct TwoFingerTapCandidate {
-        let touchKey: TouchKey
-        let startTime: Date
-    }
-
     func setPersistentLayer(_ layer: Int) {
-        let clamped = max(0, min(layer, 1))
-        persistentLayer = clamped
-        updateActiveLayer()
+        Task { [processor] in
+            await processor.setPersistentLayer(layer)
+        }
     }
 
     func updateHoldThreshold(_ seconds: TimeInterval) {
-        holdMinDuration = seconds
+        Task { [processor] in
+            await processor.updateHoldThreshold(seconds)
+        }
     }
 
     func updateDragCancelDistance(_ distance: CGFloat) {
-        dragCancelDistance = max(0, distance)
+        Task { [processor] in
+            await processor.updateDragCancelDistance(distance)
+        }
     }
 
     func updateTwoFingerTapInterval(_ seconds: TimeInterval) {
-        twoFingerTapMaxInterval = max(0, seconds)
+        Task { [processor] in
+            await processor.updateTwoFingerTapInterval(seconds)
+        }
     }
 
     func updateForceClickThreshold(_ threshold: Double) {
-        forceClickThreshold = Float(max(0, threshold))
+        Task { [processor] in
+            await processor.updateForceClickThreshold(threshold)
+        }
     }
 
     func updateForceClickHoldDuration(_ seconds: TimeInterval) {
-        forceClickHoldDuration = max(0, seconds)
+        Task { [processor] in
+            await processor.updateForceClickHoldDuration(seconds)
+        }
     }
 
-    func processTouches(
-        _ touches: [OMSTouchData],
-        keyRects: [[CGRect]],
-        canvasSize: CGSize,
-        labels: [[String]],
-        isLeftSide: Bool
-    ) {
-        guard isListening else { return }
-        #if DEBUG
-        let signpostID = signposter.makeSignpostID()
-        let state = signposter.beginInterval(
-            "ProcessTouches",
-            id: signpostID
-        )
-        defer { signposter.endInterval("ProcessTouches", state) }
-        #endif
-        let now = Date()
-        let dragCancelDistanceSquared = dragCancelDistance * dragCancelDistance
-        let side: TrackpadSide = isLeftSide ? .left : .right
-        let bindings = bindings(
-            for: side,
-            keyRects: keyRects,
-            labels: labels,
-            canvasSize: canvasSize
-        )
-        if twoFingerTapMaxInterval > 0, !touches.isEmpty {
-            var touchKeysInFrame = Set<TouchKey>()
-            touchKeysInFrame.reserveCapacity(touches.count)
-            for touch in touches {
-                touchKeysInFrame.insert(TouchKey(deviceID: touch.deviceID, id: touch.id))
-            }
-            let suppressed = collectTwoFingerTapSuppression(
-                in: touches,
-                now: now,
-                activeTouchKeys: touchKeysInFrame
-            )
-            if !suppressed.isEmpty {
-                for touchKey in suppressed {
-                    cancelTwoFingerTapTouch(touchKey)
+    func clearTouchState() {
+        Task { [processor] in
+            await processor.resetState()
+        }
+    }
+
+    private actor TouchProcessor {
+        private enum ModifierKey {
+            case shift
+            case control
+            case option
+            case command
+        }
+
+        private enum DisqualifyReason: String {
+            case dragCancelled
+            case pendingDragCancelled
+            case leftContinuousRect
+            case pendingLeftRect
+            case twoFingerSuppressed
+            case typingDisabled
+        }
+
+        private struct TouchKey: Hashable {
+            let deviceIndex: Int
+            let id: Int32
+        }
+
+        private struct ActiveTouch {
+            let binding: KeyBinding
+            let startTime: TimeInterval
+            let startPoint: CGPoint
+            let modifierKey: ModifierKey?
+            let isContinuousKey: Bool
+            let holdBinding: KeyBinding?
+            var didHold: Bool
+            var maxDistanceSquared: CGFloat
+            let initialPressure: Float
+            var forceEntryTime: TimeInterval?
+            var forceGuardTriggered: Bool
+
+            mutating func registerForce(
+                pressure: Float,
+                threshold: Float,
+                duration: TimeInterval,
+                now: TimeInterval
+            ) -> Bool {
+                guard threshold > 0 else {
+                    forceEntryTime = nil
+                    return false
                 }
+                if forceGuardTriggered {
+                    return true
+                }
+                let delta = max(0, pressure - initialPressure)
+                if delta >= threshold {
+                    if forceEntryTime == nil {
+                        forceEntryTime = now
+                    }
+                    if duration <= 0 || now - (forceEntryTime ?? now) >= duration {
+                        forceGuardTriggered = true
+                        return true
+                    }
+                } else {
+                    forceEntryTime = nil
+                }
+                return false
             }
         }
 
-        for touch in touches {
-            let point = CGPoint(
-                x: CGFloat(touch.position.x) * canvasSize.width,
-                y: CGFloat(1.0 - touch.position.y) * canvasSize.height
-            )
-            let touchKey = TouchKey(deviceID: touch.deviceID, id: touch.id)
-            if touchInitialContactPoint[touchKey] == nil,
-               Self.isContactState(touch.state) {
-                touchInitialContactPoint[touchKey] = point
-            }
-            handleForceGuard(touchKey: touchKey, pressure: touch.pressure, now: now)
-            let bindingAtPoint = binding(at: point, bindings: bindings)
+        private struct PendingTouch {
+            let binding: KeyBinding
+            let startTime: TimeInterval
+            let startPoint: CGPoint
+            var maxDistanceSquared: CGFloat
+            let initialPressure: Float
+            var forceEntryTime: TimeInterval?
+            var forceGuardTriggered: Bool
 
-            if disqualifiedTouches.contains(touchKey) {
-                switch touch.state {
-                case .breaking, .leaving, .notTouching:
-                    disqualifiedTouches.remove(touchKey)
-                case .starting, .making, .touching, .hovering, .lingering:
-                    break
+            mutating func registerForce(
+                pressure: Float,
+                threshold: Float,
+                duration: TimeInterval,
+                now: TimeInterval
+            ) -> Bool {
+                guard threshold > 0 else {
+                    forceEntryTime = nil
+                    return false
                 }
-                continue
+                if forceGuardTriggered {
+                    return true
+                }
+                let delta = max(0, pressure - initialPressure)
+                if delta >= threshold {
+                    if forceEntryTime == nil {
+                        forceEntryTime = now
+                    }
+                    if duration <= 0 || now - (forceEntryTime ?? now) >= duration {
+                        forceGuardTriggered = true
+                        return true
+                    }
+                } else {
+                    forceEntryTime = nil
+                }
+                return false
+            }
+        }
+
+        private struct TwoFingerTapCandidate {
+            let touchKey: TouchKey
+            let startTime: TimeInterval
+        }
+
+        private struct BindingIndex {
+            let gridBindings: [[KeyBinding?]]
+            let rowRanges: [ClosedRange<CGFloat>]
+            let colRangesByRow: [[ClosedRange<CGFloat>]]
+            let customBindings: [KeyBinding]
+            let allBindings: [KeyBinding]
+        }
+
+        private let keyDispatcher: KeyEventDispatcher
+        private let onTypingEnabledChanged: @Sendable (Bool) -> Void
+        private let onActiveLayerChanged: @Sendable (Int) -> Void
+        private let isDragDetectionEnabled = true
+        private var isListening = false
+        private var isTypingEnabled = true
+        private var activeLayer: Int = 0
+        private var persistentLayer: Int = 0
+        private var leftDeviceIndex: Int?
+        private var rightDeviceIndex: Int?
+        private var customButtons: [CustomButton] = []
+        private var customButtonsByLayerAndSide: [Int: [TrackpadSide: [CustomButton]]] = [:]
+        private var customKeyMappingsByLayer: LayeredKeyMappings = [:]
+        private var activeTouches: [TouchKey: ActiveTouch] = [:]
+        private var pendingTouches: [TouchKey: PendingTouch] = [:]
+        private var disqualifiedTouches: Set<TouchKey> = []
+        private var leftShiftTouchCount = 0
+        private var controlTouchCount = 0
+        private var optionTouchCount = 0
+        private var commandTouchCount = 0
+        private var repeatTasks: [TouchKey: Task<Void, Never>] = [:]
+        private var repeatTokens: [TouchKey: RepeatToken] = [:]
+        private var toggleTouchStarts: [TouchKey: TimeInterval] = [:]
+        private var layerToggleTouchStarts: [TouchKey: Int] = [:]
+        private var momentaryLayerTouches: [TouchKey: Int] = [:]
+        private var touchInitialContactPoint: [TouchKey: CGPoint] = [:]
+        private let tapMaxDuration: TimeInterval = 0.2
+        private var holdMinDuration: TimeInterval = 0.2
+        private let modifierActivationDelay: TimeInterval = 0.05
+        private var dragCancelDistance: CGFloat = 2.5
+        private var twoFingerTapMaxInterval: TimeInterval = 0.08
+        private var forceClickThreshold: Float = 0
+        private var forceClickHoldDuration: TimeInterval = 0
+        private var twoFingerTapCandidatesByDevice: [Int: TwoFingerTapCandidate] = [:]
+        private let repeatInitialDelay: UInt64 = 350_000_000
+        private let repeatInterval: UInt64 = 50_000_000
+        private let spaceRepeatMultiplier: UInt64 = 2
+        private var leftLayout: Layout?
+        private var rightLayout: Layout?
+        private var leftLabels: [[String]] = []
+        private var rightLabels: [[String]] = []
+        private var trackpadSize: CGSize = .zero
+        private var bindingsCache: [TrackpadSide: BindingIndex] = [:]
+        private var bindingsCacheLayer: Int = -1
+        private var bindingsGeneration = 0
+        private var bindingsGenerationBySide: [TrackpadSide: Int] = [:]
+
+#if DEBUG
+        private let signposter = OSSignposter(
+            subsystem: "com.kyome.GlassToKey",
+            category: "TouchProcessing"
+        )
+        private let keyLogger = Logger(
+            subsystem: "com.kyome.GlassToKey",
+            category: "KeyDiagnostics"
+        )
+#endif
+
+        init(
+            keyDispatcher: KeyEventDispatcher,
+            onTypingEnabledChanged: @Sendable @escaping (Bool) -> Void,
+            onActiveLayerChanged: @Sendable @escaping (Int) -> Void
+        ) {
+            self.keyDispatcher = keyDispatcher
+            self.onTypingEnabledChanged = onTypingEnabledChanged
+            self.onActiveLayerChanged = onActiveLayerChanged
+        }
+
+        func setListening(_ isListening: Bool) {
+            self.isListening = isListening
+        }
+
+        func updateActiveDevices(leftIndex: Int?, rightIndex: Int?) {
+            leftDeviceIndex = leftIndex
+            rightDeviceIndex = rightIndex
+        }
+
+        func updateLayouts(
+            leftLayout: Layout,
+            rightLayout: Layout,
+            leftLabels: [[String]],
+            rightLabels: [[String]],
+            trackpadSize: CGSize
+        ) {
+            self.leftLayout = leftLayout
+            self.rightLayout = rightLayout
+            self.leftLabels = leftLabels
+            self.rightLabels = rightLabels
+            self.trackpadSize = trackpadSize
+            invalidateBindingsCache()
+        }
+
+        func updateCustomButtons(_ buttons: [CustomButton]) {
+            customButtons = buttons
+            rebuildCustomButtonsIndex()
+            invalidateBindingsCache()
+        }
+
+        func updateKeyMappings(_ actions: LayeredKeyMappings) {
+            customKeyMappingsByLayer = actions
+            invalidateBindingsCache()
+        }
+
+        func setPersistentLayer(_ layer: Int) {
+            let clamped = max(0, min(layer, 1))
+            persistentLayer = clamped
+            updateActiveLayer()
+        }
+
+        func updateHoldThreshold(_ seconds: TimeInterval) {
+            holdMinDuration = seconds
+        }
+
+        func updateDragCancelDistance(_ distance: CGFloat) {
+            dragCancelDistance = max(0, distance)
+        }
+
+        func updateTwoFingerTapInterval(_ seconds: TimeInterval) {
+            twoFingerTapMaxInterval = max(0, seconds)
+        }
+
+        func updateForceClickThreshold(_ threshold: Double) {
+            forceClickThreshold = Float(max(0, threshold))
+        }
+
+        func updateForceClickHoldDuration(_ seconds: TimeInterval) {
+            forceClickHoldDuration = max(0, seconds)
+        }
+
+        func processTouchFrame(_ touchData: [OMSTouchData]) {
+            guard isListening,
+                  let leftLayout,
+                  let rightLayout else {
+                return
+            }
+            let leftIndex = leftDeviceIndex
+            let rightIndex = rightDeviceIndex
+            if leftIndex == nil && rightIndex == nil {
+                return
+            }
+            var leftTouches: [OMSTouchData] = []
+            var rightTouches: [OMSTouchData] = []
+            leftTouches.reserveCapacity(touchData.count / 2)
+            rightTouches.reserveCapacity(touchData.count / 2)
+            for touch in touchData {
+                if let leftIndex, touch.deviceIndex == leftIndex {
+                    leftTouches.append(touch)
+                } else if let rightIndex, touch.deviceIndex == rightIndex {
+                    rightTouches.append(touch)
+                }
+            }
+            processTouches(
+                leftTouches,
+                keyRects: leftLayout.keyRects,
+                canvasSize: trackpadSize,
+                labels: leftLabels,
+                isLeftSide: true
+            )
+            processTouches(
+                rightTouches,
+                keyRects: rightLayout.keyRects,
+                canvasSize: trackpadSize,
+                labels: rightLabels,
+                isLeftSide: false
+            )
+        }
+
+        func resetState() {
+            releaseHeldKeys()
+        }
+
+        private func rebuildCustomButtonsIndex() {
+            var mapping: [Int: [TrackpadSide: [CustomButton]]] = [:]
+            for button in customButtons {
+                var layerMap = mapping[button.layer] ?? [:]
+                var sideButtons = layerMap[button.side] ?? []
+                sideButtons.append(button)
+                layerMap[button.side] = sideButtons
+                mapping[button.layer] = layerMap
+            }
+            customButtonsByLayerAndSide = mapping
+        }
+
+        private func customButtons(for layer: Int, side: TrackpadSide) -> [CustomButton] {
+            customButtonsByLayerAndSide[layer]?[side] ?? []
+        }
+
+        private func processTouches(
+            _ touches: [OMSTouchData],
+            keyRects: [[CGRect]],
+            canvasSize: CGSize,
+            labels: [[String]],
+            isLeftSide: Bool
+        ) {
+            #if DEBUG
+            let signpostID = signposter.makeSignpostID()
+            let state = signposter.beginInterval(
+                "ProcessTouches",
+                id: signpostID
+            )
+            defer { signposter.endInterval("ProcessTouches", state) }
+            #endif
+            let now = Self.now()
+            let dragCancelDistanceSquared = dragCancelDistance * dragCancelDistance
+            let side: TrackpadSide = isLeftSide ? .left : .right
+            let bindings = bindings(
+                for: side,
+                keyRects: keyRects,
+                labels: labels,
+                canvasSize: canvasSize
+            )
+            if isTypingEnabled, twoFingerTapMaxInterval > 0, !touches.isEmpty {
+                var touchKeysInFrame = Set<TouchKey>()
+                touchKeysInFrame.reserveCapacity(touches.count)
+                for touch in touches {
+                    touchKeysInFrame.insert(TouchKey(deviceIndex: touch.deviceIndex, id: touch.id))
+                }
+                let suppressed = collectTwoFingerTapSuppression(
+                    in: touches,
+                    now: now,
+                    activeTouchKeys: touchKeysInFrame
+                )
+                if !suppressed.isEmpty {
+                    for touchKey in suppressed {
+                        cancelTwoFingerTapTouch(touchKey)
+                    }
+                }
             }
 
-            if momentaryLayerTouches[touchKey] != nil {
-                handleMomentaryLayerTouch(
-                    touchKey: touchKey,
-                    state: touch.state,
-                    targetLayer: nil,
-                    bindingRect: nil
+            for touch in touches {
+                let point = CGPoint(
+                    x: CGFloat(touch.position.x) * canvasSize.width,
+                    y: CGFloat(1.0 - touch.position.y) * canvasSize.height
                 )
-                continue
-            }
-            if layerToggleTouchStarts[touchKey] != nil {
-                handleLayerToggleTouch(touchKey: touchKey, state: touch.state, targetLayer: nil)
-                continue
-            }
-            if toggleTouchStarts[touchKey] != nil {
-                handleTypingToggleTouch(
-                    touchKey: touchKey,
-                    state: touch.state,
-                    point: point
-                )
-                continue
-            }
-            if let binding = bindingAtPoint {
-                switch binding.action {
-                case .typingToggle:
+                let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
+                if touchInitialContactPoint[touchKey] == nil,
+                   Self.isContactState(touch.state) {
+                    touchInitialContactPoint[touchKey] = point
+                }
+                handleForceGuard(touchKey: touchKey, pressure: touch.pressure, now: now)
+                let bindingAtPoint = binding(at: point, index: bindings)
+
+                if disqualifiedTouches.contains(touchKey) {
+                    switch touch.state {
+                    case .breaking, .leaving, .notTouching:
+                        disqualifiedTouches.remove(touchKey)
+                    case .starting, .making, .touching, .hovering, .lingering:
+                        break
+                    }
+                    continue
+                }
+
+                if momentaryLayerTouches[touchKey] != nil {
+                    handleMomentaryLayerTouch(
+                        touchKey: touchKey,
+                        state: touch.state,
+                        targetLayer: nil,
+                        bindingRect: nil
+                    )
+                    continue
+                }
+                if layerToggleTouchStarts[touchKey] != nil {
+                    handleLayerToggleTouch(touchKey: touchKey, state: touch.state, targetLayer: nil)
+                    continue
+                }
+                if toggleTouchStarts[touchKey] != nil {
                     handleTypingToggleTouch(
                         touchKey: touchKey,
                         state: touch.state,
                         point: point
                     )
                     continue
-                case let .layerToggle(targetLayer):
-                    handleLayerToggleTouch(touchKey: touchKey, state: touch.state, targetLayer: targetLayer)
-                    continue
-                case let .layerMomentary(targetLayer):
-                    handleMomentaryLayerTouch(
-                        touchKey: touchKey,
-                        state: touch.state,
-                        targetLayer: targetLayer,
-                        bindingRect: binding.rect
-                    )
-                    continue
-                case .none:
-                    continue
-                case .key:
-                    break
                 }
-            }
-            if !isTypingEnabled && momentaryLayerTouches.isEmpty {
-                if let active = activeTouches.removeValue(forKey: touchKey) {
-                    if let modifierKey = active.modifierKey {
-                        handleModifierUp(modifierKey, binding: active.binding)
-                    } else if active.isContinuousKey {
-                        stopRepeat(for: touchKey)
+                if let binding = bindingAtPoint {
+                    switch binding.action {
+                    case .typingToggle:
+                        handleTypingToggleTouch(
+                            touchKey: touchKey,
+                            state: touch.state,
+                            point: point
+                        )
+                        continue
+                    case let .layerToggle(targetLayer):
+                        handleLayerToggleTouch(touchKey: touchKey, state: touch.state, targetLayer: targetLayer)
+                        continue
+                    case let .layerMomentary(targetLayer):
+                        handleMomentaryLayerTouch(
+                            touchKey: touchKey,
+                            state: touch.state,
+                            targetLayer: targetLayer,
+                            bindingRect: binding.rect
+                        )
+                        continue
+                    case .none:
+                        continue
+                    case .key:
+                        break
                     }
                 }
-                pendingTouches.removeValue(forKey: touchKey)
-                disqualifiedTouches.remove(touchKey)
-                touchInitialContactPoint.removeValue(forKey: touchKey)
-                continue
-            }
-
-            switch touch.state {
-            case .starting, .making, .touching:
-                if var active = activeTouches[touchKey] {
-                    let distanceSquared = distanceSquared(from: active.startPoint, to: point)
-                    active.maxDistanceSquared = max(active.maxDistanceSquared, distanceSquared)
-                    activeTouches[touchKey] = active
-
-                    if isDragDetectionEnabled,
-                       active.modifierKey == nil,
-                       !active.isContinuousKey,
-                       !active.didHold,
-                       active.maxDistanceSquared > dragCancelDistanceSquared {
-                        disqualifyTouch(touchKey)
-                        continue
+                if !isTypingEnabled && momentaryLayerTouches.isEmpty {
+                    if let active = activeTouches.removeValue(forKey: touchKey) {
+                        if let modifierKey = active.modifierKey {
+                            handleModifierUp(modifierKey, binding: active.binding)
+                        } else if active.isContinuousKey {
+                            stopRepeat(for: touchKey)
+                        }
                     }
+                    pendingTouches.removeValue(forKey: touchKey)
+                    disqualifiedTouches.remove(touchKey)
+                    touchInitialContactPoint.removeValue(forKey: touchKey)
+                    logDisqualify(touchKey, reason: .typingDisabled)
+                    continue
+                }
 
-                    if active.isContinuousKey,
-                       !active.binding.rect.contains(point) {
-                        disqualifyTouch(touchKey)
-                        continue
-                    }
-
-                    if active.modifierKey == nil,
-                       !active.isContinuousKey,
-                       !active.didHold,
-                       let holdBinding = active.holdBinding,
-                       now.timeIntervalSince(active.startTime) >= holdMinDuration,
-                       (!isDragDetectionEnabled || active.maxDistanceSquared <= dragCancelDistanceSquared) {
-                        triggerBinding(holdBinding, touchKey: touchKey)
-                        active.didHold = true
+                switch touch.state {
+                case .starting, .making, .touching:
+                    if var active = activeTouches[touchKey] {
+                        let distanceSquared = distanceSquared(from: active.startPoint, to: point)
+                        active.maxDistanceSquared = max(active.maxDistanceSquared, distanceSquared)
                         activeTouches[touchKey] = active
-                    }
-                } else if var pending = pendingTouches[touchKey] {
-                    let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
-                    pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
-                    pendingTouches[touchKey] = pending
 
-                    if isDragDetectionEnabled,
-                       pending.maxDistanceSquared > dragCancelDistanceSquared {
-                        disqualifyTouch(touchKey)
-                        continue
-                    }
+                        if isDragDetectionEnabled,
+                           active.modifierKey == nil,
+                           !active.didHold,
+                           active.maxDistanceSquared > dragCancelDistanceSquared {
+                            disqualifyTouch(touchKey, reason: .dragCancelled)
+                            continue
+                        }
 
-                    if now.timeIntervalSince(pending.startTime) >= modifierActivationDelay {
-                        if pending.binding.rect.contains(point) {
-                            let modifierKey = modifierKey(for: pending.binding)
-                            let isContinuousKey = isContinuousKey(pending.binding)
-                            let holdBinding = holdBinding(for: pending.binding)
+                        if active.isContinuousKey,
+                           !active.binding.rect.contains(point) {
+                            disqualifyTouch(touchKey, reason: .leftContinuousRect)
+                            continue
+                        }
+
+                        if active.modifierKey == nil,
+                        !active.isContinuousKey,
+                           !active.didHold,
+                           let holdBinding = active.holdBinding,
+                           now - active.startTime >= holdMinDuration,
+                           (!isDragDetectionEnabled || active.maxDistanceSquared <= dragCancelDistanceSquared) {
+                            triggerBinding(holdBinding, touchKey: touchKey)
+                            active.didHold = true
+                            activeTouches[touchKey] = active
+                        }
+                    } else if var pending = pendingTouches[touchKey] {
+                        let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
+                        pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
+                        pendingTouches[touchKey] = pending
+
+                        if isDragDetectionEnabled,
+                           pending.maxDistanceSquared > dragCancelDistanceSquared {
+                            disqualifyTouch(touchKey, reason: .pendingDragCancelled)
+                            continue
+                        }
+
+                        if now - pending.startTime >= modifierActivationDelay {
+                            if pending.binding.rect.contains(point) {
+                                let modifierKey = modifierKey(for: pending.binding)
+                                let isContinuousKey = isContinuousKey(pending.binding)
+                                let holdBinding = holdBinding(for: pending.binding)
+                                activeTouches[touchKey] = ActiveTouch(
+                                    binding: pending.binding,
+                                    startTime: pending.startTime,
+                                    startPoint: pending.startPoint,
+                                    modifierKey: modifierKey,
+                                    isContinuousKey: isContinuousKey,
+                                    holdBinding: holdBinding,
+                                    didHold: false,
+                                    maxDistanceSquared: pending.maxDistanceSquared,
+                                    initialPressure: pending.initialPressure,
+                                    forceEntryTime: pending.forceEntryTime,
+                                    forceGuardTriggered: pending.forceGuardTriggered
+                                )
+                                pendingTouches.removeValue(forKey: touchKey)
+                                if let modifierKey {
+                                    handleModifierDown(modifierKey, binding: pending.binding)
+                                } else if isContinuousKey {
+                                    triggerBinding(pending.binding, touchKey: touchKey)
+                                    startRepeat(for: touchKey, binding: pending.binding)
+                                }
+                            } else if isDragDetectionEnabled {
+                                disqualifyTouch(touchKey, reason: .pendingLeftRect)
+                            } else {
+                                pendingTouches.removeValue(forKey: touchKey)
+                            }
+                        }
+                    } else if let binding = bindingAtPoint {
+                        let modifierKey = modifierKey(for: binding)
+                        let isContinuousKey = isContinuousKey(binding)
+                        let holdBinding = holdBinding(for: binding)
+                        if isDragDetectionEnabled, (modifierKey != nil || isContinuousKey) {
+                            pendingTouches[touchKey] = PendingTouch(
+                                binding: binding,
+                        startTime: now,
+                        startPoint: point,
+                                maxDistanceSquared: 0,
+                                initialPressure: touch.pressure,
+                                forceEntryTime: nil,
+                                forceGuardTriggered: false
+                            )
+                        } else {
                             activeTouches[touchKey] = ActiveTouch(
-                                binding: pending.binding,
-                                startTime: pending.startTime,
-                                startPoint: pending.startPoint,
+                                binding: binding,
+                                startTime: now,
+                                startPoint: point,
                                 modifierKey: modifierKey,
                                 isContinuousKey: isContinuousKey,
                                 holdBinding: holdBinding,
                                 didHold: false,
-                                maxDistanceSquared: pending.maxDistanceSquared,
-                                initialPressure: pending.initialPressure,
-                                forceEntryTime: pending.forceEntryTime,
-                                forceGuardTriggered: pending.forceGuardTriggered
+                                maxDistanceSquared: 0,
+                                initialPressure: touch.pressure,
+                                forceEntryTime: nil,
+                                forceGuardTriggered: false
                             )
-                            pendingTouches.removeValue(forKey: touchKey)
                             if let modifierKey {
-                                handleModifierDown(modifierKey, binding: pending.binding)
+                                handleModifierDown(modifierKey, binding: binding)
                             } else if isContinuousKey {
-                                triggerBinding(pending.binding, touchKey: touchKey)
-                                startRepeat(for: touchKey, binding: pending.binding)
+                                triggerBinding(binding, touchKey: touchKey)
+                                startRepeat(for: touchKey, binding: binding)
                             }
-                        } else if isDragDetectionEnabled {
-                            disqualifyTouch(touchKey)
-                        } else {
-                            pendingTouches.removeValue(forKey: touchKey)
                         }
                     }
-                } else if let binding = bindingAtPoint {
-                    let modifierKey = modifierKey(for: binding)
-                    let isContinuousKey = isContinuousKey(binding)
-                    let holdBinding = holdBinding(for: binding)
-                    if isDragDetectionEnabled, (modifierKey != nil || isContinuousKey) {
-                        pendingTouches[touchKey] = PendingTouch(
-                            binding: binding,
-                            startTime: now,
-                            startPoint: point,
-                            maxDistanceSquared: 0,
-                            initialPressure: touch.pressure,
-                            forceEntryTime: nil,
-                            forceGuardTriggered: false
+                case .breaking, .leaving:
+                    if let candidate = twoFingerTapCandidatesByDevice[touch.deviceIndex],
+                       candidate.touchKey == touchKey {
+                        twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
+                    }
+                    let releaseStartPoint = touchInitialContactPoint.removeValue(forKey: touchKey)
+                    if var pending = pendingTouches.removeValue(forKey: touchKey) {
+                        let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
+                        pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
+                        maybeSendPendingContinuousTap(pending, at: point, now: now)
+                    }
+                    if disqualifiedTouches.remove(touchKey) != nil {
+                        continue
+                    }
+                    if var active = activeTouches.removeValue(forKey: touchKey) {
+                        let releaseDistanceSquared = distanceSquared(
+                            from: releaseStartPoint ?? active.startPoint,
+                            to: point
                         )
-                    } else {
-                        activeTouches[touchKey] = ActiveTouch(
-                            binding: binding,
-                            startTime: now,
-                            startPoint: point,
-                            modifierKey: modifierKey,
-                            isContinuousKey: isContinuousKey,
-                            holdBinding: holdBinding,
-                            didHold: false,
-                            maxDistanceSquared: 0,
-                            initialPressure: touch.pressure,
-                            forceEntryTime: nil,
-                            forceGuardTriggered: false
-                        )
-                        if let modifierKey {
-                            handleModifierDown(modifierKey, binding: binding)
-                        } else if isContinuousKey {
-                            triggerBinding(binding, touchKey: touchKey)
-                            startRepeat(for: touchKey, binding: binding)
+                        active.maxDistanceSquared = max(active.maxDistanceSquared, releaseDistanceSquared)
+                        let guardTriggered = active.forceGuardTriggered
+                        if let modifierKey = active.modifierKey {
+                            handleModifierUp(modifierKey, binding: active.binding)
+                        } else if active.isContinuousKey {
+                            stopRepeat(for: touchKey)
+                        } else if !guardTriggered,
+                                  !active.didHold,
+                                  now - active.startTime <= tapMaxDuration,
+                                  (!isDragDetectionEnabled
+                                   || releaseDistanceSquared <= dragCancelDistanceSquared) {
+                            triggerBinding(active.binding, touchKey: touchKey)
+                        }
+                        endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
+                        if guardTriggered {
+                            continue
                         }
                     }
-                }
-            case .breaking, .leaving:
-                if let candidate = twoFingerTapCandidatesByDevice[touch.deviceID],
-                   candidate.touchKey == touchKey {
-                    twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceID)
-                }
-                touchInitialContactPoint.removeValue(forKey: touchKey)
-                if let pending = pendingTouches.removeValue(forKey: touchKey) {
-                    maybeSendPendingContinuousTap(pending, at: point)
-                }
-                if disqualifiedTouches.remove(touchKey) != nil {
-                    continue
-                }
-                if let active = activeTouches.removeValue(forKey: touchKey) {
-                    let guardTriggered = active.forceGuardTriggered
-                    if let modifierKey = active.modifierKey {
-                        handleModifierUp(modifierKey, binding: active.binding)
-                    } else if active.isContinuousKey {
-                        stopRepeat(for: touchKey)
-                    } else if !guardTriggered,
-                              !active.didHold,
-                              now.timeIntervalSince(active.startTime) <= tapMaxDuration,
-                              (!isDragDetectionEnabled
-                               || active.maxDistanceSquared <= dragCancelDistanceSquared) {
-                        triggerBinding(active.binding, touchKey: touchKey)
+                case .notTouching:
+                    if let candidate = twoFingerTapCandidatesByDevice[touch.deviceIndex],
+                       candidate.touchKey == touchKey {
+                        twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
                     }
-                    endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
-                    if guardTriggered {
+                    touchInitialContactPoint.removeValue(forKey: touchKey)
+                    if var pending = pendingTouches.removeValue(forKey: touchKey) {
+                        let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
+                        pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
+                        maybeSendPendingContinuousTap(pending, at: point, now: now)
+                    }
+                    if disqualifiedTouches.remove(touchKey) != nil {
+                        continue
+                    }
+                    if var active = activeTouches.removeValue(forKey: touchKey) {
+                        let distanceSquared = distanceSquared(from: active.startPoint, to: point)
+                        active.maxDistanceSquared = max(active.maxDistanceSquared, distanceSquared)
+                        if let modifierKey = active.modifierKey {
+                            handleModifierUp(modifierKey, binding: active.binding)
+                        } else if active.isContinuousKey {
+                            stopRepeat(for: touchKey)
+                        }
+                        endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
+                    }
+                case .hovering, .lingering:
+                    break
+                }
+            }
+        }
+
+        private func collectTwoFingerTapSuppression(
+            in touches: [OMSTouchData],
+            now: TimeInterval,
+            activeTouchKeys: Set<TouchKey>
+        ) -> [TouchKey] {
+            var suppressed: [TouchKey] = []
+            suppressed.reserveCapacity(2)
+            for touch in touches {
+                guard Self.isContactState(touch.state) else { continue }
+                let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
+                guard !disqualifiedTouches.contains(touchKey) else { continue }
+                guard touchInitialContactPoint[touchKey] == nil else { continue }
+                if let candidate = twoFingerTapCandidatesByDevice[touch.deviceIndex] {
+                    if !activeTouchKeys.contains(candidate.touchKey) {
+                        twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
+                    } else if now - candidate.startTime <= twoFingerTapMaxInterval {
+                        suppressed.append(candidate.touchKey)
+                        suppressed.append(touchKey)
+                        twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
                         continue
                     }
                 }
-            case .notTouching:
-                if let candidate = twoFingerTapCandidatesByDevice[touch.deviceID],
-                   candidate.touchKey == touchKey {
-                    twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceID)
+                twoFingerTapCandidatesByDevice[touch.deviceIndex] = TwoFingerTapCandidate(
+                    touchKey: touchKey,
+                    startTime: now
+                )
+            }
+            return suppressed
+        }
+
+        private func handleForceGuard(
+            touchKey: TouchKey,
+            pressure: Float,
+            now: TimeInterval
+        ) {
+            guard forceClickThreshold > 0 else { return }
+            if var active = activeTouches[touchKey] {
+                guard !active.isContinuousKey else { return }
+                let triggered = active.registerForce(
+                    pressure: pressure,
+                    threshold: forceClickThreshold,
+                    duration: forceClickHoldDuration,
+                    now: now
+                )
+                if triggered {
+                    stopRepeat(for: touchKey)
+                }
+                activeTouches[touchKey] = active
+            } else if var pending = pendingTouches[touchKey] {
+                guard !isContinuousKey(pending.binding) else { return }
+                _ = pending.registerForce(
+                    pressure: pressure,
+                    threshold: forceClickThreshold,
+                    duration: forceClickHoldDuration,
+                    now: now
+                )
+                pendingTouches[touchKey] = pending
+            }
+        }
+
+        private func cancelTwoFingerTapTouch(_ touchKey: TouchKey) {
+            disqualifyTouch(touchKey, reason: .twoFingerSuppressed)
+            toggleTouchStarts.removeValue(forKey: touchKey)
+            layerToggleTouchStarts.removeValue(forKey: touchKey)
+            if momentaryLayerTouches.removeValue(forKey: touchKey) != nil {
+                updateActiveLayer()
+            }
+        }
+
+        private func makeBindings(
+            keyRects: [[CGRect]],
+            labels: [[String]],
+            customButtons: [CustomButton],
+            canvasSize: CGSize,
+            side: TrackpadSide
+        ) -> BindingIndex {
+            var gridBindings: [[KeyBinding?]] = []
+            var rowRanges: [ClosedRange<CGFloat>] = []
+            var colRangesByRow: [[ClosedRange<CGFloat>]] = []
+            var customBindings: [KeyBinding] = []
+            var allBindings: [KeyBinding] = []
+
+            gridBindings.reserveCapacity(keyRects.count)
+            rowRanges.reserveCapacity(keyRects.count)
+            colRangesByRow.reserveCapacity(keyRects.count)
+
+            for row in 0..<keyRects.count {
+                let rowRects = keyRects[row]
+                var rowBindings = [KeyBinding?](repeating: nil, count: rowRects.count)
+                var colRanges: [ClosedRange<CGFloat>] = []
+                colRanges.reserveCapacity(rowRects.count)
+                var minY = CGFloat.greatestFiniteMagnitude
+                var maxY = -CGFloat.greatestFiniteMagnitude
+                for col in 0..<rowRects.count {
+                    let rect = rowRects[col]
+                    minY = min(minY, rect.minY)
+                    maxY = max(maxY, rect.maxY)
+                    colRanges.append(rect.minX...rect.maxX)
+                    guard row < labels.count,
+                          col < labels[row].count else { continue }
+                    let label = labels[row][col]
+                    let position = GridKeyPosition(side: side, row: row, column: col)
+                    guard let binding = bindingForLabel(label, rect: rect, position: position) else {
+                        continue
+                    }
+                    rowBindings[col] = binding
+                    allBindings.append(binding)
+                }
+                gridBindings.append(rowBindings)
+                colRangesByRow.append(colRanges)
+                if minY <= maxY {
+                    rowRanges.append(minY...maxY)
+                } else {
+                    rowRanges.append(0.0...0.0)
+                }
+            }
+
+            for button in customButtons {
+                let rect = button.rect.rect(in: canvasSize)
+                let action: KeyBindingAction
+                switch button.action.kind {
+                case .key:
+                    action = .key(
+                        code: CGKeyCode(button.action.keyCode),
+                        flags: CGEventFlags(rawValue: button.action.flags)
+                    )
+                case .typingToggle:
+                    action = .typingToggle
+                case .layerMomentary:
+                    action = .layerMomentary(button.action.layer ?? 1)
+                case .layerToggle:
+                    action = .layerToggle(button.action.layer ?? 1)
+                case .none:
+                    action = .none
+                }
+                customBindings.append(KeyBinding(
+                    rect: rect,
+                    label: button.action.label,
+                    action: action,
+                    position: nil,
+                    holdAction: button.hold
+                ))
+                if let binding = customBindings.last {
+                    allBindings.append(binding)
+                }
+            }
+
+            return BindingIndex(
+                gridBindings: gridBindings,
+                rowRanges: rowRanges,
+                colRangesByRow: colRangesByRow,
+                customBindings: customBindings,
+                allBindings: allBindings
+            )
+        }
+
+        private func bindingForLabel(_ label: String, rect: CGRect, position: GridKeyPosition) -> KeyBinding? {
+            guard let action = keyAction(for: position, label: label) else { return nil }
+            return makeBinding(for: action, rect: rect, position: position)
+        }
+
+        private func keyAction(for position: GridKeyPosition, label: String) -> KeyAction? {
+            let layerMappings = customKeyMappingsByLayer[activeLayer] ?? [:]
+            if let mapping = layerMappings[position.storageKey] {
+                return mapping.primary
+            }
+            if let mapping = layerMappings[label] {
+                return mapping.primary
+            }
+            return KeyActionCatalog.action(for: label)
+        }
+
+        private func holdAction(for position: GridKeyPosition?, label: String) -> KeyAction? {
+            let layerMappings = customKeyMappingsByLayer[activeLayer] ?? [:]
+            if let position, let mapping = layerMappings[position.storageKey] {
+                if let hold = mapping.hold { return hold }
+            }
+            if let mapping = layerMappings[label], let hold = mapping.hold {
+                return hold
+            }
+            return KeyActionCatalog.holdAction(for: label)
+        }
+
+        private func makeBinding(
+            for action: KeyAction,
+            rect: CGRect,
+            position: GridKeyPosition?,
+            holdAction: KeyAction? = nil
+        ) -> KeyBinding? {
+            switch action.kind {
+            case .key:
+                let flags = CGEventFlags(rawValue: action.flags)
+                return KeyBinding(
+                    rect: rect,
+                    label: action.label,
+                    action: .key(code: CGKeyCode(action.keyCode), flags: flags),
+                    position: position,
+                    holdAction: holdAction
+                )
+            case .typingToggle:
+                return KeyBinding(
+                    rect: rect,
+                    label: action.label,
+                    action: .typingToggle,
+                    position: position,
+                    holdAction: holdAction
+                )
+            case .layerMomentary:
+                return KeyBinding(
+                    rect: rect,
+                    label: action.label,
+                    action: .layerMomentary(action.layer ?? 1),
+                    position: position,
+                    holdAction: holdAction
+                )
+            case .layerToggle:
+                return KeyBinding(
+                    rect: rect,
+                    label: action.label,
+                    action: .layerToggle(action.layer ?? 1),
+                    position: position,
+                    holdAction: holdAction
+                )
+            case .none:
+                return KeyBinding(
+                    rect: rect,
+                    label: action.label,
+                    action: .none,
+                    position: position,
+                    holdAction: holdAction
+                )
+            }
+        }
+
+        private func binding(at point: CGPoint, index: BindingIndex) -> KeyBinding? {
+            for row in index.rowRanges.indices where index.rowRanges[row].contains(point.y) {
+                let colRanges = index.colRangesByRow[row]
+                if let col = colRanges.firstIndex(where: { $0.contains(point.x) }) {
+                    if let binding = index.gridBindings[row][col],
+                       binding.rect.contains(point) {
+                        return binding
+                    }
+                }
+            }
+            return index.allBindings.first { $0.rect.contains(point) }
+        }
+
+        private static func isContactState(_ state: OMSState) -> Bool {
+            switch state {
+            case .starting, .making, .touching:
+                return true
+            default:
+                return false
+            }
+        }
+
+        private func handleTypingToggleTouch(
+            touchKey: TouchKey,
+            state: OMSState,
+            point: CGPoint
+        ) {
+            switch state {
+            case .starting, .making, .touching:
+                if toggleTouchStarts[touchKey] == nil {
+                    toggleTouchStarts[touchKey] = Self.now()
+                }
+            case .breaking, .leaving:
+                let didStart = toggleTouchStarts.removeValue(forKey: touchKey)
+                if didStart != nil {
+                    let maxDistance = dragCancelDistance * dragCancelDistance
+                    let initialPoint = touchInitialContactPoint[touchKey]
+                    let distance = initialPoint
+                        .map { distanceSquared(from: $0, to: point) } ?? 0
+                    if distance <= maxDistance {
+                        toggleTypingMode()
+                    }
                 }
                 touchInitialContactPoint.removeValue(forKey: touchKey)
-                if let pending = pendingTouches.removeValue(forKey: touchKey) {
-                    maybeSendPendingContinuousTap(pending, at: point)
+            case .notTouching:
+                toggleTouchStarts.removeValue(forKey: touchKey)
+                touchInitialContactPoint.removeValue(forKey: touchKey)
+            case .hovering, .lingering:
+                break
+            }
+        }
+
+        private func handleLayerToggleTouch(
+            touchKey: TouchKey,
+            state: OMSState,
+            targetLayer: Int?
+        ) {
+            switch state {
+            case .starting, .making, .touching:
+                guard isTypingEnabled else { break }
+                if let targetLayer {
+                    layerToggleTouchStarts[touchKey] = targetLayer
                 }
-                if disqualifiedTouches.remove(touchKey) != nil {
-                    continue
+            case .breaking, .leaving:
+                if let targetLayer = layerToggleTouchStarts.removeValue(forKey: touchKey) {
+                    guard isTypingEnabled else { break }
+                    toggleLayer(to: targetLayer)
                 }
-                if let active = activeTouches.removeValue(forKey: touchKey) {
-                    if let modifierKey = active.modifierKey {
-                        handleModifierUp(modifierKey, binding: active.binding)
-                    } else if active.isContinuousKey {
-                        stopRepeat(for: touchKey)
-                    }
-                    endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
+            case .notTouching:
+                layerToggleTouchStarts.removeValue(forKey: touchKey)
+            case .hovering, .lingering:
+                break
+            }
+        }
+
+        private func handleMomentaryLayerTouch(
+            touchKey: TouchKey,
+            state: OMSState,
+            targetLayer: Int?,
+            bindingRect: CGRect?
+        ) {
+            switch state {
+            case .starting, .making, .touching:
+                guard momentaryLayerTouches[touchKey] == nil,
+                      let targetLayer,
+                      let rect = bindingRect,
+                      let initialPoint = touchInitialContactPoint[touchKey],
+                      rect.contains(initialPoint) else {
+                    break
+                }
+                momentaryLayerTouches[touchKey] = targetLayer
+                updateActiveLayer()
+            case .breaking, .leaving, .notTouching:
+                if momentaryLayerTouches.removeValue(forKey: touchKey) != nil {
+                    updateActiveLayer()
                 }
             case .hovering, .lingering:
                 break
             }
         }
-    }
 
-    private func collectTwoFingerTapSuppression(
-        in touches: [OMSTouchData],
-        now: Date,
-        activeTouchKeys: Set<TouchKey>
-    ) -> [TouchKey] {
-        var suppressed: [TouchKey] = []
-        suppressed.reserveCapacity(2)
-        for touch in touches {
-            guard Self.isContactState(touch.state) else { continue }
-            let touchKey = TouchKey(deviceID: touch.deviceID, id: touch.id)
-            guard !disqualifiedTouches.contains(touchKey) else { continue }
-            guard touchInitialContactPoint[touchKey] == nil else { continue }
-            if let candidate = twoFingerTapCandidatesByDevice[touch.deviceID] {
-                if !activeTouchKeys.contains(candidate.touchKey) {
-                    twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceID)
-                } else if now.timeIntervalSince(candidate.startTime) <= twoFingerTapMaxInterval {
-                    suppressed.append(candidate.touchKey)
-                    suppressed.append(touchKey)
-                    twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceID)
-                    continue
-                }
+        private func toggleTypingMode() {
+            let updated = !isTypingEnabled
+            if updated != isTypingEnabled {
+                isTypingEnabled = updated
+                onTypingEnabledChanged(updated)
             }
-            twoFingerTapCandidatesByDevice[touch.deviceID] = TwoFingerTapCandidate(
-                touchKey: touchKey,
-                startTime: now
-            )
-        }
-        return suppressed
-    }
-
-    private func handleForceGuard(
-        touchKey: TouchKey,
-        pressure: Float,
-        now: Date
-    ) {
-        guard forceClickThreshold > 0 else { return }
-        if var active = activeTouches[touchKey] {
-            let triggered = active.registerForce(
-                pressure: pressure,
-                threshold: forceClickThreshold,
-                duration: forceClickHoldDuration,
-                now: now
-            )
-            if triggered {
-                stopRepeat(for: touchKey)
-            }
-            activeTouches[touchKey] = active
-        } else if var pending = pendingTouches[touchKey] {
-            _ = pending.registerForce(
-                pressure: pressure,
-                threshold: forceClickThreshold,
-                duration: forceClickHoldDuration,
-                now: now
-            )
-            pendingTouches[touchKey] = pending
-        }
-    }
-
-    private func cancelTwoFingerTapTouch(_ touchKey: TouchKey) {
-        disqualifyTouch(touchKey)
-        toggleTouchStarts.removeValue(forKey: touchKey)
-        layerToggleTouchStarts.removeValue(forKey: touchKey)
-        if momentaryLayerTouches.removeValue(forKey: touchKey) != nil {
-            updateActiveLayer()
-        }
-    }
-
-    private func makeBindings(
-        keyRects: [[CGRect]],
-        labels: [[String]],
-        customButtons: [CustomButton],
-        canvasSize: CGSize,
-        side: TrackpadSide
-    ) -> [KeyBinding] {
-        var bindings: [KeyBinding] = []
-        for row in 0..<keyRects.count {
-            for col in 0..<keyRects[row].count {
-                guard row < labels.count,
-                      col < labels[row].count else { continue }
-                let label = labels[row][col]
-                let position = GridKeyPosition(side: side, row: row, column: col)
-                guard let binding = bindingForLabel(label, rect: keyRects[row][col], position: position) else { continue }
-                bindings.append(binding)
+            if !isTypingEnabled {
+                releaseHeldKeys()
             }
         }
 
-        for button in customButtons {
-            let rect = button.rect.rect(in: canvasSize)
-            let action: KeyBindingAction
-            switch button.action.kind {
-            case .key:
-                action = .key(
-                    code: CGKeyCode(button.action.keyCode),
-                    flags: CGEventFlags(rawValue: button.action.flags)
+        private func modifierKey(for binding: KeyBinding) -> ModifierKey? {
+            guard case let .key(code, _) = binding.action else { return nil }
+            if code == CGKeyCode(kVK_Shift) {
+                return .shift
+            }
+            if code == CGKeyCode(kVK_Control) {
+                return .control
+            }
+            if code == CGKeyCode(kVK_Option) {
+                return .option
+            }
+            if code == CGKeyCode(kVK_Command) {
+                return .command
+            }
+            return nil
+        }
+
+        private func isContinuousKey(_ binding: KeyBinding) -> Bool {
+            guard case let .key(code, _) = binding.action else { return false }
+            return code == CGKeyCode(kVK_Space)
+                || code == CGKeyCode(kVK_Delete)
+                || code == CGKeyCode(kVK_LeftArrow)
+                || code == CGKeyCode(kVK_RightArrow)
+                || code == CGKeyCode(kVK_UpArrow)
+                || code == CGKeyCode(kVK_DownArrow)
+        }
+
+        private func holdBinding(for binding: KeyBinding) -> KeyBinding? {
+            if let holdAction = binding.holdAction {
+                return makeBinding(
+                    for: holdAction,
+                    rect: binding.rect,
+                    position: binding.position,
+                    holdAction: binding.holdAction
                 )
-            case .typingToggle:
-                action = .typingToggle
-            case .layerMomentary:
-                action = .layerMomentary(button.action.layer ?? 1)
-            case .layerToggle:
-                action = .layerToggle(button.action.layer ?? 1)
-            case .none:
-                action = .none
             }
-            bindings.append(KeyBinding(
-                rect: rect,
-                label: button.action.label,
-                action: action,
-                position: nil,
-                holdAction: button.hold
-            ))
-        }
-
-        return bindings
-    }
-
-    private func bindingForLabel(_ label: String, rect: CGRect, position: GridKeyPosition) -> KeyBinding? {
-        guard let action = keyAction(for: position, label: label) else { return nil }
-        return makeBinding(for: action, rect: rect, position: position)
-    }
-
-    private func keyAction(for position: GridKeyPosition, label: String) -> KeyAction? {
-        let layerMappings = customKeyMappingsByLayer[activeLayer] ?? [:]
-        if let mapping = layerMappings[position.storageKey] {
-            return mapping.primary
-        }
-        if let mapping = layerMappings[label] {
-            return mapping.primary
-        }
-        return KeyActionCatalog.action(for: label)
-    }
-
-    private func holdAction(for position: GridKeyPosition?, label: String) -> KeyAction? {
-        let layerMappings = customKeyMappingsByLayer[activeLayer] ?? [:]
-        if let position, let mapping = layerMappings[position.storageKey] {
-            if let hold = mapping.hold { return hold }
-        }
-        if let mapping = layerMappings[label], let hold = mapping.hold {
-            return hold
-        }
-        return KeyActionCatalog.holdAction(for: label)
-    }
-
-    private func makeBinding(
-        for action: KeyAction,
-        rect: CGRect,
-        position: GridKeyPosition?,
-        holdAction: KeyAction? = nil
-    ) -> KeyBinding? {
-        switch action.kind {
-        case .key:
-            let flags = CGEventFlags(rawValue: action.flags)
-            return KeyBinding(
-                rect: rect,
-                label: action.label,
-                action: .key(code: CGKeyCode(action.keyCode), flags: flags),
-                position: position,
-                holdAction: holdAction
-            )
-        case .typingToggle:
-            return KeyBinding(
-                rect: rect,
-                label: action.label,
-                action: .typingToggle,
-                position: position,
-                holdAction: holdAction
-            )
-        case .layerMomentary:
-            return KeyBinding(
-                rect: rect,
-                label: action.label,
-                action: .layerMomentary(action.layer ?? 1),
-                position: position,
-                holdAction: holdAction
-            )
-        case .layerToggle:
-            return KeyBinding(
-                rect: rect,
-                label: action.label,
-                action: .layerToggle(action.layer ?? 1),
-                position: position,
-                holdAction: holdAction
-            )
-        case .none:
-            return KeyBinding(
-                rect: rect,
-                label: action.label,
-                action: .none,
-                position: position,
-                holdAction: holdAction
-            )
-        }
-    }
-
-    private func binding(at point: CGPoint, bindings: [KeyBinding]) -> KeyBinding? {
-        bindings.first { $0.rect.contains(point) }
-    }
-
-    private static func isContactState(_ state: OMSState) -> Bool {
-        switch state {
-        case .starting, .making, .touching:
-            return true
-        default:
-            return false
-        }
-    }
-
-    private func handleTypingToggleTouch(
-        touchKey: TouchKey,
-        state: OMSState,
-        point: CGPoint
-    ) {
-        switch state {
-        case .starting, .making, .touching:
-            if toggleTouchStarts[touchKey] == nil {
-                toggleTouchStarts[touchKey] = Date()
-            }
-        case .breaking, .leaving:
-            let didStart = toggleTouchStarts.removeValue(forKey: touchKey)
-            if didStart != nil {
-                let maxDistance = dragCancelDistance * dragCancelDistance
-                let initialPoint = touchInitialContactPoint[touchKey]
-                let distance = initialPoint
-                    .map { distanceSquared(from: $0, to: point) } ?? 0
-                if distance <= maxDistance {
-                    toggleTypingMode()
-                }
-            }
-            touchInitialContactPoint.removeValue(forKey: touchKey)
-        case .notTouching:
-            toggleTouchStarts.removeValue(forKey: touchKey)
-            touchInitialContactPoint.removeValue(forKey: touchKey)
-        case .hovering, .lingering:
-            break
-        }
-    }
-
-    private func handleLayerToggleTouch(
-        touchKey: TouchKey,
-        state: OMSState,
-        targetLayer: Int?
-    ) {
-        switch state {
-        case .starting, .making, .touching:
-            guard isTypingEnabled else { break }
-            if let targetLayer {
-                layerToggleTouchStarts[touchKey] = targetLayer
-            }
-        case .breaking, .leaving:
-            if let targetLayer = layerToggleTouchStarts.removeValue(forKey: touchKey) {
-                guard isTypingEnabled else { break }
-                toggleLayer(to: targetLayer)
-            }
-        case .notTouching:
-            layerToggleTouchStarts.removeValue(forKey: touchKey)
-        case .hovering, .lingering:
-            break
-        }
-    }
-
-    private func handleMomentaryLayerTouch(
-        touchKey: TouchKey,
-        state: OMSState,
-        targetLayer: Int?,
-        bindingRect: CGRect?
-    ) {
-        switch state {
-        case .starting, .making, .touching:
-            guard momentaryLayerTouches[touchKey] == nil,
-                  let targetLayer,
-                  let rect = bindingRect,
-                  let initialPoint = touchInitialContactPoint[touchKey],
-                  rect.contains(initialPoint) else {
-                break
-            }
-            momentaryLayerTouches[touchKey] = targetLayer
-            updateActiveLayer()
-        case .breaking, .leaving, .notTouching:
-            if momentaryLayerTouches.removeValue(forKey: touchKey) != nil {
-                updateActiveLayer()
-            }
-        case .hovering, .lingering:
-            break
-        }
-    }
-
-    private func toggleTypingMode() {
-        isTypingEnabled.toggle()
-        if !isTypingEnabled {
-            releaseHeldKeys()
-        }
-    }
-
-    private func modifierKey(for binding: KeyBinding) -> ModifierKey? {
-        guard case let .key(code, _) = binding.action else { return nil }
-        if code == CGKeyCode(kVK_Shift) {
-            return .shift
-        }
-        if code == CGKeyCode(kVK_Control) {
-            return .control
-        }
-        if code == CGKeyCode(kVK_Option) {
-            return .option
-        }
-        if code == CGKeyCode(kVK_Command) {
-            return .command
-        }
-        return nil
-    }
-
-    private func isContinuousKey(_ binding: KeyBinding) -> Bool {
-        guard case let .key(code, _) = binding.action else { return false }
-        return code == CGKeyCode(kVK_Space)
-            || code == CGKeyCode(kVK_Delete)
-            || code == CGKeyCode(kVK_LeftArrow)
-            || code == CGKeyCode(kVK_RightArrow)
-            || code == CGKeyCode(kVK_UpArrow)
-            || code == CGKeyCode(kVK_DownArrow)
-    }
-
-    private func holdBinding(for binding: KeyBinding) -> KeyBinding? {
-        if let holdAction = binding.holdAction {
+            guard let action = holdAction(for: binding.position, label: binding.label) else { return nil }
             return makeBinding(
-                for: holdAction,
+                for: action,
                 rect: binding.rect,
-                position: binding.position,
-                holdAction: binding.holdAction
+                position: binding.position
             )
         }
-        guard let action = holdAction(for: binding.position, label: binding.label) else { return nil }
-        return makeBinding(
-            for: action,
-            rect: binding.rect,
-            position: binding.position
-        )
-    }
 
-    private func maybeSendPendingContinuousTap(_ pending: PendingTouch, at point: CGPoint) {
-        guard isContinuousKey(pending.binding),
-              Date().timeIntervalSince(pending.startTime) <= tapMaxDuration,
-              pending.binding.rect.contains(point),
-              (!isDragDetectionEnabled
-               || pending.maxDistanceSquared <= dragCancelDistance * dragCancelDistance),
-              !pending.forceGuardTriggered else {
-            return
+        private func maybeSendPendingContinuousTap(
+            _ pending: PendingTouch,
+            at point: CGPoint,
+            now: TimeInterval
+        ) {
+            let releaseDistanceSquared = distanceSquared(from: pending.startPoint, to: point)
+            guard isContinuousKey(pending.binding),
+                  now - pending.startTime <= tapMaxDuration,
+                  pending.binding.rect.contains(point),
+                  (!isDragDetectionEnabled
+                   || releaseDistanceSquared <= dragCancelDistance * dragCancelDistance),
+                  !pending.forceGuardTriggered else {
+                return
+            }
+            sendKey(binding: pending.binding)
         }
-        sendKey(binding: pending.binding)
-    }
 
-    private func triggerBinding(
-        _ binding: KeyBinding,
-        touchKey: TouchKey?
-    ) {
-        switch binding.action {
-        case let .layerMomentary(layer):
-            guard let touchKey else { return }
-            momentaryLayerTouches[touchKey] = layer
-            updateActiveLayer()
-        case let .layerToggle(layer):
-            toggleLayer(to: layer)
-        case .typingToggle:
-            toggleTypingMode()
-        case .none:
-            break
-        case let .key(code, flags):
+        private func triggerBinding(
+            _ binding: KeyBinding,
+            touchKey: TouchKey?
+        ) {
+            switch binding.action {
+            case let .layerMomentary(layer):
+                guard let touchKey else { return }
+                momentaryLayerTouches[touchKey] = layer
+                updateActiveLayer()
+            case let .layerToggle(layer):
+                toggleLayer(to: layer)
+            case .typingToggle:
+                toggleTypingMode()
+            case .none:
+                break
+            case let .key(code, flags):
+                logKeyDispatch(label: binding.label, code: code, flags: flags)
+                sendKey(code: code, flags: flags)
+            }
+        }
+
+        private func sendKey(code: CGKeyCode, flags: CGEventFlags) {
+            let combinedFlags = flags.union(currentModifierFlags())
+            keyDispatcher.postKeyStroke(code: code, flags: combinedFlags)
+        }
+
+        private func currentModifierFlags() -> CGEventFlags {
+            var modifierFlags: CGEventFlags = []
+            if leftShiftTouchCount > 0 {
+                modifierFlags.insert(.maskShift)
+            }
+            if controlTouchCount > 0 {
+                modifierFlags.insert(.maskControl)
+            }
+            if optionTouchCount > 0 {
+                modifierFlags.insert(.maskAlternate)
+            }
+            if commandTouchCount > 0 {
+                modifierFlags.insert(.maskCommand)
+            }
+            return modifierFlags
+        }
+
+        private func sendKey(binding: KeyBinding) {
+            guard case let .key(code, flags) = binding.action else { return }
+            logKeyDispatch(label: binding.label, code: code, flags: flags)
             sendKey(code: code, flags: flags)
         }
-    }
 
-    private func sendKey(code: CGKeyCode, flags: CGEventFlags) {
-        let combinedFlags = flags.union(currentModifierFlags())
-        keyDispatcher.postKeyStroke(code: code, flags: combinedFlags)
-    }
-
-    private func currentModifierFlags() -> CGEventFlags {
-        var modifierFlags: CGEventFlags = []
-        if leftShiftTouchCount > 0 {
-            modifierFlags.insert(.maskShift)
-        }
-        if controlTouchCount > 0 {
-            modifierFlags.insert(.maskControl)
-        }
-        if optionTouchCount > 0 {
-            modifierFlags.insert(.maskAlternate)
-        }
-        if commandTouchCount > 0 {
-            modifierFlags.insert(.maskCommand)
-        }
-        return modifierFlags
-    }
-
-    private func sendKey(binding: KeyBinding) {
-        guard case let .key(code, flags) = binding.action else { return }
-        sendKey(code: code, flags: flags)
-    }
-
-    private func startRepeat(for touchKey: TouchKey, binding: KeyBinding) {
-        stopRepeat(for: touchKey)
-        guard case let .key(code, flags) = binding.action else { return }
-        let repeatFlags = flags.union(currentModifierFlags())
-        let initialDelay = repeatInitialDelay
-        let interval = repeatInterval(for: binding.action)
-        let token = RepeatToken()
-        repeatTokens[touchKey] = token
-        repeatTasks[touchKey] = Task.detached(priority: .userInitiated) { [dispatcher = keyDispatcher] in
-            try? await Task.sleep(nanoseconds: initialDelay)
-            while !Task.isCancelled, token.isActive {
-                dispatcher.postKeyStroke(code: code, flags: repeatFlags, token: token)
-                try? await Task.sleep(nanoseconds: interval)
-            }
-        }
-    }
-
-    private func repeatInterval(for action: KeyBindingAction) -> UInt64 {
-        if case let .key(code, flags) = action,
-           code == CGKeyCode(kVK_Space),
-           flags.isEmpty {
-            return repeatInterval * spaceRepeatMultiplier
-        }
-        return repeatInterval
-    }
-
-    private func stopRepeat(for touchKey: TouchKey) {
-        if let task = repeatTasks.removeValue(forKey: touchKey) {
-            task.cancel()
-        }
-        repeatTokens.removeValue(forKey: touchKey)?.deactivate()
-    }
-
-    private func handleModifierDown(_ modifierKey: ModifierKey, binding: KeyBinding) {
-        switch modifierKey {
-        case .shift:
-            if leftShiftTouchCount == 0 {
-                postKey(binding: binding, keyDown: true)
-            }
-            leftShiftTouchCount += 1
-        case .control:
-            if controlTouchCount == 0 {
-                postKey(binding: binding, keyDown: true)
-            }
-            controlTouchCount += 1
-        case .option:
-            if optionTouchCount == 0 {
-                postKey(binding: binding, keyDown: true)
-            }
-            optionTouchCount += 1
-        case .command:
-            if commandTouchCount == 0 {
-                postKey(binding: binding, keyDown: true)
-            }
-            commandTouchCount += 1
-        }
-    }
-
-    private func handleModifierUp(_ modifierKey: ModifierKey, binding: KeyBinding) {
-        switch modifierKey {
-        case .shift:
-            leftShiftTouchCount = max(0, leftShiftTouchCount - 1)
-            if leftShiftTouchCount == 0 {
-                postKey(binding: binding, keyDown: false)
-            }
-        case .control:
-            controlTouchCount = max(0, controlTouchCount - 1)
-            if controlTouchCount == 0 {
-                postKey(binding: binding, keyDown: false)
-            }
-        case .option:
-            optionTouchCount = max(0, optionTouchCount - 1)
-            if optionTouchCount == 0 {
-                postKey(binding: binding, keyDown: false)
-            }
-        case .command:
-            commandTouchCount = max(0, commandTouchCount - 1)
-            if commandTouchCount == 0 {
-                postKey(binding: binding, keyDown: false)
-            }
-        }
-    }
-
-    private func postKey(binding: KeyBinding, keyDown: Bool) {
-        guard case let .key(code, flags) = binding.action else { return }
-        keyDispatcher.postKey(code: code, flags: flags, keyDown: keyDown)
-    }
-
-    func clearTouchState() {
-        releaseHeldKeys()
-    }
-
-    private func releaseHeldKeys() {
-        if leftShiftTouchCount > 0 {
-            let shiftBinding = KeyBinding(
-                rect: .zero,
-                label: "Shift",
-                action: .key(code: CGKeyCode(kVK_Shift), flags: []),
-                position: nil,
-                holdAction: nil
-            )
-            postKey(binding: shiftBinding, keyDown: false)
-            leftShiftTouchCount = 0
-        }
-        if controlTouchCount > 0 {
-            let controlBinding = KeyBinding(
-                rect: .zero,
-                label: "Ctrl",
-                action: .key(code: CGKeyCode(kVK_Control), flags: []),
-                position: nil,
-                holdAction: nil
-            )
-            postKey(binding: controlBinding, keyDown: false)
-            controlTouchCount = 0
-        }
-        if optionTouchCount > 0 {
-            let optionBinding = KeyBinding(
-                rect: .zero,
-                label: "Option",
-                action: .key(code: CGKeyCode(kVK_Option), flags: []),
-                position: nil,
-                holdAction: nil
-            )
-            postKey(binding: optionBinding, keyDown: false)
-            optionTouchCount = 0
-        }
-        if commandTouchCount > 0 {
-            let commandBinding = KeyBinding(
-                rect: .zero,
-                label: "Cmd",
-                action: .key(code: CGKeyCode(kVK_Command), flags: []),
-                position: nil,
-                holdAction: nil
-            )
-            postKey(binding: commandBinding, keyDown: false)
-            commandTouchCount = 0
-        }
-        for touchKey in activeTouches.keys {
+        private func startRepeat(for touchKey: TouchKey, binding: KeyBinding) {
             stopRepeat(for: touchKey)
+            guard case let .key(code, flags) = binding.action else { return }
+            let repeatFlags = flags.union(currentModifierFlags())
+            let initialDelay = repeatInitialDelay
+            let interval = repeatInterval(for: binding.action)
+            let token = RepeatToken()
+            repeatTokens[touchKey] = token
+            repeatTasks[touchKey] = Task.detached(priority: .userInitiated) { [dispatcher = keyDispatcher] in
+                try? await Task.sleep(nanoseconds: initialDelay)
+                while !Task.isCancelled, token.isActive {
+                    dispatcher.postKeyStroke(code: code, flags: repeatFlags, token: token)
+                    try? await Task.sleep(nanoseconds: interval)
+                }
+            }
         }
-        activeTouches.removeAll()
-        pendingTouches.removeAll()
-        disqualifiedTouches.removeAll()
-        toggleTouchStarts.removeAll()
-        layerToggleTouchStarts.removeAll()
-        momentaryLayerTouches.removeAll()
-        touchInitialContactPoint.removeAll()
-        updateActiveLayer()
-    }
 
-    private func disqualifyTouch(_ touchKey: TouchKey) {
-        touchInitialContactPoint.removeValue(forKey: touchKey)
-        disqualifiedTouches.insert(touchKey)
-        pendingTouches.removeValue(forKey: touchKey)
-        if let active = activeTouches.removeValue(forKey: touchKey) {
-            if let modifierKey = active.modifierKey {
-                handleModifierUp(modifierKey, binding: active.binding)
-            } else if active.isContinuousKey {
+        private func repeatInterval(for action: KeyBindingAction) -> UInt64 {
+            if case let .key(code, flags) = action,
+               code == CGKeyCode(kVK_Space),
+               flags.isEmpty {
+                return repeatInterval * spaceRepeatMultiplier
+            }
+            return repeatInterval
+        }
+
+        private func stopRepeat(for touchKey: TouchKey) {
+            if let task = repeatTasks.removeValue(forKey: touchKey) {
+                task.cancel()
+            }
+            repeatTokens.removeValue(forKey: touchKey)?.deactivate()
+        }
+
+        private func handleModifierDown(_ modifierKey: ModifierKey, binding: KeyBinding) {
+            switch modifierKey {
+            case .shift:
+                if leftShiftTouchCount == 0 {
+                    postKey(binding: binding, keyDown: true)
+                }
+                leftShiftTouchCount += 1
+            case .control:
+                if controlTouchCount == 0 {
+                    postKey(binding: binding, keyDown: true)
+                }
+                controlTouchCount += 1
+            case .option:
+                if optionTouchCount == 0 {
+                    postKey(binding: binding, keyDown: true)
+                }
+                optionTouchCount += 1
+            case .command:
+                if commandTouchCount == 0 {
+                    postKey(binding: binding, keyDown: true)
+                }
+                commandTouchCount += 1
+            }
+        }
+
+        private func handleModifierUp(_ modifierKey: ModifierKey, binding: KeyBinding) {
+            switch modifierKey {
+            case .shift:
+                leftShiftTouchCount = max(0, leftShiftTouchCount - 1)
+                if leftShiftTouchCount == 0 {
+                    postKey(binding: binding, keyDown: false)
+                }
+            case .control:
+                controlTouchCount = max(0, controlTouchCount - 1)
+                if controlTouchCount == 0 {
+                    postKey(binding: binding, keyDown: false)
+                }
+            case .option:
+                optionTouchCount = max(0, optionTouchCount - 1)
+                if optionTouchCount == 0 {
+                    postKey(binding: binding, keyDown: false)
+                }
+            case .command:
+                commandTouchCount = max(0, commandTouchCount - 1)
+                if commandTouchCount == 0 {
+                    postKey(binding: binding, keyDown: false)
+                }
+            }
+        }
+
+        private func postKey(binding: KeyBinding, keyDown: Bool) {
+            guard case let .key(code, flags) = binding.action else { return }
+            logKeyDispatch(label: binding.label, code: code, flags: flags, keyDown: keyDown)
+            keyDispatcher.postKey(code: code, flags: flags, keyDown: keyDown)
+        }
+
+        private func releaseHeldKeys() {
+            if leftShiftTouchCount > 0 {
+                let shiftBinding = KeyBinding(
+                    rect: .zero,
+                    label: "Shift",
+                    action: .key(code: CGKeyCode(kVK_Shift), flags: []),
+                    position: nil,
+                    holdAction: nil
+                )
+                postKey(binding: shiftBinding, keyDown: false)
+                leftShiftTouchCount = 0
+            }
+            if controlTouchCount > 0 {
+                let controlBinding = KeyBinding(
+                    rect: .zero,
+                    label: "Ctrl",
+                    action: .key(code: CGKeyCode(kVK_Control), flags: []),
+                    position: nil,
+                    holdAction: nil
+                )
+                postKey(binding: controlBinding, keyDown: false)
+                controlTouchCount = 0
+            }
+            if optionTouchCount > 0 {
+                let optionBinding = KeyBinding(
+                    rect: .zero,
+                    label: "Option",
+                    action: .key(code: CGKeyCode(kVK_Option), flags: []),
+                    position: nil,
+                    holdAction: nil
+                )
+                postKey(binding: optionBinding, keyDown: false)
+                optionTouchCount = 0
+            }
+            if commandTouchCount > 0 {
+                let commandBinding = KeyBinding(
+                    rect: .zero,
+                    label: "Cmd",
+                    action: .key(code: CGKeyCode(kVK_Command), flags: []),
+                    position: nil,
+                    holdAction: nil
+                )
+                postKey(binding: commandBinding, keyDown: false)
+                commandTouchCount = 0
+            }
+            for touchKey in activeTouches.keys {
                 stopRepeat(for: touchKey)
             }
-            endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
+            activeTouches.removeAll()
+            pendingTouches.removeAll()
+            disqualifiedTouches.removeAll()
+            toggleTouchStarts.removeAll()
+            layerToggleTouchStarts.removeAll()
+            momentaryLayerTouches.removeAll()
+            touchInitialContactPoint.removeAll()
+            updateActiveLayer()
         }
-    }
 
-    private func distanceSquared(from start: CGPoint, to end: CGPoint) -> CGFloat {
-        let dx = end.x - start.x
-        let dy = end.y - start.y
-        return dx * dx + dy * dy
-    }
-
-    private func toggleLayer(to layer: Int) { 
-        let clamped = max(0, min(layer, 1))
-        if persistentLayer == clamped {
-            persistentLayer = 0
-        } else {
-            persistentLayer = clamped
-        }
-        updateActiveLayer()
-    }
-
-    private func updateActiveLayer() {
-        let resolvedLayer = momentaryLayerTouches.values.max() ?? persistentLayer
-        if activeLayer != resolvedLayer {
-            activeLayer = resolvedLayer
-            invalidateBindingsCache()
-        }
-    }
-
-    private func endMomentaryHoldIfNeeded(_ binding: KeyBinding?, touchKey: TouchKey) {
-        guard let binding else { return }
-        switch binding.action {
-        case .layerMomentary:
-            if momentaryLayerTouches.removeValue(forKey: touchKey) != nil {
-                updateActiveLayer()
+        private func disqualifyTouch(_ touchKey: TouchKey, reason: DisqualifyReason) {
+            touchInitialContactPoint.removeValue(forKey: touchKey)
+            disqualifiedTouches.insert(touchKey)
+            pendingTouches.removeValue(forKey: touchKey)
+            if let active = activeTouches.removeValue(forKey: touchKey) {
+                if let modifierKey = active.modifierKey {
+                    handleModifierUp(modifierKey, binding: active.binding)
+                } else if active.isContinuousKey {
+                    stopRepeat(for: touchKey)
+                }
+                endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
             }
-        default:
-            break
+            logDisqualify(touchKey, reason: reason)
         }
-    }
 
-    private func invalidateBindingsCache() {
-        bindingsGeneration &+= 1
-    }
-
-    private func bindings(
-        for side: TrackpadSide,
-        keyRects: [[CGRect]],
-        labels: [[String]],
-        canvasSize: CGSize
-    ) -> [KeyBinding] {
-        if bindingsCacheLayer != activeLayer {
-            bindingsCacheLayer = activeLayer
-            invalidateBindingsCache()
+        private func distanceSquared(from start: CGPoint, to end: CGPoint) -> CGFloat {
+            let dx = end.x - start.x
+            let dy = end.y - start.y
+            return dx * dx + dy * dy
         }
-        let currentGeneration = bindingsGenerationBySide[side] ?? -1
-        if currentGeneration != bindingsGeneration || bindingsCache[side] == nil {
-            bindingsCache[side] = makeBindings(
-                keyRects: keyRects,
-                labels: labels,
-                customButtons: customButtons(for: activeLayer, side: side),
-                canvasSize: canvasSize,
-                side: side
+
+        private func toggleLayer(to layer: Int) {
+            let clamped = max(0, min(layer, 1))
+            if persistentLayer == clamped {
+                persistentLayer = 0
+            } else {
+                persistentLayer = clamped
+            }
+            updateActiveLayer()
+        }
+
+        private func updateActiveLayer() {
+            let resolvedLayer = momentaryLayerTouches.values.max() ?? persistentLayer
+            if activeLayer != resolvedLayer {
+                activeLayer = resolvedLayer
+                invalidateBindingsCache()
+                onActiveLayerChanged(resolvedLayer)
+            }
+        }
+
+        private func endMomentaryHoldIfNeeded(_ binding: KeyBinding?, touchKey: TouchKey) {
+            guard let binding else { return }
+            switch binding.action {
+            case .layerMomentary:
+                if momentaryLayerTouches.removeValue(forKey: touchKey) != nil {
+                    updateActiveLayer()
+                }
+            default:
+                break
+            }
+        }
+
+        private static func now() -> TimeInterval {
+            CACurrentMediaTime()
+        }
+
+        private func logDisqualify(_ touchKey: TouchKey, reason: DisqualifyReason) {
+            #if DEBUG
+            keyLogger.debug("disqualify deviceIndex=\(touchKey.deviceIndex) id=\(touchKey.id) reason=\(reason.rawValue)")
+            #endif
+        }
+
+        private func logKeyDispatch(
+            label: String,
+            code: CGKeyCode,
+            flags: CGEventFlags,
+            keyDown: Bool? = nil
+        ) {
+            #if DEBUG
+            if let keyDown {
+                keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue) keyDown=\(keyDown)")
+            } else {
+                keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue)")
+            }
+            #endif
+        }
+
+        private func invalidateBindingsCache() {
+            bindingsGeneration &+= 1
+        }
+
+        private func bindings(
+            for side: TrackpadSide,
+            keyRects: [[CGRect]],
+            labels: [[String]],
+            canvasSize: CGSize
+        ) -> BindingIndex {
+            if bindingsCacheLayer != activeLayer {
+                bindingsCacheLayer = activeLayer
+                invalidateBindingsCache()
+            }
+            let currentGeneration = bindingsGenerationBySide[side] ?? -1
+            if currentGeneration != bindingsGeneration || bindingsCache[side] == nil {
+                bindingsCache[side] = makeBindings(
+                    keyRects: keyRects,
+                    labels: labels,
+                    customButtons: customButtons(for: activeLayer, side: side),
+                    canvasSize: canvasSize,
+                    side: side
+                )
+                bindingsGenerationBySide[side] = bindingsGeneration
+            }
+            return bindingsCache[side] ?? BindingIndex(
+                gridBindings: [],
+                rowRanges: [],
+                colRangesByRow: [],
+                customBindings: [],
+                allBindings: []
             )
-            bindingsGenerationBySide[side] = bindingsGeneration
         }
-        return bindingsCache[side] ?? []
     }
 }
 
@@ -1925,6 +2232,11 @@ enum KeyActionMappingStore {
         return nil
     }
 
+    static func decodeNormalized(_ data: Data) -> LayeredKeyMappings? {
+        guard let layered = decode(data) else { return nil }
+        return normalized(layered)
+    }
+
     static func encode(_ mappings: LayeredKeyMappings) -> Data? {
         guard !mappings.isEmpty else { return nil }
         do {
@@ -1932,5 +2244,11 @@ enum KeyActionMappingStore {
         } catch {
             return nil
         }
+    }
+
+    static func normalized(_ mappings: LayeredKeyMappings) -> LayeredKeyMappings {
+        let layer0 = mappings[0] ?? [:]
+        let layer1 = mappings[1] ?? layer0
+        return [0: layer0, 1: layer1]
     }
 }

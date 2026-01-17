@@ -44,6 +44,7 @@ public enum OMSState: String, Sendable {
 
 public struct OMSTouchData: CustomStringConvertible, Sendable {
     public var deviceID: String
+    public var deviceIndex: Int
     public var id: Int32
     public var position: OMSPosition
     public var total: Float
@@ -56,6 +57,7 @@ public struct OMSTouchData: CustomStringConvertible, Sendable {
 
     public var description: String {
         var text = "deviceID:\(deviceID), "
+        text += "deviceIndex:\(deviceIndex), "
         text += String(format: "id:%2d, ", id)
         text += String(format: "pos:(%05.3f,%05.3f), ", position.x, position.y)
         text += String(format: "total:%05.3f, ", total)
