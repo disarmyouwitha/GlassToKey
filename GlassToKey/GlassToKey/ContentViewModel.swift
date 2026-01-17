@@ -98,14 +98,16 @@ final class ContentViewModel: ObservableObject {
     @Published var availableDevices = [OMSDeviceInfo]()
     @Published var leftDevice: OMSDeviceInfo?
     @Published var rightDevice: OMSDeviceInfo?
-    @Published private(set) var hasDisconnectedTrackpads = false
+    private var hasDisconnectedTrackpads = false
 
     private var requestedLeftDeviceID: String?
     private var requestedRightDeviceID: String?
     private var autoResyncTask: Task<Void, Never>?
     private var autoResyncEnabled = false
-    private static let autoResyncIntervalSeconds: TimeInterval = 8.0
-    private static let autoResyncIntervalNanoseconds = UInt64(autoResyncIntervalSeconds * 1_000_000_000)
+    private static let connectedResyncIntervalSeconds: TimeInterval = 10.0
+    private static let disconnectedResyncIntervalSeconds: TimeInterval = 2.0
+    private static let connectedResyncIntervalNanoseconds = UInt64(connectedResyncIntervalSeconds * 1_000_000_000)
+    private static let disconnectedResyncIntervalNanoseconds = UInt64(disconnectedResyncIntervalSeconds * 1_000_000_000)
 
     private let manager = OMSManager.shared
     private var task: Task<Void, Never>?
@@ -245,9 +247,7 @@ final class ContentViewModel: ObservableObject {
            !availableIDs.contains(rightID) {
             hasMissing = true
         }
-        if hasDisconnectedTrackpads != hasMissing {
-            hasDisconnectedTrackpads = hasMissing
-        }
+        hasDisconnectedTrackpads = hasMissing
     }
 
     func setAutoResyncEnabled(_ enabled: Bool) {
@@ -266,8 +266,11 @@ final class ContentViewModel: ObservableObject {
 
     private func autoResyncLoop() async {
         while autoResyncEnabled {
+            let interval = hasDisconnectedTrackpads
+                ? Self.disconnectedResyncIntervalNanoseconds
+                : Self.connectedResyncIntervalNanoseconds
             do {
-                try await Task.sleep(nanoseconds: Self.autoResyncIntervalNanoseconds)
+                try await Task.sleep(nanoseconds: interval)
             } catch {
                 break
             }

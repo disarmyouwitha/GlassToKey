@@ -67,47 +67,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem = item
         updateStatusIndicator(
             isTypingEnabled: controller.viewModel.isTypingEnabled,
-            activeLayer: controller.viewModel.activeLayer,
-            hasDisconnectedTrackpads: controller.viewModel.hasDisconnectedTrackpads
+            activeLayer: controller.viewModel.activeLayer
         )
     }
 
     private func observeStatus() {
-        statusCancellable = Publishers.CombineLatest3(
+        statusCancellable = Publishers.CombineLatest(
             controller.viewModel.$isTypingEnabled.removeDuplicates(),
-            controller.viewModel.$activeLayer.removeDuplicates(),
-            controller.viewModel.$hasDisconnectedTrackpads.removeDuplicates()
+            controller.viewModel.$activeLayer.removeDuplicates()
         )
-        .sink { [weak self] isTypingEnabled, activeLayer, hasDisconnected in
+        .sink { [weak self] isTypingEnabled, activeLayer in
             self?.updateStatusIndicator(
                 isTypingEnabled: isTypingEnabled,
-                activeLayer: activeLayer,
-                hasDisconnectedTrackpads: hasDisconnected
+                activeLayer: activeLayer
             )
         }
     }
 
     private func updateStatusIndicator(
         isTypingEnabled: Bool,
-        activeLayer: Int,
-        hasDisconnectedTrackpads: Bool
+        activeLayer: Int
     ) {
         guard let button = statusItem?.button else { return }
         button.image = statusIndicatorImage(
             isTypingEnabled: isTypingEnabled,
-            activeLayer: activeLayer,
-            hasWarning: hasDisconnectedTrackpads
+            activeLayer: activeLayer
         )
-        let modeText = isTypingEnabled ? "Keyboard mode" : "Mouse mode"
-        button.toolTip = hasDisconnectedTrackpads
-            ? "\(modeText) – missing trackpad"
-            : modeText
+        button.toolTip = isTypingEnabled ? "Keyboard mode" : "Mouse mode"
     }
 
     private func statusIndicatorImage(
         isTypingEnabled: Bool,
-        activeLayer: Int,
-        hasWarning: Bool
+        activeLayer: Int
     ) -> NSImage {
         let size = NSSize(width: 10, height: 10)
         let image = NSImage(size: size)
@@ -120,23 +111,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             : (isTypingEnabled ? NSColor.systemGreen : NSColor.systemRed)
         color.setFill()
         path.fill()
-
-        if hasWarning {
-            let dotRadius: CGFloat = 2.5
-            let dotCenter = CGPoint(
-                x: rect.maxX - dotRadius - 1,
-                y: rect.maxY - dotRadius - 1
-            )
-            let warning = NSBezierPath()
-            warning.appendArc(
-                withCenter: dotCenter,
-                radius: dotRadius,
-                startAngle: 0,
-                endAngle: 360
-            )
-            NSColor.systemYellow.setFill()
-            warning.fill()
-        }
         image.unlockFocus()
         return image
     }

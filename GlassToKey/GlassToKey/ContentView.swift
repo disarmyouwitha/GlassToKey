@@ -335,11 +335,6 @@ struct ContentView: View {
                         ))
                         .toggleStyle(SwitchToggleStyle())
                         .help("Polls every 8 seconds to detect disconnected trackpads.")
-                        if viewModel.hasDisconnectedTrackpads {
-                            Text("Status icon warns when a selected trackpad is unavailable.")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
                     }
                     .padding(12)
                     .background(
