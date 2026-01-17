@@ -40,6 +40,9 @@ public final class OMSManager: Sendable {
     private let protectedManager: OSAllocatedUnfairLock<OpenMTManager?>
     private let protectedListener = OSAllocatedUnfairLock<OpenMTListener?>(uncheckedState: nil)
     private let protectedTimestampEnabled = OSAllocatedUnfairLock<Bool>(uncheckedState: true)
+    private let protectedDeviceIndexStore = OSAllocatedUnfairLock<DeviceIndexStore>(
+        uncheckedState: DeviceIndexStore()
+    )
     private let dateFormatter = DateFormatter()
 
     private let touchDataSubject = PassthroughSubject<[OMSTouchData], Never>()
@@ -128,6 +131,11 @@ public final class OMSManager: Sendable {
         return xcfManager.triggerRawHaptic(actuationID, unknown1: unknown1, unknown2: unknown2, unknown3: unknown3)
     }
 
+    public func deviceIndex(for deviceID: String) -> Int? {
+        guard !deviceID.isEmpty else { return nil }
+        return resolveDeviceIndex(for: deviceID)
+    }
+
     @objc func listen(_ event: OpenMTEvent) {
         guard let touches = (event.touches as NSArray) as? [OpenMTTouch] else { return }
         if touches.isEmpty {
@@ -136,12 +144,15 @@ public final class OMSManager: Sendable {
             let timestamp = protectedTimestampEnabled.withLockUnchecked(\.self)
                 ? dateFormatter.string(from: Date())
                 : ""
+            let deviceID = event.deviceID ?? "Unknown"
+            let deviceIndex = resolveDeviceIndex(for: deviceID)
             var data: [OMSTouchData] = []
             data.reserveCapacity(touches.count)
             for touch in touches {
                 guard let state = OMSState(touch.state) else { continue }
                 data.append(OMSTouchData(
-                    deviceID: event.deviceID,
+                    deviceID: deviceID,
+                    deviceIndex: deviceIndex,
                     id: touch.identifier,
                     position: OMSPosition(x: touch.posX, y: touch.posY),
                     total: touch.total,
@@ -156,7 +167,24 @@ public final class OMSManager: Sendable {
             touchDataSubject.send(data)
         }
     }
+
+    private func resolveDeviceIndex(for deviceID: String) -> Int {
+        protectedDeviceIndexStore.withLockUnchecked { store in
+            if let existing = store.indexByID[deviceID] {
+                return existing
+            }
+            let assigned = store.nextIndex
+            store.nextIndex += 1
+            store.indexByID[deviceID] = assigned
+            return assigned
+        }
+    }
 }
 
 extension AnyCancellable: @retroactive @unchecked Sendable {}
 extension PassthroughSubject: @retroactive @unchecked Sendable {}
+
+private struct DeviceIndexStore: Sendable {
+    var nextIndex: Int = 0
+    var indexByID: [String: Int] = [:]
+}

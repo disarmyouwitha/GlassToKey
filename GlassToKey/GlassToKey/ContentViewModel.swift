@@ -72,7 +72,24 @@ final class ContentViewModel: ObservableObject {
         let keyRects: [[CGRect]]
     }
 
-    private var latestTouchData = [OMSTouchData]()
+    struct TouchSnapshot: Sendable {
+        var data: [OMSTouchData] = []
+        var left: [OMSTouchData] = []
+        var right: [OMSTouchData] = []
+        var revision: UInt64 = 0
+    }
+
+    private struct DeviceSelection: Sendable {
+        var leftIndex: Int?
+        var rightIndex: Int?
+    }
+
+    nonisolated private let touchSnapshotLock = OSAllocatedUnfairLock<TouchSnapshot>(
+        uncheckedState: TouchSnapshot()
+    )
+    nonisolated private let deviceSelectionLock = OSAllocatedUnfairLock<DeviceSelection>(
+        uncheckedState: DeviceSelection()
+    )
     @Published var isListening: Bool = false
     @Published var isTypingEnabled: Bool = true
     @Published private(set) var activeLayer: Int = 0
@@ -84,7 +101,6 @@ final class ContentViewModel: ObservableObject {
     private let manager = OMSManager.shared
     private var task: Task<Void, Never>?
     private let processor: TouchProcessor
-    private var touchRevision: UInt64 = 0
 
     init() {
         weak var weakSelf: ContentViewModel?
@@ -106,22 +122,25 @@ final class ContentViewModel: ObservableObject {
     }
 
     var leftTouches: [OMSTouchData] {
-        guard let deviceID = leftDevice?.deviceID else { return [] }
-        return latestTouchData.filter { $0.deviceID == deviceID }
+        touchSnapshotLock.withLockUnchecked { $0.left }
     }
 
     var rightTouches: [OMSTouchData] {
-        guard let deviceID = rightDevice?.deviceID else { return [] }
-        return latestTouchData.filter { $0.deviceID == deviceID }
+        touchSnapshotLock.withLockUnchecked { $0.right }
     }
 
     func onAppear() {
-        task = Task { [weak self, manager, processor] in
+        let snapshotLock = touchSnapshotLock
+        let selectionLock = deviceSelectionLock
+        task = Task.detached { [manager, processor, snapshotLock, selectionLock] in
             for await touchData in manager.touchDataStream {
-                guard let self else { return }
-                await MainActor.run {
-                    self.latestTouchData = touchData
-                    self.touchRevision &+= 1
+                let selection = selectionLock.withLockUnchecked { $0 }
+                let split = Self.splitTouches(touchData, selection: selection)
+                snapshotLock.withLockUnchecked { snapshot in
+                    snapshot.data = touchData
+                    snapshot.left = split.left
+                    snapshot.right = split.right
+                    snapshot.revision &+= 1
                 }
                 await processor.processTouchFrame(touchData)
             }
@@ -227,15 +246,37 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    func snapshotTouchData() -> [OMSTouchData] {
-        latestTouchData
+    func snapshotTouchData() -> TouchSnapshot {
+        touchSnapshotLock.withLockUnchecked { $0 }
     }
 
     func snapshotTouchDataIfUpdated(
         since revision: UInt64
-    ) -> (data: [OMSTouchData], revision: UInt64)? {
-        guard touchRevision != revision else { return nil }
-        return (latestTouchData, touchRevision)
+    ) -> TouchSnapshot? {
+        touchSnapshotLock.withLockUnchecked { snapshot in
+            guard snapshot.revision != revision else { return nil }
+            return snapshot
+        }
+    }
+
+    nonisolated private static func splitTouches(
+        _ touches: [OMSTouchData],
+        selection: DeviceSelection
+    ) -> (left: [OMSTouchData], right: [OMSTouchData]) {
+        var left: [OMSTouchData] = []
+        var right: [OMSTouchData] = []
+        left.reserveCapacity(touches.count / 2)
+        right.reserveCapacity(touches.count / 2)
+        for touch in touches {
+            if let leftIndex = selection.leftIndex,
+               touch.deviceIndex == leftIndex {
+                left.append(touch)
+            } else if let rightIndex = selection.rightIndex,
+                      touch.deviceIndex == rightIndex {
+                right.append(touch)
+            }
+        }
+        return (left, right)
     }
 
     private func updateActiveDevices() {
@@ -246,10 +287,14 @@ final class ContentViewModel: ObservableObject {
                 await processor.resetState()
             }
         }
-        let leftID = leftDevice?.deviceID
-        let rightID = rightDevice?.deviceID
+        let leftIndex = leftDevice.flatMap { manager.deviceIndex(for: $0.deviceID) }
+        let rightIndex = rightDevice.flatMap { manager.deviceIndex(for: $0.deviceID) }
+        deviceSelectionLock.withLockUnchecked { selection in
+            selection.leftIndex = leftIndex
+            selection.rightIndex = rightIndex
+        }
         Task { [processor] in
-            await processor.updateActiveDevices(leftID: leftID, rightID: rightID)
+            await processor.updateActiveDevices(leftIndex: leftIndex, rightIndex: rightIndex)
         }
     }
     func setPersistentLayer(_ layer: Int) {
@@ -303,7 +348,7 @@ final class ContentViewModel: ObservableObject {
         }
 
         private struct TouchKey: Hashable {
-            let deviceID: String
+            let deviceIndex: Int
             let id: Int32
         }
 
@@ -392,6 +437,13 @@ final class ContentViewModel: ObservableObject {
             let startTime: Date
         }
 
+        private struct BindingIndex {
+            let gridBindings: [[KeyBinding?]]
+            let rowRanges: [ClosedRange<CGFloat>]
+            let colRangesByRow: [[ClosedRange<CGFloat>]]
+            let customBindings: [KeyBinding]
+        }
+
         private let keyDispatcher: KeyEventDispatcher
         private let onTypingEnabledChanged: @Sendable (Bool) -> Void
         private let onActiveLayerChanged: @Sendable (Int) -> Void
@@ -400,8 +452,8 @@ final class ContentViewModel: ObservableObject {
         private var isTypingEnabled = true
         private var activeLayer: Int = 0
         private var persistentLayer: Int = 0
-        private var leftDeviceID: String?
-        private var rightDeviceID: String?
+        private var leftDeviceIndex: Int?
+        private var rightDeviceIndex: Int?
         private var customButtons: [CustomButton] = []
         private var customButtonsByLayerAndSide: [Int: [TrackpadSide: [CustomButton]]] = [:]
         private var customKeyMappingsByLayer: LayeredKeyMappings = [:]
@@ -425,7 +477,7 @@ final class ContentViewModel: ObservableObject {
         private var twoFingerTapMaxInterval: TimeInterval = 0.08
         private var forceClickThreshold: Float = 0
         private var forceClickHoldDuration: TimeInterval = 0
-        private var twoFingerTapCandidatesByDevice: [String: TwoFingerTapCandidate] = [:]
+        private var twoFingerTapCandidatesByDevice: [Int: TwoFingerTapCandidate] = [:]
         private let repeatInitialDelay: UInt64 = 350_000_000
         private let repeatInterval: UInt64 = 50_000_000
         private let spaceRepeatMultiplier: UInt64 = 2
@@ -434,7 +486,7 @@ final class ContentViewModel: ObservableObject {
         private var leftLabels: [[String]] = []
         private var rightLabels: [[String]] = []
         private var trackpadSize: CGSize = .zero
-        private var bindingsCache: [TrackpadSide: [KeyBinding]] = [:]
+        private var bindingsCache: [TrackpadSide: BindingIndex] = [:]
         private var bindingsCacheLayer: Int = -1
         private var bindingsGeneration = 0
         private var bindingsGenerationBySide: [TrackpadSide: Int] = [:]
@@ -460,9 +512,9 @@ final class ContentViewModel: ObservableObject {
             self.isListening = isListening
         }
 
-        func updateActiveDevices(leftID: String?, rightID: String?) {
-            leftDeviceID = leftID
-            rightDeviceID = rightID
+        func updateActiveDevices(leftIndex: Int?, rightIndex: Int?) {
+            leftDeviceIndex = leftIndex
+            rightDeviceIndex = rightIndex
         }
 
         func updateLayouts(
@@ -523,9 +575,9 @@ final class ContentViewModel: ObservableObject {
                   let rightLayout else {
                 return
             }
-            let leftID = leftDeviceID
-            let rightID = rightDeviceID
-            if leftID == nil && rightID == nil {
+            let leftIndex = leftDeviceIndex
+            let rightIndex = rightDeviceIndex
+            if leftIndex == nil && rightIndex == nil {
                 return
             }
             var leftTouches: [OMSTouchData] = []
@@ -533,9 +585,9 @@ final class ContentViewModel: ObservableObject {
             leftTouches.reserveCapacity(touchData.count / 2)
             rightTouches.reserveCapacity(touchData.count / 2)
             for touch in touchData {
-                if touch.deviceID == leftID {
+                if let leftIndex, touch.deviceIndex == leftIndex {
                     leftTouches.append(touch)
-                } else if touch.deviceID == rightID {
+                } else if let rightIndex, touch.deviceIndex == rightIndex {
                     rightTouches.append(touch)
                 }
             }
@@ -603,7 +655,7 @@ final class ContentViewModel: ObservableObject {
                 var touchKeysInFrame = Set<TouchKey>()
                 touchKeysInFrame.reserveCapacity(touches.count)
                 for touch in touches {
-                    touchKeysInFrame.insert(TouchKey(deviceID: touch.deviceID, id: touch.id))
+                    touchKeysInFrame.insert(TouchKey(deviceIndex: touch.deviceIndex, id: touch.id))
                 }
                 let suppressed = collectTwoFingerTapSuppression(
                     in: touches,
@@ -622,13 +674,13 @@ final class ContentViewModel: ObservableObject {
                     x: CGFloat(touch.position.x) * canvasSize.width,
                     y: CGFloat(1.0 - touch.position.y) * canvasSize.height
                 )
-                let touchKey = TouchKey(deviceID: touch.deviceID, id: touch.id)
+                let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
                 if touchInitialContactPoint[touchKey] == nil,
                    Self.isContactState(touch.state) {
                     touchInitialContactPoint[touchKey] = point
                 }
                 handleForceGuard(touchKey: touchKey, pressure: touch.pressure, now: now)
-                let bindingAtPoint = binding(at: point, bindings: bindings)
+                let bindingAtPoint = binding(at: point, index: bindings)
 
                 if disqualifiedTouches.contains(touchKey) {
                     switch touch.state {
@@ -811,9 +863,9 @@ final class ContentViewModel: ObservableObject {
                         }
                     }
                 case .breaking, .leaving:
-                    if let candidate = twoFingerTapCandidatesByDevice[touch.deviceID],
+                    if let candidate = twoFingerTapCandidatesByDevice[touch.deviceIndex],
                        candidate.touchKey == touchKey {
-                        twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceID)
+                        twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
                     }
                     let releaseStartPoint = touchInitialContactPoint.removeValue(forKey: touchKey)
                     if var pending = pendingTouches.removeValue(forKey: touchKey) {
@@ -848,9 +900,9 @@ final class ContentViewModel: ObservableObject {
                         }
                     }
                 case .notTouching:
-                    if let candidate = twoFingerTapCandidatesByDevice[touch.deviceID],
+                    if let candidate = twoFingerTapCandidatesByDevice[touch.deviceIndex],
                        candidate.touchKey == touchKey {
-                        twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceID)
+                        twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
                     }
                     touchInitialContactPoint.removeValue(forKey: touchKey)
                     if var pending = pendingTouches.removeValue(forKey: touchKey) {
@@ -886,20 +938,20 @@ final class ContentViewModel: ObservableObject {
             suppressed.reserveCapacity(2)
             for touch in touches {
                 guard Self.isContactState(touch.state) else { continue }
-                let touchKey = TouchKey(deviceID: touch.deviceID, id: touch.id)
+                let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
                 guard !disqualifiedTouches.contains(touchKey) else { continue }
                 guard touchInitialContactPoint[touchKey] == nil else { continue }
-                if let candidate = twoFingerTapCandidatesByDevice[touch.deviceID] {
+                if let candidate = twoFingerTapCandidatesByDevice[touch.deviceIndex] {
                     if !activeTouchKeys.contains(candidate.touchKey) {
-                        twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceID)
+                        twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
                     } else if now.timeIntervalSince(candidate.startTime) <= twoFingerTapMaxInterval {
                         suppressed.append(candidate.touchKey)
                         suppressed.append(touchKey)
-                        twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceID)
+                        twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
                         continue
                     }
                 }
-                twoFingerTapCandidatesByDevice[touch.deviceID] = TwoFingerTapCandidate(
+                twoFingerTapCandidatesByDevice[touch.deviceIndex] = TwoFingerTapCandidate(
                     touchKey: touchKey,
                     startTime: now
                 )
@@ -952,18 +1004,43 @@ final class ContentViewModel: ObservableObject {
             customButtons: [CustomButton],
             canvasSize: CGSize,
             side: TrackpadSide
-        ) -> [KeyBinding] {
-            var bindings: [KeyBinding] = []
+        ) -> BindingIndex {
+            var gridBindings: [[KeyBinding?]] = []
+            var rowRanges: [ClosedRange<CGFloat>] = []
+            var colRangesByRow: [[ClosedRange<CGFloat>]] = []
+            var customBindings: [KeyBinding] = []
+
+            gridBindings.reserveCapacity(keyRects.count)
+            rowRanges.reserveCapacity(keyRects.count)
+            colRangesByRow.reserveCapacity(keyRects.count)
+
             for row in 0..<keyRects.count {
-                for col in 0..<keyRects[row].count {
+                let rowRects = keyRects[row]
+                var rowBindings = [KeyBinding?](repeating: nil, count: rowRects.count)
+                var colRanges: [ClosedRange<CGFloat>] = []
+                colRanges.reserveCapacity(rowRects.count)
+                var minY = CGFloat.greatestFiniteMagnitude
+                var maxY = -CGFloat.greatestFiniteMagnitude
+                for col in 0..<rowRects.count {
+                    let rect = rowRects[col]
+                    minY = min(minY, rect.minY)
+                    maxY = max(maxY, rect.maxY)
+                    colRanges.append(rect.minX...rect.maxX)
                     guard row < labels.count,
                           col < labels[row].count else { continue }
                     let label = labels[row][col]
                     let position = GridKeyPosition(side: side, row: row, column: col)
-                    guard let binding = bindingForLabel(label, rect: keyRects[row][col], position: position) else {
+                    guard let binding = bindingForLabel(label, rect: rect, position: position) else {
                         continue
                     }
-                    bindings.append(binding)
+                    rowBindings[col] = binding
+                }
+                gridBindings.append(rowBindings)
+                colRangesByRow.append(colRanges)
+                if minY <= maxY {
+                    rowRanges.append(minY...maxY)
+                } else {
+                    rowRanges.append(0.0...0.0)
                 }
             }
 
@@ -985,7 +1062,7 @@ final class ContentViewModel: ObservableObject {
                 case .none:
                     action = .none
                 }
-                bindings.append(KeyBinding(
+                customBindings.append(KeyBinding(
                     rect: rect,
                     label: button.action.label,
                     action: action,
@@ -994,7 +1071,12 @@ final class ContentViewModel: ObservableObject {
                 ))
             }
 
-            return bindings
+            return BindingIndex(
+                gridBindings: gridBindings,
+                rowRanges: rowRanges,
+                colRangesByRow: colRangesByRow,
+                customBindings: customBindings
+            )
         }
 
         private func bindingForLabel(_ label: String, rect: CGRect, position: GridKeyPosition) -> KeyBinding? {
@@ -1075,8 +1157,20 @@ final class ContentViewModel: ObservableObject {
             }
         }
 
-        private func binding(at point: CGPoint, bindings: [KeyBinding]) -> KeyBinding? {
-            bindings.first { $0.rect.contains(point) }
+        private func binding(at point: CGPoint, index: BindingIndex) -> KeyBinding? {
+            if let row = index.rowRanges.firstIndex(where: { $0.contains(point.y) }) {
+                let colRanges = index.colRangesByRow[row]
+                if let col = colRanges.firstIndex(where: { $0.contains(point.x) }) {
+                    if let binding = index.gridBindings[row][col],
+                       binding.rect.contains(point) {
+                        return binding
+                    }
+                }
+            }
+            for binding in index.customBindings where binding.rect.contains(point) {
+                return binding
+            }
+            return nil
         }
 
         private static func isContactState(_ state: OMSState) -> Bool {
@@ -1488,7 +1582,7 @@ final class ContentViewModel: ObservableObject {
             keyRects: [[CGRect]],
             labels: [[String]],
             canvasSize: CGSize
-        ) -> [KeyBinding] {
+        ) -> BindingIndex {
             if bindingsCacheLayer != activeLayer {
                 bindingsCacheLayer = activeLayer
                 invalidateBindingsCache()
@@ -1504,7 +1598,12 @@ final class ContentViewModel: ObservableObject {
                 )
                 bindingsGenerationBySide[side] = bindingsGeneration
             }
-            return bindingsCache[side] ?? []
+            return bindingsCache[side] ?? BindingIndex(
+                gridBindings: [],
+                rowRanges: [],
+                colRangesByRow: [],
+                customBindings: []
+            )
         }
     }
 }

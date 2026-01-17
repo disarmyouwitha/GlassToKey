@@ -736,7 +736,8 @@ struct ContentView: View {
         @Binding var selectedButtonID: UUID?
         @Binding var selectedColumn: Int?
         @Binding var selectedGridKey: SelectedGridKey?
-        @State private var displayTouchData = [OMSTouchData]()
+        @State private var displayLeftTouchesState = [OMSTouchData]()
+        @State private var displayRightTouchesState = [OMSTouchData]()
         @State private var lastTouchRevision: UInt64 = 0
         private let displayRefreshInterval: TimeInterval = 1.0 / 60.0
 
@@ -772,7 +773,8 @@ struct ContentView: View {
                 if enabled {
                     refreshTouchSnapshot(resetRevision: true)
                 } else {
-                    displayTouchData = []
+                    displayLeftTouchesState = []
+                    displayRightTouchesState = []
                 }
             }
             .task(id: visualsEnabled) {
@@ -792,31 +794,26 @@ struct ContentView: View {
         private func refreshTouchSnapshot(resetRevision: Bool) {
             let sinceRevision: UInt64 = resetRevision ? 0 : lastTouchRevision
             if let snapshot = viewModel.snapshotTouchDataIfUpdated(since: sinceRevision) {
-                displayTouchData = snapshot.data
+                displayLeftTouchesState = snapshot.left
+                displayRightTouchesState = snapshot.right
                 lastTouchRevision = snapshot.revision
             } else if resetRevision {
-                displayTouchData = viewModel.snapshotTouchData()
+                let snapshot = viewModel.snapshotTouchData()
+                displayLeftTouchesState = snapshot.left
+                displayRightTouchesState = snapshot.right
             }
         }
 
         private var displayLeftTouches: [OMSTouchData] {
-            touches(for: viewModel.leftDevice, in: displayTouchData)
+            displayLeftTouchesState
         }
 
         private var displayRightTouches: [OMSTouchData] {
-            touches(for: viewModel.rightDevice, in: displayTouchData)
+            displayRightTouchesState
         }
 
         private func customButtons(for side: TrackpadSide) -> [CustomButton] {
             customButtons.filter { $0.side == side && $0.layer == viewModel.activeLayer }
-        }
-
-        private func touches(
-            for device: OMSDeviceInfo?,
-            in touches: [OMSTouchData]
-        ) -> [OMSTouchData] {
-            guard let deviceID = device?.deviceID else { return [] }
-            return touches.filter { $0.deviceID == deviceID }
         }
 
         private func trackpadCanvas(
