@@ -882,16 +882,16 @@ struct ContentView: View {
                                 selectedKey: editModeEnabled ? selectedKeyForCanvas : nil
                             )
                             .equatable()
-                            if visualsEnabled {
-                                TrackpadTouchLayer(
-                                    revision: lastTouchRevision,
-                                    touches: touches,
-                                    trackpadSize: trackpadSize
-                                )
-                            }
-                            if let lastHit = lastHit {
-                                LastHitHighlightLayer(lastHit: lastHit)
-                            }
+                        if visualsEnabled {
+                            TrackpadTouchLayer(
+                                revision: lastTouchRevision,
+                                touches: touches,
+                                trackpadSize: trackpadSize
+                            )
+                        }
+                        if !editModeEnabled, let lastHit = lastHit {
+                            LastHitHighlightLayer(lastHit: lastHit)
+                        }
                         }
                     } else {
                         RoundedRectangle(cornerRadius: 6)
@@ -1169,7 +1169,7 @@ struct ContentView: View {
         var body: some View {
             TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { _ in
                 let age = CACurrentMediaTime() - lastHit.timestamp
-                let fadeDuration: TimeInterval = 0.3
+                let fadeDuration: TimeInterval = 0.6
                 let normalized = max(0, fadeDuration - age) / fadeDuration
                 if normalized <= 0 {
                     EmptyView()
@@ -1182,13 +1182,6 @@ struct ContentView: View {
                             strokePath,
                             with: .color(highlightColor),
                             lineWidth: 2.5
-                        )
-                        context.draw(
-                            Text(lastHit.label)
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                .foregroundColor(highlightColor),
-                            at: CGPoint(x: lastHit.rect.midX, y: lastHit.rect.minY - 8),
-                            anchor: .center
                         )
                     }
                 }
