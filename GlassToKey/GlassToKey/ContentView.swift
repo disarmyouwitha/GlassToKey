@@ -56,8 +56,7 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = GlassToKeySettings.tapHoldDurationMs
     @AppStorage(GlassToKeyDefaultsKeys.twoFingerTapInterval) private var twoFingerTapIntervalMs: Double = GlassToKeySettings.twoFingerTapIntervalMs
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
-    @AppStorage(GlassToKeyDefaultsKeys.forceClickThreshold) private var forceClickThresholdSetting: Double = GlassToKeySettings.forceClickThreshold
-    @AppStorage(GlassToKeyDefaultsKeys.forceClickHoldDuration) private var forceClickHoldDurationMs: Double = GlassToKeySettings.forceClickHoldDurationMs
+    @AppStorage(GlassToKeyDefaultsKeys.forceClickCap) private var forceClickCapSetting: Double = GlassToKeySettings.forceClickCap
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -70,8 +69,7 @@ struct ContentView: View {
     private static let dragCancelDistanceRange: ClosedRange<Double> = 1.0...30.0
     private static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
     private static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...250.0
-    private static let forceClickThresholdRange: ClosedRange<Double> = 0.0...1.0
-    private static let forceClickHoldDurationRange: ClosedRange<Double> = 0.0...250.0
+    private static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
     private static let keyCornerRadius: CGFloat = 6.0
     private static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -127,22 +125,13 @@ struct ContentView: View {
         formatter.maximum = NSNumber(value: ContentView.dragCancelDistanceRange.upperBound)
         return formatter
     }()
-    private static let forceClickThresholdFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        formatter.minimum = NSNumber(value: ContentView.forceClickThresholdRange.lowerBound)
-        formatter.maximum = NSNumber(value: ContentView.forceClickThresholdRange.upperBound)
-        return formatter
-    }()
-    private static let forceClickHoldDurationFormatter: NumberFormatter = {
+    private static let forceClickCapFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.minimumFractionDigits = 0
         formatter.maximumFractionDigits = 0
-        formatter.minimum = NSNumber(value: ContentView.forceClickHoldDurationRange.lowerBound)
-        formatter.maximum = NSNumber(value: ContentView.forceClickHoldDurationRange.upperBound)
+        formatter.minimum = NSNumber(value: ContentView.forceClickCapRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.forceClickCapRange.upperBound)
         return formatter
     }()
     private static let legacyKeyScaleKey = "GlassToKey.keyScale"
@@ -267,6 +256,8 @@ struct ContentView: View {
                         customButtons: customButtons,
                         editModeEnabled: $editModeEnabled,
                         visualsEnabled: $visualsEnabled,
+                        lastHitLeft: viewModel.debugLastHitLeft,
+                        lastHitRight: viewModel.debugLastHitRight,
                         selectedButtonID: $selectedButtonID,
                         selectedColumn: $selectedColumn,
                         selectedGridKey: $selectedGridKey
@@ -633,32 +624,17 @@ struct ContentView: View {
                                 .frame(minWidth: 120)
                             }
                             GridRow {
-                                Text("Force Delta")
-                                TextField(
-                                    "0.70",
-                                    value: $forceClickThresholdSetting,
-                                    formatter: Self.forceClickThresholdFormatter
-                                )
-                                .frame(width: 60)
-                                Slider(
-                                    value: $forceClickThresholdSetting,
-                                    in: Self.forceClickThresholdRange,
-                                    step: 0.05
-                                )
-                                .frame(minWidth: 120)
-                            }
-                            GridRow {
-                                Text("Force Guard (ms)")
+                                Text("Force Cap (g)")
                                 TextField(
                                     "0",
-                                    value: $forceClickHoldDurationMs,
-                                    formatter: Self.forceClickHoldDurationFormatter
+                                    value: $forceClickCapSetting,
+                                    formatter: Self.forceClickCapFormatter
                                 )
                                 .frame(width: 60)
                                 Slider(
-                                    value: $forceClickHoldDurationMs,
-                                    in: Self.forceClickHoldDurationRange,
-                                    step: 10
+                                    value: $forceClickCapSetting,
+                                    in: Self.forceClickCapRange,
+                                    step: 5
                                 )
                                 .frame(minWidth: 120)
                             }
@@ -740,11 +716,8 @@ struct ContentView: View {
         .onChange(of: dragCancelDistanceSetting) { newValue in
             viewModel.updateDragCancelDistance(CGFloat(newValue))
         }
-        .onChange(of: forceClickThresholdSetting) { newValue in
-            viewModel.updateForceClickThreshold(newValue)
-        }
-        .onChange(of: forceClickHoldDurationMs) { newValue in
-            viewModel.updateForceClickHoldDuration(newValue / 1000.0)
+        .onChange(of: forceClickCapSetting) { newValue in
+            viewModel.updateForceClickCap(newValue)
         }
     }
 
@@ -760,6 +733,8 @@ struct ContentView: View {
         let customButtons: [CustomButton]
         @Binding var editModeEnabled: Bool
         @Binding var visualsEnabled: Bool
+        let lastHitLeft: ContentViewModel.DebugHit?
+        let lastHitRight: ContentViewModel.DebugHit?
         @Binding var selectedButtonID: UUID?
         @Binding var selectedColumn: Int?
         @Binding var selectedGridKey: SelectedGridKey?
@@ -779,6 +754,7 @@ struct ContentView: View {
                     labels: leftGridLabels,
                     customButtons: customButtons(for: .left),
                     visualsEnabled: visualsEnabled,
+                    lastHit: lastHitLeft,
                     selectedButtonID: selectedButtonID
                 )
                 trackpadCanvas(
@@ -790,6 +766,7 @@ struct ContentView: View {
                     labels: rightGridLabels,
                     customButtons: customButtons(for: .right),
                     visualsEnabled: visualsEnabled,
+                    lastHit: lastHitRight,
                     selectedButtonID: selectedButtonID
                 )
             }
@@ -852,6 +829,7 @@ struct ContentView: View {
             labels: [[String]],
             customButtons: [CustomButton],
             visualsEnabled: Bool,
+            lastHit: ContentViewModel.DebugHit?,
             selectedButtonID: UUID?
         ) -> some View {
             return VStack(alignment: .leading, spacing: 6) {
@@ -869,19 +847,22 @@ struct ContentView: View {
                                 trackpadSize: trackpadSize
                             )
                             .equatable()
-                        TrackpadSelectionLayer(
-                            keyRects: layout.keyRects,
-                            selectedColumn: editModeEnabled ? selectedColumn : nil,
-                            selectedKey: editModeEnabled ? selectedKeyForCanvas : nil
-                        )
-                        .equatable()
+                            TrackpadSelectionLayer(
+                                keyRects: layout.keyRects,
+                                selectedColumn: editModeEnabled ? selectedColumn : nil,
+                                selectedKey: editModeEnabled ? selectedKeyForCanvas : nil
+                            )
+                            .equatable()
                         if visualsEnabled {
                             TrackpadTouchLayer(
                                 revision: lastTouchRevision,
-                                    touches: touches,
-                                    trackpadSize: trackpadSize
-                                )
-                            }
+                                touches: touches,
+                                trackpadSize: trackpadSize
+                            )
+                        }
+                        if !editModeEnabled, let lastHit = lastHit {
+                            LastHitHighlightLayer(lastHit: lastHit)
+                        }
                         }
                     } else {
                         RoundedRectangle(cornerRadius: 6)
@@ -1153,6 +1134,32 @@ struct ContentView: View {
         }
     }
 
+    private struct LastHitHighlightLayer: View {
+        let lastHit: ContentViewModel.DebugHit
+
+        var body: some View {
+            TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { _ in
+                let age = CACurrentMediaTime() - lastHit.timestamp
+                let fadeDuration: TimeInterval = 0.6
+                let normalized = max(0, fadeDuration - age) / fadeDuration
+                if normalized <= 0 {
+                    EmptyView()
+                } else {
+                    Canvas { context, _ in
+                        let cornerRadius = ContentView.keyCornerRadius
+                        let highlightColor = Color.green.opacity(normalized * 0.95)
+                        let strokePath = Path(roundedRect: lastHit.rect, cornerRadius: cornerRadius)
+                        context.stroke(
+                            strokePath,
+                            with: .color(highlightColor),
+                            lineWidth: 2.5
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     private struct TrackpadTouchLayer: View {
         let revision: UInt64
         let touches: [OMSTouchData]
@@ -1413,8 +1420,6 @@ struct ContentView: View {
         viewModel.updateHoldThreshold(tapHoldDurationMs / 1000.0)
         viewModel.updateTwoFingerTapInterval(twoFingerTapIntervalMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragCancelDistanceSetting))
-        viewModel.updateForceClickThreshold(forceClickThresholdSetting)
-        viewModel.updateForceClickHoldDuration(forceClickHoldDurationMs / 1000.0)
     }
 
     private func saveSettings() {

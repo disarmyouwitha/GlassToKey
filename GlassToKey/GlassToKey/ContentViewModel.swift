@@ -66,6 +66,7 @@ final class ContentViewModel: ObservableObject {
         let label: String
         let action: KeyBindingAction
         let position: GridKeyPosition?
+        let side: TrackpadSide
         let holdAction: KeyAction?
     }
 
@@ -99,6 +100,15 @@ final class ContentViewModel: ObservableObject {
     @Published var leftDevice: OMSDeviceInfo?
     @Published var rightDevice: OMSDeviceInfo?
     @Published private(set) var hasDisconnectedTrackpads = false
+    struct DebugHit: Equatable {
+        let rect: CGRect
+        let label: String
+        let side: TrackpadSide
+        let timestamp: TimeInterval
+    }
+
+    @Published private(set) var debugLastHitLeft: DebugHit?
+    @Published private(set) var debugLastHitRight: DebugHit?
 
     private var requestedLeftDeviceID: String?
     private var requestedRightDeviceID: String?
@@ -115,6 +125,11 @@ final class ContentViewModel: ObservableObject {
 
     init() {
         weak var weakSelf: ContentViewModel?
+        let debugBindingHandler: @Sendable (KeyBinding) -> Void = { binding in
+            Task { @MainActor in
+                weakSelf?.recordDebugHit(binding)
+            }
+        }
         processor = TouchProcessor(
             keyDispatcher: KeyEventDispatcher.shared,
             onTypingEnabledChanged: { isEnabled in
@@ -126,7 +141,8 @@ final class ContentViewModel: ObservableObject {
                 Task { @MainActor in
                     weakSelf?.activeLayer = layer
                 }
-            }
+            },
+            onDebugBindingDetected: debugBindingHandler
         )
         weakSelf = self
         loadDevices()
@@ -138,6 +154,21 @@ final class ContentViewModel: ObservableObject {
 
     var rightTouches: [OMSTouchData] {
         touchSnapshotLock.withLockUnchecked { $0.right }
+    }
+
+    private func recordDebugHit(_ binding: KeyBinding) {
+        let hit = DebugHit(
+            rect: binding.rect,
+            label: binding.label,
+            side: binding.side,
+            timestamp: CACurrentMediaTime()
+        )
+        switch binding.side {
+        case .left:
+            debugLastHitLeft = hit
+        case .right:
+            debugLastHitRight = hit
+        }
     }
 
     func onAppear() {
@@ -386,15 +417,9 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    func updateForceClickThreshold(_ threshold: Double) {
+    func updateForceClickCap(_ grams: Double) {
         Task { [processor] in
-            await processor.updateForceClickThreshold(threshold)
-        }
-    }
-
-    func updateForceClickHoldDuration(_ seconds: TimeInterval) {
-        Task { [processor] in
-            await processor.updateForceClickHoldDuration(seconds)
+            await processor.updateForceClickCap(grams)
         }
     }
 
@@ -423,6 +448,7 @@ final class ContentViewModel: ObservableObject {
             case pendingLeftRect
             case twoFingerSuppressed
             case typingDisabled
+            case forceCapExceeded
         }
 
         private struct TouchKey: Hashable {
@@ -443,35 +469,7 @@ final class ContentViewModel: ObservableObject {
             var forceEntryTime: TimeInterval?
             var forceGuardTriggered: Bool
 
-            mutating func registerForce(
-                pressure: Float,
-                threshold: Float,
-                duration: TimeInterval,
-                now: TimeInterval
-            ) -> Bool {
-                guard threshold > 0 else {
-                    forceEntryTime = nil
-                    return false
-                }
-                if forceGuardTriggered {
-                    return true
-                }
-                let delta = max(0, pressure - initialPressure)
-                if delta >= threshold {
-                    if forceEntryTime == nil {
-                        forceEntryTime = now
-                    }
-                    if duration <= 0 || now - (forceEntryTime ?? now) >= duration {
-                        forceGuardTriggered = true
-                        return true
-                    }
-                } else {
-                    forceEntryTime = nil
-                }
-                return false
-            }
         }
-
         private struct PendingTouch {
             let binding: KeyBinding
             let startTime: TimeInterval
@@ -481,33 +479,6 @@ final class ContentViewModel: ObservableObject {
             var forceEntryTime: TimeInterval?
             var forceGuardTriggered: Bool
 
-            mutating func registerForce(
-                pressure: Float,
-                threshold: Float,
-                duration: TimeInterval,
-                now: TimeInterval
-            ) -> Bool {
-                guard threshold > 0 else {
-                    forceEntryTime = nil
-                    return false
-                }
-                if forceGuardTriggered {
-                    return true
-                }
-                let delta = max(0, pressure - initialPressure)
-                if delta >= threshold {
-                    if forceEntryTime == nil {
-                        forceEntryTime = now
-                    }
-                    if duration <= 0 || now - (forceEntryTime ?? now) >= duration {
-                        forceGuardTriggered = true
-                        return true
-                    }
-                } else {
-                    forceEntryTime = nil
-                }
-                return false
-            }
         }
 
         private struct TwoFingerTapCandidate {
@@ -515,17 +486,92 @@ final class ContentViewModel: ObservableObject {
             let startTime: TimeInterval
         }
 
+        private struct BindingGrid {
+            private let rows: Int
+            private let cols: Int
+            private let canvasSize: CGSize
+            private var buckets: [[[KeyBinding]]]
+
+            init(canvasSize: CGSize, rows: Int, cols: Int) {
+                self.canvasSize = canvasSize
+                self.rows = max(1, rows)
+                self.cols = max(1, cols)
+                var filledBuckets: [[[KeyBinding]]] = []
+                filledBuckets.reserveCapacity(self.rows)
+                for _ in 0..<self.rows {
+                    var rowBuckets: [[KeyBinding]] = []
+                    rowBuckets.reserveCapacity(self.cols)
+                    for _ in 0..<self.cols {
+                        rowBuckets.append([])
+                    }
+                    filledBuckets.append(rowBuckets)
+                }
+                self.buckets = filledBuckets
+            }
+
+            mutating func insert(_ binding: KeyBinding) {
+                let range = bucketRange(for: binding.rect)
+                for row in range.rowRange {
+                    for col in range.colRange {
+                        buckets[row][col].append(binding)
+                    }
+                }
+            }
+
+            func binding(at point: CGPoint) -> KeyBinding? {
+                let row = bucketIndex(
+                    for: normalize(point.y, axisSize: canvasSize.height),
+                    count: rows
+                )
+                let col = bucketIndex(
+                    for: normalize(point.x, axisSize: canvasSize.width),
+                    count: cols
+                )
+                for binding in buckets[row][col] {
+                    if binding.rect.contains(point) {
+                        return binding
+                    }
+                }
+                return nil
+            }
+
+            private func bucketRange(for rect: CGRect) -> (rowRange: ClosedRange<Int>, colRange: ClosedRange<Int>) {
+                let minX = normalize(rect.minX, axisSize: canvasSize.width)
+                let maxX = normalize(rect.maxX, axisSize: canvasSize.width)
+                let minY = normalize(rect.minY, axisSize: canvasSize.height)
+                let maxY = normalize(rect.maxY, axisSize: canvasSize.height)
+                let startCol = bucketIndex(for: minX, count: cols)
+                let endCol = bucketIndex(for: maxX, count: cols)
+                let startRow = bucketIndex(for: minY, count: rows)
+                let endRow = bucketIndex(for: maxY, count: rows)
+                return (
+                    rowRange: min(startRow, endRow)...max(startRow, endRow),
+                    colRange: min(startCol, endCol)...max(startCol, endCol)
+                )
+            }
+
+            private func bucketIndex(for normalizedValue: CGFloat, count: Int) -> Int {
+                guard count > 0 else { return 0 }
+                let clamped = min(max(normalizedValue, 0), 1)
+                let index = Int(clamped * CGFloat(count))
+                return index >= count ? count - 1 : index
+            }
+
+            private func normalize(_ coordinate: CGFloat, axisSize: CGFloat) -> CGFloat {
+                guard axisSize > 0 else { return 0 }
+                return min(max(coordinate / axisSize, 0), 1)
+            }
+        }
+
         private struct BindingIndex {
-            let gridBindings: [[KeyBinding?]]
-            let rowRanges: [ClosedRange<CGFloat>]
-            let colRangesByRow: [[ClosedRange<CGFloat>]]
-            let customBindings: [KeyBinding]
-            let allBindings: [KeyBinding]
+            let keyGrid: BindingGrid
+            let customGrid: BindingGrid
         }
 
         private let keyDispatcher: KeyEventDispatcher
         private let onTypingEnabledChanged: @Sendable (Bool) -> Void
         private let onActiveLayerChanged: @Sendable (Int) -> Void
+        private let onDebugBindingDetected: @Sendable (KeyBinding) -> Void
         private let isDragDetectionEnabled = true
         private var isListening = false
         private var isTypingEnabled = true
@@ -549,13 +595,12 @@ final class ContentViewModel: ObservableObject {
         private var layerToggleTouchStarts: [TouchKey: Int] = [:]
         private var momentaryLayerTouches: [TouchKey: Int] = [:]
         private var touchInitialContactPoint: [TouchKey: CGPoint] = [:]
-        private let tapMaxDuration: TimeInterval = 0.2
+        private var tapMaxDuration: TimeInterval = 0.2
         private var holdMinDuration: TimeInterval = 0.2
         private let modifierActivationDelay: TimeInterval = 0.05
         private var dragCancelDistance: CGFloat = 2.5
         private var twoFingerTapMaxInterval: TimeInterval = 0.08
-        private var forceClickThreshold: Float = 0
-        private var forceClickHoldDuration: TimeInterval = 0
+        private var forceClickCap: Float = 0
         private var twoFingerTapCandidatesByDevice: [Int: TwoFingerTapCandidate] = [:]
         private let repeatInitialDelay: UInt64 = 350_000_000
         private let repeatInterval: UInt64 = 50_000_000
@@ -584,11 +629,13 @@ final class ContentViewModel: ObservableObject {
         init(
             keyDispatcher: KeyEventDispatcher,
             onTypingEnabledChanged: @Sendable @escaping (Bool) -> Void,
-            onActiveLayerChanged: @Sendable @escaping (Int) -> Void
+            onActiveLayerChanged: @Sendable @escaping (Int) -> Void,
+            onDebugBindingDetected: @Sendable @escaping (KeyBinding) -> Void
         ) {
             self.keyDispatcher = keyDispatcher
             self.onTypingEnabledChanged = onTypingEnabledChanged
             self.onActiveLayerChanged = onActiveLayerChanged
+            self.onDebugBindingDetected = onDebugBindingDetected
         }
 
         func setListening(_ isListening: Bool) {
@@ -633,7 +680,9 @@ final class ContentViewModel: ObservableObject {
         }
 
         func updateHoldThreshold(_ seconds: TimeInterval) {
-            holdMinDuration = seconds
+            let clamped = max(0, seconds)
+            holdMinDuration = clamped
+            tapMaxDuration = clamped
         }
 
         func updateDragCancelDistance(_ distance: CGFloat) {
@@ -644,12 +693,8 @@ final class ContentViewModel: ObservableObject {
             twoFingerTapMaxInterval = max(0, seconds)
         }
 
-        func updateForceClickThreshold(_ threshold: Double) {
-            forceClickThreshold = Float(max(0, threshold))
-        }
-
-        func updateForceClickHoldDuration(_ seconds: TimeInterval) {
-            forceClickHoldDuration = max(0, seconds)
+        func updateForceClickCap(_ grams: Double) {
+            forceClickCap = Float(max(0, grams))
         }
 
         func processTouchFrame(_ touchData: [OMSTouchData]) {
@@ -1048,28 +1093,21 @@ final class ContentViewModel: ObservableObject {
             pressure: Float,
             now: TimeInterval
         ) {
-            guard forceClickThreshold > 0 else { return }
-            if var active = activeTouches[touchKey] {
-                guard !active.isContinuousKey else { return }
-                let triggered = active.registerForce(
-                    pressure: pressure,
-                    threshold: forceClickThreshold,
-                    duration: forceClickHoldDuration,
-                    now: now
-                )
-                if triggered {
-                    stopRepeat(for: touchKey)
+            guard forceClickCap > 0 else { return }
+
+            if let active = activeTouches[touchKey], !active.isContinuousKey {
+                let delta = max(0, pressure - active.initialPressure)
+                if delta >= forceClickCap {
+                    disqualifyTouch(touchKey, reason: .forceCapExceeded)
                 }
-                activeTouches[touchKey] = active
-            } else if var pending = pendingTouches[touchKey] {
-                guard !isContinuousKey(pending.binding) else { return }
-                _ = pending.registerForce(
-                    pressure: pressure,
-                    threshold: forceClickThreshold,
-                    duration: forceClickHoldDuration,
-                    now: now
-                )
-                pendingTouches[touchKey] = pending
+                return
+            }
+
+            if let pending = pendingTouches[touchKey], !isContinuousKey(pending.binding) {
+                let delta = max(0, pressure - pending.initialPressure)
+                if delta >= forceClickCap {
+                    disqualifyTouch(touchKey, reason: .forceCapExceeded)
+                }
             }
         }
 
@@ -1089,28 +1127,19 @@ final class ContentViewModel: ObservableObject {
             canvasSize: CGSize,
             side: TrackpadSide
         ) -> BindingIndex {
-            var gridBindings: [[KeyBinding?]] = []
-            var rowRanges: [ClosedRange<CGFloat>] = []
-            var colRangesByRow: [[ClosedRange<CGFloat>]] = []
-            var customBindings: [KeyBinding] = []
-            var allBindings: [KeyBinding] = []
-
-            gridBindings.reserveCapacity(keyRects.count)
-            rowRanges.reserveCapacity(keyRects.count)
-            colRangesByRow.reserveCapacity(keyRects.count)
+            let keyRows = max(1, keyRects.count)
+            let keyCols = max(1, keyRects.first?.count ?? 1)
+            var keyGrid = BindingGrid(canvasSize: canvasSize, rows: keyRows, cols: keyCols)
+            var customGrid = BindingGrid(
+                canvasSize: canvasSize,
+                rows: max(4, keyRows),
+                cols: max(4, keyCols)
+            )
 
             for row in 0..<keyRects.count {
                 let rowRects = keyRects[row]
-                var rowBindings = [KeyBinding?](repeating: nil, count: rowRects.count)
-                var colRanges: [ClosedRange<CGFloat>] = []
-                colRanges.reserveCapacity(rowRects.count)
-                var minY = CGFloat.greatestFiniteMagnitude
-                var maxY = -CGFloat.greatestFiniteMagnitude
                 for col in 0..<rowRects.count {
                     let rect = rowRects[col]
-                    minY = min(minY, rect.minY)
-                    maxY = max(maxY, rect.maxY)
-                    colRanges.append(rect.minX...rect.maxX)
                     guard row < labels.count,
                           col < labels[row].count else { continue }
                     let label = labels[row][col]
@@ -1118,15 +1147,7 @@ final class ContentViewModel: ObservableObject {
                     guard let binding = bindingForLabel(label, rect: rect, position: position) else {
                         continue
                     }
-                    rowBindings[col] = binding
-                    allBindings.append(binding)
-                }
-                gridBindings.append(rowBindings)
-                colRangesByRow.append(colRanges)
-                if minY <= maxY {
-                    rowRanges.append(minY...maxY)
-                } else {
-                    rowRanges.append(0.0...0.0)
+                    keyGrid.insert(binding)
                 }
             }
 
@@ -1148,30 +1169,26 @@ final class ContentViewModel: ObservableObject {
                 case .none:
                     action = .none
                 }
-                customBindings.append(KeyBinding(
+                let binding = KeyBinding(
                     rect: rect,
                     label: button.action.label,
                     action: action,
                     position: nil,
+                    side: button.side,
                     holdAction: button.hold
-                ))
-                if let binding = customBindings.last {
-                    allBindings.append(binding)
-                }
+                )
+                customGrid.insert(binding)
             }
 
             return BindingIndex(
-                gridBindings: gridBindings,
-                rowRanges: rowRanges,
-                colRangesByRow: colRangesByRow,
-                customBindings: customBindings,
-                allBindings: allBindings
+                keyGrid: keyGrid,
+                customGrid: customGrid
             )
         }
 
         private func bindingForLabel(_ label: String, rect: CGRect, position: GridKeyPosition) -> KeyBinding? {
             guard let action = keyAction(for: position, label: label) else { return nil }
-            return makeBinding(for: action, rect: rect, position: position)
+            return makeBinding(for: action, rect: rect, position: position, side: position.side)
         }
 
         private func keyAction(for position: GridKeyPosition, label: String) -> KeyAction? {
@@ -1200,6 +1217,7 @@ final class ContentViewModel: ObservableObject {
             for action: KeyAction,
             rect: CGRect,
             position: GridKeyPosition?,
+            side: TrackpadSide,
             holdAction: KeyAction? = nil
         ) -> KeyBinding? {
             switch action.kind {
@@ -1210,6 +1228,7 @@ final class ContentViewModel: ObservableObject {
                     label: action.label,
                     action: .key(code: CGKeyCode(action.keyCode), flags: flags),
                     position: position,
+                    side: side,
                     holdAction: holdAction
                 )
             case .typingToggle:
@@ -1218,6 +1237,7 @@ final class ContentViewModel: ObservableObject {
                     label: action.label,
                     action: .typingToggle,
                     position: position,
+                    side: side,
                     holdAction: holdAction
                 )
             case .layerMomentary:
@@ -1226,6 +1246,7 @@ final class ContentViewModel: ObservableObject {
                     label: action.label,
                     action: .layerMomentary(action.layer ?? 1),
                     position: position,
+                    side: side,
                     holdAction: holdAction
                 )
             case .layerToggle:
@@ -1234,6 +1255,7 @@ final class ContentViewModel: ObservableObject {
                     label: action.label,
                     action: .layerToggle(action.layer ?? 1),
                     position: position,
+                    side: side,
                     holdAction: holdAction
                 )
             case .none:
@@ -1242,22 +1264,17 @@ final class ContentViewModel: ObservableObject {
                     label: action.label,
                     action: .none,
                     position: position,
+                    side: side,
                     holdAction: holdAction
                 )
             }
         }
 
         private func binding(at point: CGPoint, index: BindingIndex) -> KeyBinding? {
-            for row in index.rowRanges.indices where index.rowRanges[row].contains(point.y) {
-                let colRanges = index.colRangesByRow[row]
-                if let col = colRanges.firstIndex(where: { $0.contains(point.x) }) {
-                    if let binding = index.gridBindings[row][col],
-                       binding.rect.contains(point) {
-                        return binding
-                    }
-                }
+            if let binding = index.keyGrid.binding(at: point) {
+                return binding
             }
-            return index.allBindings.first { $0.rect.contains(point) }
+            return index.customGrid.binding(at: point)
         }
 
         private static func isContactState(_ state: OMSState) -> Bool {
@@ -1392,6 +1409,7 @@ final class ContentViewModel: ObservableObject {
                     for: holdAction,
                     rect: binding.rect,
                     position: binding.position,
+                    side: binding.side,
                     holdAction: binding.holdAction
                 )
             }
@@ -1399,7 +1417,8 @@ final class ContentViewModel: ObservableObject {
             return makeBinding(
                 for: action,
                 rect: binding.rect,
-                position: binding.position
+                position: binding.position,
+                side: binding.side
             )
         }
 
@@ -1436,6 +1455,9 @@ final class ContentViewModel: ObservableObject {
             case .none:
                 break
             case let .key(code, flags):
+#if DEBUG
+                onDebugBindingDetected(binding)
+#endif
                 logKeyDispatch(label: binding.label, code: code, flags: flags)
                 sendKey(code: code, flags: flags)
             }
@@ -1465,6 +1487,9 @@ final class ContentViewModel: ObservableObject {
 
         private func sendKey(binding: KeyBinding) {
             guard case let .key(code, flags) = binding.action else { return }
+#if DEBUG
+            onDebugBindingDetected(binding)
+#endif
             logKeyDispatch(label: binding.label, code: code, flags: flags)
             sendKey(code: code, flags: flags)
         }
@@ -1554,6 +1579,9 @@ final class ContentViewModel: ObservableObject {
 
         private func postKey(binding: KeyBinding, keyDown: Bool) {
             guard case let .key(code, flags) = binding.action else { return }
+#if DEBUG
+            onDebugBindingDetected(binding)
+#endif
             logKeyDispatch(label: binding.label, code: code, flags: flags, keyDown: keyDown)
             keyDispatcher.postKey(code: code, flags: flags, keyDown: keyDown)
         }
@@ -1565,6 +1593,7 @@ final class ContentViewModel: ObservableObject {
                     label: "Shift",
                     action: .key(code: CGKeyCode(kVK_Shift), flags: []),
                     position: nil,
+                    side: .left,
                     holdAction: nil
                 )
                 postKey(binding: shiftBinding, keyDown: false)
@@ -1576,6 +1605,7 @@ final class ContentViewModel: ObservableObject {
                     label: "Ctrl",
                     action: .key(code: CGKeyCode(kVK_Control), flags: []),
                     position: nil,
+                    side: .left,
                     holdAction: nil
                 )
                 postKey(binding: controlBinding, keyDown: false)
@@ -1587,6 +1617,7 @@ final class ContentViewModel: ObservableObject {
                     label: "Option",
                     action: .key(code: CGKeyCode(kVK_Option), flags: []),
                     position: nil,
+                    side: .left,
                     holdAction: nil
                 )
                 postKey(binding: optionBinding, keyDown: false)
@@ -1598,6 +1629,7 @@ final class ContentViewModel: ObservableObject {
                     label: "Cmd",
                     action: .key(code: CGKeyCode(kVK_Command), flags: []),
                     position: nil,
+                    side: .left,
                     holdAction: nil
                 )
                 postKey(binding: commandBinding, keyDown: false)
@@ -1719,11 +1751,8 @@ final class ContentViewModel: ObservableObject {
                 bindingsGenerationBySide[side] = bindingsGeneration
             }
             return bindingsCache[side] ?? BindingIndex(
-                gridBindings: [],
-                rowRanges: [],
-                colRangesByRow: [],
-                customBindings: [],
-                allBindings: []
+                keyGrid: BindingGrid(canvasSize: .zero, rows: 1, cols: 1),
+                customGrid: BindingGrid(canvasSize: .zero, rows: 1, cols: 1)
             )
         }
     }
