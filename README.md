@@ -16,6 +16,10 @@ Clicking the indicator light will allow you to view the Config or Quit the progr
 
 <img src="Screenshots/GTK_config.png" alt="GlassToKey" width="900px" />
 
+Clicking Visualize will draw the touches - it is toggleable for performance reasons.
+
+Clicking Edit will allow you to click any Column/Button and set the Action/Hold Action and set the positioning and size. (It's really laggy idk what to do, so it's in a toggle)
+
 ## Typing Behavior:
 - Tap/Hold (ms): Time in miliseconds until a tap becomds a hold
 - Drag Cancel (px): How far you need to move before top becomes a drag
@@ -24,13 +28,8 @@ Clicking the indicator light will allow you to view the Config or Quit the progr
 - Force Guard (ms): Optional hold duration after the force delta is detected before keystrokes are blocked, giving you control over how aggressively force press gestures cancel typing.
 
 ## Diagnostics (Debug Builds)
-If key presses feel dropped or laggy, you can inspect diagnostics:
-- Open Console.app and filter for subsystem `com.kyome.GlassToKey` and category `KeyDiagnostics`.
 - Logs include key dispatches and disqualification reasons (drag cancelled, two-finger suppression, typing disabled, etc.).
 - Performance profiling uses `OSSignposter` intervals around touch processing.
-
-## FUTURE
-- Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight
 
 ---
 
