@@ -1,7 +1,7 @@
 ## TODO
-- Maybe 2-finger click suppression should block keystrokes for X (ms), or disqualify them before release. Wire slider to gui for debugging
-- refactor 2 finger click???? is there a way to get better logging like how far apart in time the taps were?
-- Is there **ANY** way to refactor edit mode so it isn't laggy garbage? Is it possible to enable move & drag? It's specifically when a button or column is selected which cant be the problem because the green hit detection rect is so quick!
+- Is there **ANY** way to refactor edit mode so it isn't laggy garbage in edit mode with buttons selected? It's specifically when a button or column is selected which cant be the problem because the green hit detection rect is so quick!
+- Is it possible to enable move & drag?
+-   1. Add “Mouse Intent Window/Distance” sliders logging (recommended). 2. Add velocity-based intent gate instead of distance-only.
 ###
 - Is the key matrix the most efficient? lets look deeper! How about KeyDispatch? And is key hit detection as clean as $it could be?
 - analyze custom button code vs key matrix detection, is it less efficient? If so can we fix?
