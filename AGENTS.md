@@ -1,4 +1,4 @@
-# AGENTS
+$# AGENTS
 
 ## Project summary
 - Purpose: observe global trackpad multitouch events via the private MultitouchSupport.framework. Build keyboard on top of apple magic trackpad.$$
@@ -23,6 +23,14 @@
 - `GlassToKey/GlassToKeyApp.swift`: menu bar status item + app lifecycle.
 - `GlassToKey/ContentView.swift`: main UI for trackpad visualization and settings.
 - `GlassToKey/ContentViewModel.swift`: touch filtering, typing mode state, key dispatch.
+- `GlassToKey/GlassToKeyController.swift`: orchestrates app startup, persists layout/mapping defaults, and forwards user defaults, layouts, and devices into the view model for live trackpad control.
+- `GlassToKey/GlassToKeyDefaultsKeys.swift`: defines every UserDefaults key the app uses to store device IDs, layout presets, custom buttons, interaction thresholds, and auto-resync settings.
+- `GlassToKey/ColumnLayoutSettings.swift`: serializes per-column scale/offset/spacing adjustments, provides normalized defaults, and migrates legacy layouts for UI editing.
+- `GlassToKey/TrackpadLayoutPreset.swift`: enumerates grid presets, label matrices, and anchor points that power the surface layout generator in `ContentView`.
+- `GlassToKey/KeyEventDispatcher.swift`: serializes Core Graphics keyboard events through `CGEventSource`, supplying a single entry point for posting key strokes and individual key down/up signals.
+- `GlassToKey/Notifications.swift`: centralizes the custom `Notification.Name` used when the user switches edit focus inside the UI.
+- `Framework/OpenMultitouchSupportXCF/OpenMTListener.h` / `OpenMTListener.m`: lightweight listener wrapper that delivers `OpenMTEvent` callbacks either via target-selector or block to the Objective-C API.
+- `Framework/OpenMultitouchSupportXCF/OpenMTTouch.h` / `OpenMTTouch.m`: models the raw touch identifiers, positions, velocities, pressure, and state that `OpenMTEvent` exposes to Swift.
 
 
 ## Working agreements
@@ -33,21 +41,6 @@
 - GlassToKey build command (if the change was big automatically run): `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
 - If build fails due to added files, please add them to the project to fix the error.
 - Always write the most performant and efficient code to turn an Apple Magic Trackpad into a keyboard with an emphasis on running in the background as a status app and instant key recognition.
-
-## Common workflows
-### Swift wrapper changes only
-1. Edit files under `Sources/OpenMultitouchSupport/`.
-2. Commit and push (consumers tracking `main` pick up changes).
   
 ## Important notes for next instance of Codex
-- Debug logging: `ContentViewModel.TouchProcessor` logs key dispatches and disqualification reasons under
-
-## TODO
-- Keyboard toggle/ keyboard only button. also, mouse only/keyboard only toggle button - how would you implement this?
-- refactor 2 finger click??
-- Refactor from the driver/api layer, any efficiency we can gain by rewrites?
-- Have Codex refactor the code for compiler efficiency and runtime efficiency. Leave no stone unturned!
-- Have Codex refactor the GUI for effiency
-- "Auto" set column x,y based on finger splay "4 finger touch"
-- Toggle for capturing clicks using CGEventTapCreate??
-- logic like phone that keeps a queue and triesto help correct out mistakes based on dictionary?
+- None given.
