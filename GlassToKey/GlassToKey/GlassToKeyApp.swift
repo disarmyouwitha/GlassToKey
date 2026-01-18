@@ -20,7 +20,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var configWindow: NSWindow?
     private var statusCancellable: AnyCancellable?
     private static let configWindowDefaultHeight: CGFloat = 560
-    private static let configWindowExpandedHeight: CGFloat = 760
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -177,12 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func makeConfigWindow() -> NSWindow {
-        let contentView = ContentView(
-            viewModel: controller.viewModel,
-            onEditModeChange: { [weak self] enabled in
-                self?.handleConfigHeight(forEditMode: enabled)
-            }
-        )
+        let contentView = ContentView(viewModel: controller.viewModel)
         let window = NSWindow(
             contentRect: NSRect(
                 x: 0,
@@ -200,21 +194,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.delegate = self
         return window
-    }
-
-    private func handleConfigHeight(forEditMode enabled: Bool) {
-        let targetHeight = enabled
-            ? Self.configWindowExpandedHeight
-            : Self.configWindowDefaultHeight
-        adjustConfigWindowHeight(to: targetHeight)
-    }
-
-    private func adjustConfigWindowHeight(to height: CGFloat) {
-        guard let window = configWindow else { return }
-        var frame = window.frame
-        let topY = frame.maxY
-        frame.origin.y = topY - height
-        frame.size.height = height
-        window.setFrame(frame, display: true, animate: true)
     }
 }

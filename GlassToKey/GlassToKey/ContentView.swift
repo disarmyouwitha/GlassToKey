@@ -584,93 +584,95 @@ struct ContentView: View {
                         )
                     }
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Typing Tuning")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
-                            GridRow {
-                                Text("Tap/Hold (ms)")
-                                TextField(
-                                    "200",
-                                    value: $tapHoldDurationMs,
-                                    formatter: Self.tapHoldDurationFormatter
-                                )
-                                .frame(width: 60)
-                                Slider(
-                                    value: $tapHoldDurationMs,
-                                    in: Self.tapHoldDurationRange,
-                                    step: 10
-                                )
-                                .frame(minWidth: 120)
-                            }
-                            GridRow {
-                                Text("Drag Cancel")
-                                TextField(
-                                    "1",
-                                    value: $dragCancelDistanceSetting,
-                                    formatter: Self.dragCancelDistanceFormatter
-                                )
-                                .frame(width: 60)
-                                Slider(
-                                    value: $dragCancelDistanceSetting,
-                                    in: Self.dragCancelDistanceRange,
-                                    step: 1
-                                )
-                                .frame(minWidth: 120)
-                            }
-                            GridRow {
-                                Text("2-Finger Tap (ms)")
-                                TextField(
-                                    "10",
-                                    value: $twoFingerTapIntervalMs,
-                                    formatter: Self.twoFingerTapIntervalFormatter
-                                )
-                                .frame(width: 60)
-                                Slider(
-                                    value: $twoFingerTapIntervalMs,
-                                    in: Self.twoFingerTapIntervalRange,
-                                    step: 1
-                                )
-                                .frame(minWidth: 120)
-                            }
-                            GridRow {
-                                Text("2-Finger Suppress (ms)")
-                                TextField(
-                                    "0",
-                                    value: $twoFingerSuppressionDurationMs,
-                                    formatter: Self.twoFingerSuppressionFormatter
-                                )
-                                .frame(width: 60)
-                                Slider(
-                                    value: $twoFingerSuppressionDurationMs,
-                                    in: Self.twoFingerSuppressionRange,
-                                    step: 5
-                                )
-                                .frame(minWidth: 120)
-                            }
-                            GridRow {
-                                Text("Force Cap (g)")
-                                TextField(
-                                    "0",
-                                    value: $forceClickCapSetting,
-                                    formatter: Self.forceClickCapFormatter
-                                )
-                                .frame(width: 60)
-                                Slider(
-                                    value: $forceClickCapSetting,
-                                    in: Self.forceClickCapRange,
-                                    step: 5
-                                )
-                                .frame(minWidth: 120)
+                    if !editModeEnabled {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Typing Tuning")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                                GridRow {
+                                    Text("Tap/Hold (ms)")
+                                    TextField(
+                                        "200",
+                                        value: $tapHoldDurationMs,
+                                        formatter: Self.tapHoldDurationFormatter
+                                    )
+                                    .frame(width: 60)
+                                    Slider(
+                                        value: $tapHoldDurationMs,
+                                        in: Self.tapHoldDurationRange,
+                                        step: 10
+                                    )
+                                    .frame(minWidth: 120)
+                                }
+                                GridRow {
+                                    Text("Drag Cancel")
+                                    TextField(
+                                        "1",
+                                        value: $dragCancelDistanceSetting,
+                                        formatter: Self.dragCancelDistanceFormatter
+                                    )
+                                    .frame(width: 60)
+                                    Slider(
+                                        value: $dragCancelDistanceSetting,
+                                        in: Self.dragCancelDistanceRange,
+                                        step: 1
+                                    )
+                                    .frame(minWidth: 120)
+                                }
+                                GridRow {
+                                    Text("2-Finger Tap (ms)")
+                                    TextField(
+                                        "10",
+                                        value: $twoFingerTapIntervalMs,
+                                        formatter: Self.twoFingerTapIntervalFormatter
+                                    )
+                                    .frame(width: 60)
+                                    Slider(
+                                        value: $twoFingerTapIntervalMs,
+                                        in: Self.twoFingerTapIntervalRange,
+                                        step: 1
+                                    )
+                                    .frame(minWidth: 120)
+                                }
+                                GridRow {
+                                    Text("2-Finger Suppress (ms)")
+                                    TextField(
+                                        "0",
+                                        value: $twoFingerSuppressionDurationMs,
+                                        formatter: Self.twoFingerSuppressionFormatter
+                                    )
+                                    .frame(width: 60)
+                                    Slider(
+                                        value: $twoFingerSuppressionDurationMs,
+                                        in: Self.twoFingerSuppressionRange,
+                                        step: 5
+                                    )
+                                    .frame(minWidth: 120)
+                                }
+                                GridRow {
+                                    Text("Force Cap (g)")
+                                    TextField(
+                                        "0",
+                                        value: $forceClickCapSetting,
+                                        formatter: Self.forceClickCapFormatter
+                                    )
+                                    .frame(width: 60)
+                                    Slider(
+                                        value: $forceClickCapSetting,
+                                        in: Self.forceClickCapRange,
+                                        step: 5
+                                    )
+                                    .frame(minWidth: 120)
+                                }
                             }
                         }
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.primary.opacity(0.05))
+                        )
                     }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.primary.opacity(0.05))
-                    )
                 }
                 .frame(width: 420)
             }
