@@ -423,6 +423,12 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func updateTwoFingerSuppressionDuration(_ seconds: TimeInterval) {
+        Task { [processor] in
+            await processor.updateTwoFingerSuppressionDuration(seconds)
+        }
+    }
+
     func updateForceClickCap(_ grams: Double) {
         Task { [processor] in
             await processor.updateForceClickCap(grams)
@@ -619,6 +625,8 @@ final class ContentViewModel: ObservableObject {
         private let modifierActivationDelay: TimeInterval = 0.05
         private var dragCancelDistance: CGFloat = 2.5
         private var twoFingerTapMaxInterval: TimeInterval = 0.08
+        private var twoFingerSuppressionDuration: TimeInterval = 0
+        private var twoFingerSuppressionExpiry: TimeInterval = 0
         private var forceClickCap: Float = 0
         private var twoFingerTapCandidatesByDevice: [Int: TwoFingerTapCandidate] = [:]
         private let repeatInitialDelay: UInt64 = 350_000_000
@@ -710,6 +718,14 @@ final class ContentViewModel: ObservableObject {
 
         func updateTwoFingerTapInterval(_ seconds: TimeInterval) {
             twoFingerTapMaxInterval = max(0, seconds)
+        }
+
+        func updateTwoFingerSuppressionDuration(_ seconds: TimeInterval) {
+            let clamped = max(0, seconds)
+            twoFingerSuppressionDuration = clamped
+            if clamped == 0 {
+                twoFingerSuppressionExpiry = 0
+            }
         }
 
         func updateForceClickCap(_ grams: Double) {
@@ -810,6 +826,7 @@ final class ContentViewModel: ObservableObject {
                     activeTouchKeys: touchKeysInFrame
                 )
                 if !suppressed.isEmpty {
+                    extendTwoFingerSuppression(until: now)
                     for touchKey in suppressed {
                         cancelTwoFingerTapTouch(touchKey)
                     }
@@ -822,6 +839,14 @@ final class ContentViewModel: ObservableObject {
                     y: CGFloat(1.0 - touch.position.y) * canvasSize.height
                 )
                 let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
+                if shouldSuppressTouch(
+                    touchKey: touchKey,
+                    state: touch.state,
+                    now: now
+                ) {
+                    disqualifyTouch(touchKey, reason: .twoFingerSuppressed)
+                    continue
+                }
                 if touchInitialContactPoint[touchKey] == nil,
                    Self.isContactState(touch.state) {
                     touchInitialContactPoint[touchKey] = point
@@ -1105,6 +1130,32 @@ final class ContentViewModel: ObservableObject {
                 )
             }
             return suppressed
+        }
+
+        private func extendTwoFingerSuppression(until now: TimeInterval) {
+            guard twoFingerSuppressionDuration > 0 else { return }
+            let candidateExpiry = now + twoFingerSuppressionDuration
+            if candidateExpiry > twoFingerSuppressionExpiry {
+                twoFingerSuppressionExpiry = candidateExpiry
+            }
+        }
+
+        private func shouldSuppressTouch(
+            touchKey: TouchKey,
+            state: OMSState,
+            now: TimeInterval
+        ) -> Bool {
+            guard isSuppressionActive(at: now),
+                  Self.isContactState(state),
+                  touchInitialContactPoint[touchKey] == nil,
+                  !disqualifiedTouches.contains(touchKey) else {
+                return false
+            }
+            return true
+        }
+
+        private func isSuppressionActive(at now: TimeInterval) -> Bool {
+            return twoFingerSuppressionDuration > 0 && now < twoFingerSuppressionExpiry
         }
 
         private func handleForceGuard(

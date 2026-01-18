@@ -55,6 +55,7 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.autoResyncMissingTrackpads) private var storedAutoResyncMissingTrackpads = false
     @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = GlassToKeySettings.tapHoldDurationMs
     @AppStorage(GlassToKeyDefaultsKeys.twoFingerTapInterval) private var twoFingerTapIntervalMs: Double = GlassToKeySettings.twoFingerTapIntervalMs
+    @AppStorage(GlassToKeyDefaultsKeys.twoFingerSuppressionDuration) private var twoFingerSuppressionDurationMs: Double = GlassToKeySettings.twoFingerSuppressionMs
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
     @AppStorage(GlassToKeyDefaultsKeys.forceClickCap) private var forceClickCapSetting: Double = GlassToKeySettings.forceClickCap
     static let trackpadWidthMM: CGFloat = 160.0
@@ -70,6 +71,7 @@ struct ContentView: View {
     private static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
     private static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...20.0
     private static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
+    private static let twoFingerSuppressionRange: ClosedRange<Double> = 0.0...200.0
     private static let keyCornerRadius: CGFloat = 6.0
     private static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -114,6 +116,15 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 0
         formatter.minimum = NSNumber(value: ContentView.twoFingerTapIntervalRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.twoFingerTapIntervalRange.upperBound)
+        return formatter
+    }()
+    private static let twoFingerSuppressionFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.minimum = NSNumber(value: ContentView.twoFingerSuppressionRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.twoFingerSuppressionRange.upperBound)
         return formatter
     }()
     private static let dragCancelDistanceFormatter: NumberFormatter = {
@@ -624,6 +635,21 @@ struct ContentView: View {
                                 .frame(minWidth: 120)
                             }
                             GridRow {
+                                Text("2-Finger Suppress (ms)")
+                                TextField(
+                                    "0",
+                                    value: $twoFingerSuppressionDurationMs,
+                                    formatter: Self.twoFingerSuppressionFormatter
+                                )
+                                .frame(width: 60)
+                                Slider(
+                                    value: $twoFingerSuppressionDurationMs,
+                                    in: Self.twoFingerSuppressionRange,
+                                    step: 5
+                                )
+                                .frame(minWidth: 120)
+                            }
+                            GridRow {
                                 Text("Force Cap (g)")
                                 TextField(
                                     "0",
@@ -714,6 +740,9 @@ struct ContentView: View {
         }
         .onChange(of: twoFingerTapIntervalMs) { newValue in
             viewModel.updateTwoFingerTapInterval(newValue / 1000.0)
+        }
+        .onChange(of: twoFingerSuppressionDurationMs) { newValue in
+            viewModel.updateTwoFingerSuppressionDuration(newValue / 1000.0)
         }
         .onChange(of: dragCancelDistanceSetting) { newValue in
             viewModel.updateDragCancelDistance(CGFloat(newValue))
@@ -1421,6 +1450,7 @@ struct ContentView: View {
         }
         viewModel.updateHoldThreshold(tapHoldDurationMs / 1000.0)
         viewModel.updateTwoFingerTapInterval(twoFingerTapIntervalMs / 1000.0)
+        viewModel.updateTwoFingerSuppressionDuration(twoFingerSuppressionDurationMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragCancelDistanceSetting))
         viewModel.setTouchSnapshotRecordingEnabled(visualsEnabled)
     }
