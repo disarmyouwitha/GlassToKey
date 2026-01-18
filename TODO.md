@@ -1,4 +1,5 @@
 ## TODO
+- anayze custom button code vs key matrix detection, is it less efficient? If so can we fix?
 - refactor 2 finger click?
 - take over 2finger tap from BTT
 - Refactor from the driver/api layer, any efficiency we can gain by rewrites?

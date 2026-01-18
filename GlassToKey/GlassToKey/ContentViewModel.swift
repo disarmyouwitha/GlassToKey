@@ -520,7 +520,6 @@ final class ContentViewModel: ObservableObject {
             let rowRanges: [ClosedRange<CGFloat>]
             let colRangesByRow: [[ClosedRange<CGFloat>]]
             let customBindings: [KeyBinding]
-            let allBindings: [KeyBinding]
         }
 
         private let keyDispatcher: KeyEventDispatcher
@@ -1093,7 +1092,6 @@ final class ContentViewModel: ObservableObject {
             var rowRanges: [ClosedRange<CGFloat>] = []
             var colRangesByRow: [[ClosedRange<CGFloat>]] = []
             var customBindings: [KeyBinding] = []
-            var allBindings: [KeyBinding] = []
 
             gridBindings.reserveCapacity(keyRects.count)
             rowRanges.reserveCapacity(keyRects.count)
@@ -1119,7 +1117,6 @@ final class ContentViewModel: ObservableObject {
                         continue
                     }
                     rowBindings[col] = binding
-                    allBindings.append(binding)
                 }
                 gridBindings.append(rowBindings)
                 colRangesByRow.append(colRanges)
@@ -1155,17 +1152,13 @@ final class ContentViewModel: ObservableObject {
                     position: nil,
                     holdAction: button.hold
                 ))
-                if let binding = customBindings.last {
-                    allBindings.append(binding)
-                }
             }
 
             return BindingIndex(
                 gridBindings: gridBindings,
                 rowRanges: rowRanges,
                 colRangesByRow: colRangesByRow,
-                customBindings: customBindings,
-                allBindings: allBindings
+                customBindings: customBindings
             )
         }
 
@@ -1257,7 +1250,7 @@ final class ContentViewModel: ObservableObject {
                     }
                 }
             }
-            return index.allBindings.first { $0.rect.contains(point) }
+            return index.customBindings.first { $0.rect.contains(point) }
         }
 
         private static func isContactState(_ state: OMSState) -> Bool {
@@ -1722,8 +1715,7 @@ final class ContentViewModel: ObservableObject {
                 gridBindings: [],
                 rowRanges: [],
                 colRangesByRow: [],
-                customBindings: [],
-                allBindings: []
+                customBindings: []
             )
         }
     }

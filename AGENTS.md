@@ -1,4 +1,4 @@
-$# AGENTS
+$ccc# AGENTS
 
 ## Project summary
 - Purpose: observe global trackpad multitouch events via the private MultitouchSupport.framework. Build keyboard on top of apple magic trackpad.$$
