@@ -578,7 +578,7 @@ struct ContentView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Typing Behavior")
+                        Text("Typing Tuning")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
@@ -1513,6 +1513,9 @@ struct ContentView: View {
     private func addCustomButton(side: TrackpadSide) {
         if !visualsEnabled {
             visualsEnabled = true
+        }
+        if !editModeEnabled {
+            editModeEnabled = true
         }
         let action = KeyActionCatalog.action(for: "Space") ?? KeyActionCatalog.presets.first
         guard let action else { return }
