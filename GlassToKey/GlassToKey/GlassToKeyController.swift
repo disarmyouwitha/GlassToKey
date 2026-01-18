@@ -5,7 +5,6 @@ enum GlassToKeySettings {
     static let tapHoldDurationMs: Double = 220.0
     static let twoFingerTapIntervalMs: Double = 70.0
     static let dragCancelDistanceMm: Double = 15.0
-    static let forceClickHoldDurationMs: Double = 160.0
     static let forceClickCap: Double = 0.0
 
     static func persistedDouble(
@@ -181,11 +180,6 @@ final class GlassToKeyController: ObservableObject {
             defaults: defaults,
             fallback: GlassToKeySettings.dragCancelDistanceMm
         )
-        let forceHoldMs = GlassToKeySettings.persistedDouble(
-            forKey: GlassToKeyDefaultsKeys.forceClickHoldDuration,
-            defaults: defaults,
-            fallback: GlassToKeySettings.forceClickHoldDurationMs
-        )
         let forceCap = GlassToKeySettings.persistedDouble(
             forKey: GlassToKeyDefaultsKeys.forceClickCap,
             defaults: defaults,
@@ -195,7 +189,6 @@ final class GlassToKeyController: ObservableObject {
         viewModel.updateHoldThreshold(tapHoldMs / 1000.0)
         viewModel.updateTwoFingerTapInterval(twoFingerMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragDistance))
-        viewModel.updateForceClickHoldDuration(forceHoldMs / 1000.0)
         viewModel.updateForceClickCap(forceCap)
     }
 

@@ -417,12 +417,6 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    func updateForceClickHoldDuration(_ seconds: TimeInterval) {
-        Task { [processor] in
-            await processor.updateForceClickHoldDuration(seconds)
-        }
-    }
-
     func updateForceClickCap(_ grams: Double) {
         Task { [processor] in
             await processor.updateForceClickCap(grams)
@@ -475,35 +469,7 @@ final class ContentViewModel: ObservableObject {
             var forceEntryTime: TimeInterval?
             var forceGuardTriggered: Bool
 
-            mutating func registerForce(
-                pressure: Float,
-                threshold: Float,
-                duration: TimeInterval,
-                now: TimeInterval
-            ) -> Bool {
-                guard threshold > 0 else {
-                    forceEntryTime = nil
-                    return false
-                }
-                if forceGuardTriggered {
-                    return true
-                }
-                let delta = max(0, pressure - initialPressure)
-                if delta >= threshold {
-                    if forceEntryTime == nil {
-                        forceEntryTime = now
-                    }
-                    if duration <= 0 || now - (forceEntryTime ?? now) >= duration {
-                        forceGuardTriggered = true
-                        return true
-                    }
-                } else {
-                    forceEntryTime = nil
-                }
-                return false
-            }
         }
-
         private struct PendingTouch {
             let binding: KeyBinding
             let startTime: TimeInterval
@@ -513,33 +479,6 @@ final class ContentViewModel: ObservableObject {
             var forceEntryTime: TimeInterval?
             var forceGuardTriggered: Bool
 
-            mutating func registerForce(
-                pressure: Float,
-                threshold: Float,
-                duration: TimeInterval,
-                now: TimeInterval
-            ) -> Bool {
-                guard threshold > 0 else {
-                    forceEntryTime = nil
-                    return false
-                }
-                if forceGuardTriggered {
-                    return true
-                }
-                let delta = max(0, pressure - initialPressure)
-                if delta >= threshold {
-                    if forceEntryTime == nil {
-                        forceEntryTime = now
-                    }
-                    if duration <= 0 || now - (forceEntryTime ?? now) >= duration {
-                        forceGuardTriggered = true
-                        return true
-                    }
-                } else {
-                    forceEntryTime = nil
-                }
-                return false
-            }
         }
 
         private struct TwoFingerTapCandidate {
@@ -661,8 +600,6 @@ final class ContentViewModel: ObservableObject {
         private let modifierActivationDelay: TimeInterval = 0.05
         private var dragCancelDistance: CGFloat = 2.5
         private var twoFingerTapMaxInterval: TimeInterval = 0.08
-        private let forceClickThreshold: Float = 100
-        private var forceClickHoldDuration: TimeInterval = 0
         private var forceClickCap: Float = 0
         private var twoFingerTapCandidatesByDevice: [Int: TwoFingerTapCandidate] = [:]
         private let repeatInitialDelay: UInt64 = 350_000_000
@@ -754,10 +691,6 @@ final class ContentViewModel: ObservableObject {
 
         func updateTwoFingerTapInterval(_ seconds: TimeInterval) {
             twoFingerTapMaxInterval = max(0, seconds)
-        }
-
-        func updateForceClickHoldDuration(_ seconds: TimeInterval) {
-            forceClickHoldDuration = max(0, seconds)
         }
 
         func updateForceClickCap(_ grams: Double) {
@@ -1160,60 +1093,21 @@ final class ContentViewModel: ObservableObject {
             pressure: Float,
             now: TimeInterval
         ) {
-            guard forceClickThreshold > 0 || forceClickCap > 0 else { return }
+            guard forceClickCap > 0 else { return }
 
-            if var active = activeTouches[touchKey] {
-                guard !active.isContinuousKey else { return }
+            if let active = activeTouches[touchKey], !active.isContinuousKey {
                 let delta = max(0, pressure - active.initialPressure)
-
-                if forceClickCap > 0, delta >= forceClickCap {
-                    logForceCapExceeded(
-                        touchKey: touchKey,
-                        binding: active.binding,
-                        pressure: pressure,
-                        delta: delta,
-                        cap: forceClickCap
-                    )
+                if delta >= forceClickCap {
                     disqualifyTouch(touchKey, reason: .forceCapExceeded)
-                    return
                 }
-
-                let triggered = active.registerForce(
-                    pressure: pressure,
-                    threshold: forceClickThreshold,
-                    duration: forceClickHoldDuration,
-                    now: now
-                )
-                if triggered {
-                    stopRepeat(for: touchKey)
-                }
-                activeTouches[touchKey] = active
                 return
             }
 
-            if var pending = pendingTouches[touchKey] {
-                guard !isContinuousKey(pending.binding) else { return }
+            if let pending = pendingTouches[touchKey], !isContinuousKey(pending.binding) {
                 let delta = max(0, pressure - pending.initialPressure)
-
-                if forceClickCap > 0, delta >= forceClickCap {
-                    logForceCapExceeded(
-                        touchKey: touchKey,
-                        binding: pending.binding,
-                        pressure: pressure,
-                        delta: delta,
-                        cap: forceClickCap
-                    )
+                if delta >= forceClickCap {
                     disqualifyTouch(touchKey, reason: .forceCapExceeded)
-                    return
                 }
-
-                _ = pending.registerForce(
-                    pressure: pressure,
-                    threshold: forceClickThreshold,
-                    duration: forceClickHoldDuration,
-                    now: now
-                )
-                pendingTouches[touchKey] = pending
             }
         }
 
@@ -1813,20 +1707,6 @@ final class ContentViewModel: ObservableObject {
         private func logDisqualify(_ touchKey: TouchKey, reason: DisqualifyReason) {
             #if DEBUG
             keyLogger.debug("disqualify deviceIndex=\(touchKey.deviceIndex) id=\(touchKey.id) reason=\(reason.rawValue)")
-            #endif
-        }
-
-        private func logForceCapExceeded(
-            touchKey: TouchKey,
-            binding: KeyBinding,
-            pressure: Float,
-            delta: Float,
-            cap: Float
-        ) {
-            #if DEBUG
-            keyLogger.debug(
-                "force cap exceeded deviceIndex=\(touchKey.deviceIndex) id=\(touchKey.id) label=\(binding.label) pressure=\(pressure) delta=\(delta) cap=\(cap)"
-            )
             #endif
         }
 
