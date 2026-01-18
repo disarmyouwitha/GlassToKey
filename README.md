@@ -50,4 +50,4 @@ This library refers the following frameworks very much. Special Thanks!
 - Compatible with macOS 13.0+
 
 ## FUTURE
-- Add windows support based on https://github.com/vitoplantamura/MagicTrackpad2ForWindows (They should have USB drivers for USB-C support soon!@)
+- Add windows support based on https://github.com/vitoplantamura/MagicTrackpad2ForWindows (They should have USB drivers for USB-C support soon!)

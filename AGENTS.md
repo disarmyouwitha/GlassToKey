@@ -32,7 +32,7 @@
 - Call out testing gaps when relevant.
 - GlassToKey build command (if the change was big automatically run): `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
 - If build fails due to added files, please add them to the project to fix the error.
-- 
+- Always write the most performant and efficient code to turn an Apple Magic Trackpad into a keyboard with an emphasis on running in the background as a status app and instant key recognition.
 
 ## Common workflows
 ### Swift wrapper changes only
@@ -43,6 +43,7 @@
 - Debug logging: `ContentViewModel.TouchProcessor` logs key dispatches and disqualification reasons under
 
 ## TODO
+- Keyboard toggle/ keyboard only button. also, mouse only/keyboard only toggle button - how would you implement this?
 - refactor 2 finger click??
 - Refactor from the driver/api layer, any efficiency we can gain by rewrites?
 - Have Codex refactor the code for compiler efficiency and runtime efficiency. Leave no stone unturned!
