@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         disableVisuals()
+        controller.viewModel.clearVisualCaches()
         configWindow = nil
     }
 

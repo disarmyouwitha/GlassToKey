@@ -1,9 +1,9 @@
 ## TODO
-- Can we flush memory after Config GUI is closed? It stays at like 50mb after guy like 10mb before
+- Maybe 2-finger click suppression should block keystrokes for X (ms), or disqualify them before release. Wire slider to gui for debugging
+- refactor 2 finger click???? is there a way to get better logging like how far apart in time the taps were?
 - Is there **ANY** way to refactor edit mode so it isn't laggy garbage? Is it possible to enable move & drag? It's specifically when a button or column is selected which cant be the problem because the green hit detection rect is so quick!
-- refactor 2 finger click????
 ###
-- Is the key matrix the most efficient? lets look deeper! How about KeyDispatch? And is key hit detection as clean as it could be?
+- Is the key matrix the most efficient? lets look deeper! How about KeyDispatch? And is key hit detection as clean as $it could be?
 - analyze custom button code vs key matrix detection, is it less efficient? If so can we fix?
 - take over 2finger tap from BTT?
 - Refactor from the driver/api layer, any efficiency we can gain by rewrites?

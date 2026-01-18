@@ -429,6 +429,12 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func clearVisualCaches() {
+        Task { [processor] in
+            await processor.clearVisualCaches()
+        }
+    }
+
     deinit {
         autoResyncTask?.cancel()
     }
@@ -1726,6 +1732,13 @@ final class ContentViewModel: ObservableObject {
 
         private func invalidateBindingsCache() {
             bindingsGeneration &+= 1
+        }
+
+        func clearVisualCaches() {
+            bindingsCache.removeAll()
+            bindingsCacheLayer = -1
+            bindingsGeneration &+= 1
+            bindingsGenerationBySide.removeAll()
         }
 
         private func bindings(

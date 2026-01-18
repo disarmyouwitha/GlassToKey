@@ -68,7 +68,7 @@ struct ContentView: View {
     static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
     private static let dragCancelDistanceRange: ClosedRange<Double> = 1.0...30.0
     private static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
-    private static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...250.0
+    private static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...20.0
     private static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
     private static let keyCornerRadius: CGFloat = 6.0
     private static let columnScaleFormatter: NumberFormatter = {
@@ -611,7 +611,7 @@ struct ContentView: View {
                             GridRow {
                                 Text("2-Finger Tap (ms)")
                                 TextField(
-                                    "80",
+                                    "10",
                                     value: $twoFingerTapIntervalMs,
                                     formatter: Self.twoFingerTapIntervalFormatter
                                 )
@@ -619,7 +619,7 @@ struct ContentView: View {
                                 Slider(
                                     value: $twoFingerTapIntervalMs,
                                     in: Self.twoFingerTapIntervalRange,
-                                    step: 10
+                                    step: 1
                                 )
                                 .frame(minWidth: 120)
                             }
@@ -668,6 +668,7 @@ struct ContentView: View {
         }
         .onChange(of: visualsEnabled) { enabled in
             if !enabled {
+                viewModel.clearVisualCaches()
                 editModeEnabled = false
                 selectedButtonID = nil
                 selectedColumn = nil

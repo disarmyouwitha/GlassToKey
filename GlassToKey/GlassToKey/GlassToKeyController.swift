@@ -3,7 +3,7 @@ import SwiftUI
 
 enum GlassToKeySettings {
     static let tapHoldDurationMs: Double = 220.0
-    static let twoFingerTapIntervalMs: Double = 70.0
+    static let twoFingerTapIntervalMs: Double = 10.0
     static let dragCancelDistanceMm: Double = 15.0
     static let forceClickCap: Double = 0.0
 
