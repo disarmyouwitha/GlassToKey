@@ -476,6 +476,18 @@ final class ContentViewModel: ObservableObject {
             case forceCapExceeded
         }
 
+        private enum DispatchKind: String {
+            case tap
+            case hold
+            case continuous
+        }
+
+        private struct DispatchInfo {
+            let kind: DispatchKind
+            let durationMs: Int?
+            let maxDistance: CGFloat?
+        }
+
         private struct TouchKey: Hashable {
             let deviceIndex: Int
             let id: Int32
@@ -953,7 +965,13 @@ final class ContentViewModel: ObservableObject {
                            let holdBinding = active.holdBinding,
                            now - active.startTime >= holdMinDuration,
                            (!isDragDetectionEnabled || active.maxDistanceSquared <= dragCancelDistanceSquared) {
-                            triggerBinding(holdBinding, touchKey: touchKey)
+                            let dispatchInfo = makeDispatchInfo(
+                                kind: .hold,
+                                startTime: active.startTime,
+                                maxDistanceSquared: active.maxDistanceSquared,
+                                now: now
+                            )
+                            triggerBinding(holdBinding, touchKey: touchKey, dispatchInfo: dispatchInfo)
                             active.didHold = true
                             activeTouches[touchKey] = active
                         }
@@ -1065,7 +1083,13 @@ final class ContentViewModel: ObservableObject {
                                   now - active.startTime <= tapMaxDuration,
                                   (!isDragDetectionEnabled
                                    || releaseDistanceSquared <= dragCancelDistanceSquared) {
-                            triggerBinding(active.binding, touchKey: touchKey)
+                            let dispatchInfo = makeDispatchInfo(
+                                kind: .tap,
+                                startTime: active.startTime,
+                                maxDistanceSquared: active.maxDistanceSquared,
+                                now: now
+                            )
+                            triggerBinding(active.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
                         }
                         endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
                         if guardTriggered {
@@ -1505,12 +1529,19 @@ final class ContentViewModel: ObservableObject {
                   !pending.forceGuardTriggered else {
                 return
             }
-            sendKey(binding: pending.binding)
+            let dispatchInfo = makeDispatchInfo(
+                kind: .tap,
+                startTime: pending.startTime,
+                maxDistanceSquared: pending.maxDistanceSquared,
+                now: now
+            )
+            sendKey(binding: pending.binding, dispatchInfo: dispatchInfo)
         }
 
         private func triggerBinding(
             _ binding: KeyBinding,
-            touchKey: TouchKey?
+            touchKey: TouchKey?,
+            dispatchInfo: DispatchInfo? = nil
         ) {
             switch binding.action {
             case let .layerMomentary(layer):
@@ -1527,7 +1558,14 @@ final class ContentViewModel: ObservableObject {
 #if DEBUG
                 onDebugBindingDetected(binding)
 #endif
-                logKeyDispatch(label: binding.label, code: code, flags: flags)
+                logKeyDispatch(
+                    label: binding.label,
+                    code: code,
+                    flags: flags,
+                    kind: dispatchInfo?.kind ?? .continuous,
+                    durationMs: dispatchInfo?.durationMs,
+                    maxDistance: dispatchInfo?.maxDistance
+                )
                 sendKey(code: code, flags: flags)
             }
         }
@@ -1554,12 +1592,19 @@ final class ContentViewModel: ObservableObject {
             return modifierFlags
         }
 
-        private func sendKey(binding: KeyBinding) {
+        private func sendKey(binding: KeyBinding, dispatchInfo: DispatchInfo? = nil) {
             guard case let .key(code, flags) = binding.action else { return }
 #if DEBUG
             onDebugBindingDetected(binding)
 #endif
-            logKeyDispatch(label: binding.label, code: code, flags: flags)
+            logKeyDispatch(
+                label: binding.label,
+                code: code,
+                flags: flags,
+                kind: dispatchInfo?.kind ?? .continuous,
+                durationMs: dispatchInfo?.durationMs,
+                maxDistance: dispatchInfo?.maxDistance
+            )
             sendKey(code: code, flags: flags)
         }
 
@@ -1783,15 +1828,40 @@ final class ContentViewModel: ObservableObject {
             label: String,
             code: CGKeyCode,
             flags: CGEventFlags,
-            keyDown: Bool? = nil
+            keyDown: Bool? = nil,
+            kind: DispatchKind = .continuous,
+            durationMs: Int? = nil,
+            maxDistance: CGFloat? = nil
         ) {
             #if DEBUG
+            let shouldLogMetrics = (kind == .tap || kind == .hold)
+                && durationMs != nil
+                && maxDistance != nil
             if let keyDown {
-                keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue) keyDown=\(keyDown)")
+                if shouldLogMetrics, let durationMs, let maxDistance {
+                    keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue) keyDown=\(keyDown) kind=\(kind.rawValue) durationMs=\(durationMs) maxDistance=\(maxDistance)")
+                } else {
+                    keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue) keyDown=\(keyDown) kind=\(kind.rawValue)")
+                }
             } else {
-                keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue)")
+                if shouldLogMetrics, let durationMs, let maxDistance {
+                    keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue) kind=\(kind.rawValue) durationMs=\(durationMs) maxDistance=\(maxDistance)")
+                } else {
+                    keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue) kind=\(kind.rawValue)")
+                }
             }
             #endif
+        }
+
+        private func makeDispatchInfo(
+            kind: DispatchKind,
+            startTime: TimeInterval,
+            maxDistanceSquared: CGFloat,
+            now: TimeInterval
+        ) -> DispatchInfo {
+            let durationMs = Int((now - startTime) * 1000.0)
+            let maxDistance = sqrt(maxDistanceSquared)
+            return DispatchInfo(kind: kind, durationMs: durationMs, maxDistance: maxDistance)
         }
 
         private func invalidateBindingsCache() {

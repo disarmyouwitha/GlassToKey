@@ -71,7 +71,7 @@ struct ContentView: View {
     private static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
     private static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...20.0
     private static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
-    private static let twoFingerSuppressionRange: ClosedRange<Double> = 0.0...200.0
+    private static let twoFingerSuppressionRange: ClosedRange<Double> = 0.0...100.0
     private static let keyCornerRadius: CGFloat = 6.0
     private static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -645,7 +645,7 @@ struct ContentView: View {
                                 Slider(
                                     value: $twoFingerSuppressionDurationMs,
                                     in: Self.twoFingerSuppressionRange,
-                                    step: 5
+                                    step: 10
                                 )
                                 .frame(minWidth: 120)
                             }
