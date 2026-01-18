@@ -1,5 +1,7 @@
 ## TODO
-- Is it possible to enable move & drag?
+- In Edit mode can we draw touch frames much less frequently? Like taps should be instant but hold should only draw X Hz. (Can we expose a slider temporarily while I am testing the right value?)
+- Is it possible to remove X,Y positioning enable move & drag? (Disable gesure input)
+- Is it possible to remove Width/Height and enable drag to resize? (disable gesture input)
 -   1. Add “Mouse Intent Window/Distance” sliders logging (recommended). 2. Add velocity-based intent gate instead of distance-only.
 ###
 - Is the key matrix the most efficient? lets look deeper! How about KeyDispatch? And is key hit detection as clean as $it could be?

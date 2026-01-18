@@ -7,6 +7,7 @@
 
 import Combine
 import OpenMultitouchSupport
+import QuartzCore
 import SwiftUI
 
 struct ContentView: View {
@@ -232,84 +233,7 @@ struct ContentView: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            HeaderControlsView(
-                editModeEnabled: $editModeEnabled,
-                visualsEnabled: $visualsEnabled,
-                layerToggleBinding: layerToggleBinding,
-                isListening: viewModel.isListening,
-                onStart: {
-                    viewModel.start()
-                },
-                onStop: {
-                    viewModel.stop()
-                    visualsEnabled = false
-                }
-            )
-
-            HStack(alignment: .top, spacing: 18) {
-                TrackpadSectionView(
-                    viewModel: viewModel,
-                    trackpadSize: trackpadSize,
-                    leftLayout: leftLayout,
-                    rightLayout: rightLayout,
-                    leftGridLabelInfo: leftGridLabelInfo,
-                    rightGridLabelInfo: rightGridLabelInfo,
-                    leftGridLabels: leftGridLabels,
-                    rightGridLabels: rightGridLabels,
-                    customButtons: customButtons,
-                    editModeEnabled: $editModeEnabled,
-                    visualsEnabled: $visualsEnabled,
-                    lastHitLeft: viewModel.debugLastHitLeft,
-                    lastHitRight: viewModel.debugLastHitRight,
-                    selectedButtonID: $selectedButtonID,
-                    selectedColumn: $selectedColumn,
-                    selectedGridKey: $selectedGridKey,
-                    testText: $testText
-                )
-
-                RightSidebarView(
-                    viewModel: viewModel,
-                    autoResyncEnabled: $storedAutoResyncMissingTrackpads,
-                    layoutSelection: layoutSelectionBinding,
-                    layoutOption: layoutOption,
-                    columnSelection: columnInspectorSelection,
-                    buttonSelection: buttonInspectorSelection,
-                    keySelection: keyInspectorSelection,
-                    editModeEnabled: editModeEnabled,
-                    tapHoldDurationMs: $tapHoldDurationMs,
-                    dragCancelDistanceSetting: $dragCancelDistanceSetting,
-                    twoFingerTapIntervalMs: $twoFingerTapIntervalMs,
-                    twoFingerSuppressionDurationMs: $twoFingerSuppressionDurationMs,
-                    forceClickCapSetting: $forceClickCapSetting,
-                    onRefreshDevices: {
-                        viewModel.loadDevices(preserveSelection: true)
-                    },
-                    onAutoResyncChange: { newValue in
-                        storedAutoResyncMissingTrackpads = newValue
-                        viewModel.setAutoResyncEnabled(newValue)
-                    },
-                    onAddCustomButton: { side in
-                        addCustomButton(side: side)
-                    },
-                    onRemoveCustomButton: { id in
-                        removeCustomButton(id: id)
-                    },
-                    onClearTouchState: {
-                        viewModel.clearTouchState()
-                    },
-                    onUpdateColumn: { index, update in
-                        updateColumnSettingAndSelection(index: index, update: update)
-                    },
-                    onUpdateButton: { id, update in
-                        updateCustomButtonAndSelection(id: id, update: update)
-                    },
-                    onUpdateKeyMapping: { key, update in
-                        updateKeyMappingAndSelection(key: key, update: update)
-                    }
-                )
-            }
-        }
+        mainLayout
         .padding()
         .background(
             RadialGradient(
@@ -396,6 +320,102 @@ struct ContentView: View {
         .onChange(of: forceClickCapSetting) { newValue in
             viewModel.updateForceClickCap(newValue)
         }
+    }
+
+    @ViewBuilder
+    private var mainLayout: some View {
+        VStack(spacing: 16) {
+            headerView
+            contentRow
+        }
+    }
+
+    private var headerView: some View {
+        HeaderControlsView(
+            editModeEnabled: $editModeEnabled,
+            visualsEnabled: $visualsEnabled,
+            layerToggleBinding: layerToggleBinding,
+            isListening: viewModel.isListening,
+            onStart: {
+                viewModel.start()
+            },
+            onStop: {
+                viewModel.stop()
+                visualsEnabled = false
+            }
+        )
+    }
+
+    private var contentRow: some View {
+        HStack(alignment: .top, spacing: 18) {
+            trackpadSectionView
+            rightSidebarView
+        }
+    }
+
+    private var trackpadSectionView: some View {
+        TrackpadSectionView(
+            viewModel: viewModel,
+            trackpadSize: trackpadSize,
+            leftLayout: leftLayout,
+            rightLayout: rightLayout,
+            leftGridLabelInfo: leftGridLabelInfo,
+            rightGridLabelInfo: rightGridLabelInfo,
+            leftGridLabels: leftGridLabels,
+            rightGridLabels: rightGridLabels,
+            customButtons: customButtons,
+            editModeEnabled: $editModeEnabled,
+            visualsEnabled: $visualsEnabled,
+            lastHitLeft: viewModel.debugLastHitLeft,
+            lastHitRight: viewModel.debugLastHitRight,
+            selectedButtonID: $selectedButtonID,
+            selectedColumn: $selectedColumn,
+            selectedGridKey: $selectedGridKey,
+            testText: $testText
+        )
+    }
+
+    private var rightSidebarView: some View {
+        RightSidebarView(
+            viewModel: viewModel,
+            autoResyncEnabled: $storedAutoResyncMissingTrackpads,
+            layoutSelection: layoutSelectionBinding,
+            layoutOption: layoutOption,
+            columnSelection: columnInspectorSelection,
+            buttonSelection: buttonInspectorSelection,
+            keySelection: keyInspectorSelection,
+            editModeEnabled: editModeEnabled,
+            tapHoldDurationMs: $tapHoldDurationMs,
+            dragCancelDistanceSetting: $dragCancelDistanceSetting,
+            twoFingerTapIntervalMs: $twoFingerTapIntervalMs,
+            twoFingerSuppressionDurationMs: $twoFingerSuppressionDurationMs,
+            forceClickCapSetting: $forceClickCapSetting,
+            onRefreshDevices: {
+                viewModel.loadDevices(preserveSelection: true)
+            },
+            onAutoResyncChange: { newValue in
+                storedAutoResyncMissingTrackpads = newValue
+                viewModel.setAutoResyncEnabled(newValue)
+            },
+            onAddCustomButton: { side in
+                addCustomButton(side: side)
+            },
+            onRemoveCustomButton: { id in
+                removeCustomButton(id: id)
+            },
+            onClearTouchState: {
+                viewModel.clearTouchState()
+            },
+            onUpdateColumn: { index, update in
+                updateColumnSettingAndSelection(index: index, update: update)
+            },
+            onUpdateButton: { id, update in
+                updateCustomButtonAndSelection(id: id, update: update)
+            },
+            onUpdateKeyMapping: { key, update in
+                updateKeyMappingAndSelection(key: key, update: update)
+            }
+        )
     }
 
     private struct HeaderControlsView: View {
@@ -1124,6 +1144,7 @@ struct ContentView: View {
         }
     }
 
+
     private struct TrackpadDeckView: View {
         @ObservedObject var viewModel: ContentViewModel
         let trackpadSize: CGSize
@@ -1144,6 +1165,8 @@ struct ContentView: View {
         @State private var displayLeftTouchesState = [OMSTouchData]()
         @State private var displayRightTouchesState = [OMSTouchData]()
         @State private var lastTouchRevision: UInt64 = 0
+        @State private var lastDisplayUpdateTime: TimeInterval = 0
+        @State private var lastDisplayedHadTouches = false
         private let displayRefreshInterval: TimeInterval = 1.0 / 60.0
 
         var body: some View {
@@ -1182,6 +1205,7 @@ struct ContentView: View {
                 } else {
                     displayLeftTouchesState = []
                     displayRightTouchesState = []
+                    lastDisplayedHadTouches = false
                 }
             }
             .task(id: visualsEnabled) {
@@ -1199,15 +1223,23 @@ struct ContentView: View {
         }
 
         private func refreshTouchSnapshot(resetRevision: Bool) {
-            let sinceRevision: UInt64 = resetRevision ? 0 : lastTouchRevision
-            if let snapshot = viewModel.snapshotTouchDataIfUpdated(since: sinceRevision) {
-                displayLeftTouchesState = snapshot.left
-                displayRightTouchesState = snapshot.right
+            let snapshot: ContentViewModel.TouchSnapshot
+            if resetRevision {
+                snapshot = viewModel.snapshotTouchData()
                 lastTouchRevision = snapshot.revision
-            } else if resetRevision {
-                let snapshot = viewModel.snapshotTouchData()
+            } else if let updated = viewModel.snapshotTouchDataIfUpdated(since: lastTouchRevision) {
+                snapshot = updated
+                lastTouchRevision = updated.revision
+            } else {
+                return
+            }
+
+            let now = CACurrentMediaTime()
+            if resetRevision || shouldUpdateDisplay(snapshot: snapshot, now: now) {
                 displayLeftTouchesState = snapshot.left
                 displayRightTouchesState = snapshot.right
+                lastDisplayUpdateTime = now
+                lastDisplayedHadTouches = !(snapshot.left.isEmpty && snapshot.right.isEmpty)
             }
         }
 
@@ -1221,6 +1253,33 @@ struct ContentView: View {
 
         private func customButtons(for side: TrackpadSide) -> [CustomButton] {
             customButtons.filter { $0.side == side && $0.layer == viewModel.activeLayer }
+        }
+
+        private func shouldUpdateDisplay(
+            snapshot: ContentViewModel.TouchSnapshot,
+            now: TimeInterval
+        ) -> Bool {
+            guard editModeEnabled else { return true }
+
+            let hasTouches = !(snapshot.left.isEmpty && snapshot.right.isEmpty)
+            if hasTouches != lastDisplayedHadTouches {
+                return true
+            }
+
+            if snapshot.data.contains(where: { touch in
+                switch touch.state {
+                case .starting, .breaking, .leaving:
+                    return true
+                default:
+                    return false
+                }
+            }) {
+                return true
+            }
+
+            let clampedHz = 5.0
+            let minInterval = 1.0 / clampedHz
+            return now - lastDisplayUpdateTime >= minInterval
         }
 
         private func trackpadCanvas(
