@@ -667,6 +667,7 @@ struct ContentView: View {
             applySavedSettings()
         }
         .onChange(of: visualsEnabled) { enabled in
+            viewModel.setTouchSnapshotRecordingEnabled(enabled)
             if !enabled {
                 viewModel.clearVisualCaches()
                 editModeEnabled = false
@@ -1421,6 +1422,7 @@ struct ContentView: View {
         viewModel.updateHoldThreshold(tapHoldDurationMs / 1000.0)
         viewModel.updateTwoFingerTapInterval(twoFingerTapIntervalMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragCancelDistanceSetting))
+        viewModel.setTouchSnapshotRecordingEnabled(visualsEnabled)
     }
 
     private func saveSettings() {

@@ -92,6 +92,9 @@ final class ContentViewModel: ObservableObject {
     nonisolated private let deviceSelectionLock = OSAllocatedUnfairLock<DeviceSelection>(
         uncheckedState: DeviceSelection()
     )
+    nonisolated private let snapshotRecordingLock = OSAllocatedUnfairLock<Bool>(
+        uncheckedState: true
+    )
     @Published var isListening: Bool = false
     @Published var isTypingEnabled: Bool = true
     @Published private(set) var activeLayer: Int = 0
@@ -174,15 +177,18 @@ final class ContentViewModel: ObservableObject {
     func onAppear() {
         let snapshotLock = touchSnapshotLock
         let selectionLock = deviceSelectionLock
-        task = Task.detached { [manager, processor, snapshotLock, selectionLock] in
+        let recordingLock = snapshotRecordingLock
+        task = Task.detached { [manager, processor, snapshotLock, selectionLock, recordingLock] in
             for await touchData in manager.touchDataStream {
                 let selection = selectionLock.withLockUnchecked { $0 }
                 let split = Self.splitTouches(touchData, selection: selection)
-                snapshotLock.withLockUnchecked { snapshot in
-                    snapshot.data = touchData
-                    snapshot.left = split.left
-                    snapshot.right = split.right
-                    snapshot.revision &+= 1
+                if recordingLock.withLockUnchecked(\.self) {
+                    snapshotLock.withLockUnchecked { snapshot in
+                        snapshot.data = touchData
+                        snapshot.left = split.left
+                        snapshot.right = split.right
+                        snapshot.revision &+= 1
+                    }
                 }
                 await processor.processTouchFrame(touchData)
             }
@@ -432,6 +438,13 @@ final class ContentViewModel: ObservableObject {
     func clearVisualCaches() {
         Task { [processor] in
             await processor.clearVisualCaches()
+        }
+    }
+
+    func setTouchSnapshotRecordingEnabled(_ enabled: Bool) {
+        snapshotRecordingLock.withLockUnchecked { $0 = enabled }
+        if !enabled {
+            touchSnapshotLock.withLockUnchecked { $0 = TouchSnapshot() }
         }
     }
 

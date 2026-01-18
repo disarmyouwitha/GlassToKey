@@ -37,7 +37,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         disableVisuals()
+        controller.viewModel.setTouchSnapshotRecordingEnabled(false)
         controller.viewModel.clearVisualCaches()
+        window.delegate = nil
+        window.contentView = nil
+        window.contentViewController = nil
         configWindow = nil
     }
 
@@ -155,6 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func openConfigWindow() {
         let window = configWindow ?? makeConfigWindow()
         configWindow = window
+        controller.viewModel.setTouchSnapshotRecordingEnabled(true)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
