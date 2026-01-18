@@ -1167,54 +1167,105 @@ struct ContentView: View {
         @State private var lastTouchRevision: UInt64 = 0
         @State private var lastDisplayUpdateTime: TimeInterval = 0
         @State private var lastDisplayedHadTouches = false
-        private let displayRefreshInterval: TimeInterval = 1.0 / 60.0
+
+        private let trackpadSpacing: CGFloat = 16
+        private var combinedWidth: CGFloat {
+            (trackpadSize.width * 2) + trackpadSpacing
+        }
 
         var body: some View {
-            HStack(alignment: .top, spacing: 16) {
-                trackpadCanvas(
-                    title: "Left Trackpad",
-                    side: .left,
-                    touches: visualsEnabled ? displayLeftTouches : [],
-                    mirrored: true,
-                    labelInfo: leftGridLabelInfo,
-                    labels: leftGridLabels,
-                    customButtons: customButtons(for: .left),
-                    visualsEnabled: visualsEnabled,
-                    lastHit: lastHitLeft,
-                    selectedButtonID: selectedButtonID
-                )
-                trackpadCanvas(
-                    title: "Right Trackpad",
-                    side: .right,
-                    touches: visualsEnabled ? displayRightTouches : [],
-                    mirrored: false,
-                    labelInfo: rightGridLabelInfo,
-                    labels: rightGridLabels,
-                    customButtons: customButtons(for: .right),
-                    visualsEnabled: visualsEnabled,
-                    lastHit: lastHitRight,
-                    selectedButtonID: selectedButtonID
-                )
-            }
-            .onAppear {
-                refreshTouchSnapshot(resetRevision: true)
-            }
-            .onChange(of: visualsEnabled) { enabled in
-                if enabled {
-                    refreshTouchSnapshot(resetRevision: true)
-                } else {
-                    displayLeftTouchesState = []
-                    displayRightTouchesState = []
-                    lastDisplayedHadTouches = false
+            let leftButtons = customButtons(for: .left)
+            let rightButtons = customButtons(for: .right)
+            let showDetailedView = visualsEnabled || selectedButtonID != nil
+            let selectedLeftKey = selectedGridKey?.side == .left ? selectedGridKey : nil
+            let selectedRightKey = selectedGridKey?.side == .right ? selectedGridKey : nil
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: trackpadSpacing) {
+                    Text("Left Trackpad")
+                        .font(.subheadline)
+                        .frame(width: trackpadSize.width, alignment: .leading)
+                    Text("Right Trackpad")
+                        .font(.subheadline)
+                        .frame(width: trackpadSize.width, alignment: .leading)
                 }
-            }
-            .task(id: visualsEnabled) {
-                guard visualsEnabled else { return }
-                var iterator = viewModel.touchRevisionUpdates.makeAsyncIterator()
-                while !Task.isCancelled {
-                    guard let _ = await iterator.next() else { break }
-                    if Task.isCancelled { break }
-                    refreshTouchSnapshot(resetRevision: false)
+                ZStack(alignment: .topLeading) {
+                    CombinedTrackpadCanvas(
+                        trackpadSize: trackpadSize,
+                        spacing: trackpadSpacing,
+                        showDetailed: showDetailedView,
+                        leftLayout: leftLayout,
+                        rightLayout: rightLayout,
+                        leftLabelInfo: leftGridLabelInfo,
+                        rightLabelInfo: rightGridLabelInfo,
+                        leftCustomButtons: leftButtons,
+                        rightCustomButtons: rightButtons,
+                        selectedColumn: editModeEnabled ? selectedColumn : nil,
+                        selectedLeftKey: editModeEnabled ? selectedLeftKey : nil,
+                        selectedRightKey: editModeEnabled ? selectedRightKey : nil,
+                        selectedLeftButton: selectedButton(for: leftButtons),
+                        selectedRightButton: selectedButton(for: rightButtons),
+                        leftTouches: visualsEnabled ? displayLeftTouches : [],
+                        rightTouches: visualsEnabled ? displayRightTouches : [],
+                        visualsEnabled: visualsEnabled
+                    )
+                    if visualsEnabled && !editModeEnabled {
+                        if let hit = lastHitLeft {
+                            LastHitHighlightLayer(lastHit: hit)
+                                .frame(width: trackpadSize.width, height: trackpadSize.height)
+                                .offset(x: 0, y: 0)
+                        }
+                        if let hit = lastHitRight {
+                            LastHitHighlightLayer(lastHit: hit)
+                                .frame(width: trackpadSize.width, height: trackpadSize.height)
+                                .offset(x: trackpadSize.width + trackpadSpacing, y: 0)
+                        }
+                    }
+                    if editModeEnabled {
+                        customButtonsOverlay(
+                            side: .left,
+                            layout: leftLayout,
+                            buttons: leftButtons,
+                            selectedButtonID: $selectedButtonID,
+                            selectedColumn: $selectedColumn,
+                            selectedGridKey: $selectedGridKey,
+                            gridLabels: leftGridLabels
+                        )
+                        .offset(x: 0, y: 0)
+
+                        customButtonsOverlay(
+                            side: .right,
+                            layout: rightLayout,
+                            buttons: rightButtons,
+                            selectedButtonID: $selectedButtonID,
+                            selectedColumn: $selectedColumn,
+                            selectedGridKey: $selectedGridKey,
+                            gridLabels: rightGridLabels
+                        )
+                        .offset(x: trackpadSize.width + trackpadSpacing, y: 0)
+                    }
+                }
+                .frame(width: combinedWidth, height: trackpadSize.height)
+                .onAppear {
+                    refreshTouchSnapshot(resetRevision: true)
+                }
+                .onChange(of: visualsEnabled) { enabled in
+                    if enabled {
+                        refreshTouchSnapshot(resetRevision: true)
+                    } else {
+                        displayLeftTouchesState = []
+                        displayRightTouchesState = []
+                        lastDisplayedHadTouches = false
+                    }
+                }
+                .task(id: visualsEnabled) {
+                    guard visualsEnabled else { return }
+                    var iterator = viewModel.touchRevisionUpdates.makeAsyncIterator()
+                    while !Task.isCancelled {
+                        guard let _ = await iterator.next() else { break }
+                        if Task.isCancelled { break }
+                        refreshTouchSnapshot(resetRevision: false)
+                    }
                 }
             }
         }
@@ -1277,79 +1328,6 @@ struct ContentView: View {
             let clampedHz = 5.0
             let minInterval = 1.0 / clampedHz
             return now - lastDisplayUpdateTime >= minInterval
-        }
-
-        private func trackpadCanvas(
-            title: String,
-            side: TrackpadSide,
-            touches: [OMSTouchData],
-            mirrored: Bool,
-            labelInfo: [[GridLabel]],
-            labels: [[String]],
-            customButtons: [CustomButton],
-            visualsEnabled: Bool,
-            lastHit: ContentViewModel.DebugHit?,
-            selectedButtonID: UUID?
-        ) -> some View {
-            return VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.subheadline)
-                Group {
-                    if visualsEnabled || selectedButtonID != nil {
-                        let layout = mirrored ? leftLayout : rightLayout
-                        let selectedKeyForCanvas = selectedGridKey?.side == side ? selectedGridKey : nil
-                        ZStack {
-                            TrackpadBaseLayer(
-                                keyRects: layout.keyRects,
-                                labelInfo: labelInfo,
-                                customButtons: customButtons,
-                                trackpadSize: trackpadSize
-                            )
-                            .equatable()
-                            TrackpadSelectionLayer(
-                                keyRects: layout.keyRects,
-                                selectedColumn: editModeEnabled ? selectedColumn : nil,
-                                selectedKey: editModeEnabled ? selectedKeyForCanvas : nil
-                            )
-                            .equatable()
-                            TrackpadButtonSelectionLayer(
-                                button: selectedButton(for: customButtons),
-                                trackpadSize: trackpadSize
-                            )
-                            .equatable()
-                        if visualsEnabled {
-                            TrackpadTouchLayer(
-                                revision: lastTouchRevision,
-                                touches: touches,
-                                trackpadSize: trackpadSize
-                            )
-                        }
-                        if !editModeEnabled, let lastHit = lastHit {
-                            LastHitHighlightLayer(lastHit: lastHit)
-                        }
-                        }
-                    } else {
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
-                    }
-                }
-            .frame(width: trackpadSize.width, height: trackpadSize.height)
-            .border(Color.primary)
-            .overlay {
-                if editModeEnabled {
-                    let layout = mirrored ? leftLayout : rightLayout
-                    customButtonsOverlay(
-                        side: side,
-                        layout: layout,
-                        buttons: customButtons,
-                            selectedButtonID: $selectedButtonID,
-                            selectedColumn: $selectedColumn,
-                            selectedGridKey: $selectedGridKey,
-                            gridLabels: labels
-                        )
-                    }
-                }
-            }
         }
 
         private func customButtonsOverlay(
@@ -1522,64 +1500,73 @@ struct ContentView: View {
         }
     }
 
-    private struct TrackpadBaseLayer: View, Equatable {
-        let keyRects: [[CGRect]]
-        let labelInfo: [[GridLabel]]
-        let customButtons: [CustomButton]
+    private struct CombinedTrackpadCanvas: View {
         let trackpadSize: CGSize
-
-        var body: some View {
-            Canvas { context, _ in
-                ContentView.drawSensorGrid(
-                    context: &context,
-                    size: trackpadSize,
-                    columns: 30,
-                    rows: 22
-                )
-                ContentView.drawKeyGrid(context: &context, keyRects: keyRects)
-                ContentView.drawCustomButtons(
-                    context: &context,
-                    buttons: customButtons,
-                    trackpadSize: trackpadSize
-                )
-                ContentView.drawGridLabels(
-                    context: &context,
-                    keyRects: keyRects,
-                    labelInfo: labelInfo
-                )
-            }
-        }
-    }
-
-    private struct TrackpadSelectionLayer: View, Equatable {
-        let keyRects: [[CGRect]]
+        let spacing: CGFloat
+        let showDetailed: Bool
+        let leftLayout: ContentViewModel.Layout
+        let rightLayout: ContentViewModel.Layout
+        let leftLabelInfo: [[GridLabel]]
+        let rightLabelInfo: [[GridLabel]]
+        let leftCustomButtons: [CustomButton]
+        let rightCustomButtons: [CustomButton]
         let selectedColumn: Int?
-        let selectedKey: SelectedGridKey?
+        let selectedLeftKey: SelectedGridKey?
+        let selectedRightKey: SelectedGridKey?
+        let selectedLeftButton: CustomButton?
+        let selectedRightButton: CustomButton?
+        let leftTouches: [OMSTouchData]
+        let rightTouches: [OMSTouchData]
+        let visualsEnabled: Bool
 
         var body: some View {
             Canvas { context, _ in
-                ContentView.drawKeySelection(
+                let leftOrigin = CGPoint.zero
+                let rightOrigin = CGPoint(x: trackpadSize.width + spacing, y: 0)
+                let leftRect = CGRect(origin: leftOrigin, size: trackpadSize)
+                let rightRect = CGRect(origin: rightOrigin, size: trackpadSize)
+                let borderColor = Color.secondary.opacity(0.6)
+                context.stroke(
+                    Path(roundedRect: leftRect, cornerRadius: ContentView.keyCornerRadius),
+                    with: .color(borderColor),
+                    lineWidth: 1
+                )
+                context.stroke(
+                    Path(roundedRect: rightRect, cornerRadius: ContentView.keyCornerRadius),
+                    with: .color(borderColor),
+                    lineWidth: 1
+                )
+
+                guard showDetailed else { return }
+
+                ContentView.drawTrackpadContents(
                     context: &context,
-                    keyRects: keyRects,
+                    origin: leftOrigin,
+                    layout: leftLayout,
+                    labelInfo: leftLabelInfo,
+                    customButtons: leftCustomButtons,
                     selectedColumn: selectedColumn,
-                    selectedKey: selectedKey
+                    selectedKey: selectedLeftKey,
+                    selectedButton: selectedLeftButton,
+                    touches: leftTouches,
+                    trackpadSize: trackpadSize,
+                    visualsEnabled: visualsEnabled
+                )
+                ContentView.drawTrackpadContents(
+                    context: &context,
+                    origin: rightOrigin,
+                    layout: rightLayout,
+                    labelInfo: rightLabelInfo,
+                    customButtons: rightCustomButtons,
+                    selectedColumn: selectedColumn,
+                    selectedKey: selectedRightKey,
+                    selectedButton: selectedRightButton,
+                    touches: rightTouches,
+                    trackpadSize: trackpadSize,
+                    visualsEnabled: visualsEnabled
                 )
             }
-        }
-    }
-
-    private struct TrackpadButtonSelectionLayer: View, Equatable {
-        let button: CustomButton?
-        let trackpadSize: CGSize
-
-        var body: some View {
-            Canvas { context, _ in
-                guard let button else { return }
-                let rect = button.rect.rect(in: trackpadSize)
-                let path = Path(roundedRect: rect, cornerRadius: ContentView.keyCornerRadius)
-                context.fill(path, with: .color(Color.accentColor.opacity(0.08)))
-                context.stroke(path, with: .color(Color.accentColor.opacity(0.9)), lineWidth: 1.5)
-            }
+            .frame(width: (trackpadSize.width * 2) + spacing, height: trackpadSize.height)
         }
     }
 
@@ -1604,21 +1591,6 @@ struct ContentView: View {
                             lineWidth: 2.5
                         )
                     }
-                }
-            }
-        }
-    }
-
-    private struct TrackpadTouchLayer: View {
-        let revision: UInt64
-        let touches: [OMSTouchData]
-        let trackpadSize: CGSize
-
-        var body: some View {
-            Canvas { context, _ in
-                touches.forEach { touch in
-                    let path = ContentView.makeEllipse(touch: touch, size: trackpadSize)
-                    context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
                 }
             }
         }
@@ -2369,6 +2341,91 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private static func drawTrackpadContents(
+        context: inout GraphicsContext,
+        origin: CGPoint,
+        layout: ContentViewModel.Layout,
+        labelInfo: [[GridLabel]],
+        customButtons: [CustomButton],
+        selectedColumn: Int?,
+        selectedKey: SelectedGridKey?,
+        selectedButton: CustomButton?,
+        touches: [OMSTouchData],
+        trackpadSize: CGSize,
+        visualsEnabled: Bool
+    ) {
+        withTranslatedContext(context: &context, origin: origin) { innerContext in
+            drawSensorGrid(
+                context: &innerContext,
+                size: trackpadSize,
+                columns: 30,
+                rows: 22
+            )
+            drawKeyGrid(context: &innerContext, keyRects: layout.keyRects)
+            drawCustomButtons(
+                context: &innerContext,
+                buttons: customButtons,
+                trackpadSize: trackpadSize
+            )
+            drawGridLabels(
+                context: &innerContext,
+                keyRects: layout.keyRects,
+                labelInfo: labelInfo
+            )
+            drawKeySelection(
+                context: &innerContext,
+                keyRects: layout.keyRects,
+                selectedColumn: selectedColumn,
+                selectedKey: selectedKey
+            )
+            drawButtonSelection(
+                context: &innerContext,
+                button: selectedButton,
+                trackpadSize: trackpadSize
+            )
+            if visualsEnabled {
+                drawTrackpadTouches(
+                    context: &innerContext,
+                    touches: touches,
+                    trackpadSize: trackpadSize
+                )
+            }
+        }
+    }
+
+    private static func drawButtonSelection(
+        context: inout GraphicsContext,
+        button: CustomButton?,
+        trackpadSize: CGSize
+    ) {
+        guard let button else { return }
+        let rect = button.rect.rect(in: trackpadSize)
+        let path = Path(roundedRect: rect, cornerRadius: ContentView.keyCornerRadius)
+        context.fill(path, with: .color(Color.accentColor.opacity(0.08)))
+        context.stroke(path, with: .color(Color.accentColor.opacity(0.9)), lineWidth: 1.5)
+    }
+
+    private static func drawTrackpadTouches(
+        context: inout GraphicsContext,
+        touches: [OMSTouchData],
+        trackpadSize: CGSize
+    ) {
+        touches.forEach { touch in
+            let path = makeEllipse(touch: touch, size: trackpadSize)
+            context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
+        }
+    }
+
+    private static func withTranslatedContext(
+        context: inout GraphicsContext,
+        origin: CGPoint,
+        draw: (inout GraphicsContext) -> Void
+    ) {
+        context.translateBy(x: origin.x, y: origin.y)
+        draw(&context)
+        context.translateBy(x: -origin.x, y: -origin.y)
     }
 
     private var layerToggleBinding: Binding<Bool> {
