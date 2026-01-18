@@ -515,11 +515,86 @@ final class ContentViewModel: ObservableObject {
             let startTime: TimeInterval
         }
 
+        private struct BindingGrid {
+            private let rows: Int
+            private let cols: Int
+            private let canvasSize: CGSize
+            private var buckets: [[[KeyBinding]]]
+
+            init(canvasSize: CGSize, rows: Int, cols: Int) {
+                self.canvasSize = canvasSize
+                self.rows = max(1, rows)
+                self.cols = max(1, cols)
+                var filledBuckets: [[[KeyBinding]]] = []
+                filledBuckets.reserveCapacity(self.rows)
+                for _ in 0..<self.rows {
+                    var rowBuckets: [[KeyBinding]] = []
+                    rowBuckets.reserveCapacity(self.cols)
+                    for _ in 0..<self.cols {
+                        rowBuckets.append([])
+                    }
+                    filledBuckets.append(rowBuckets)
+                }
+                self.buckets = filledBuckets
+            }
+
+            mutating func insert(_ binding: KeyBinding) {
+                let range = bucketRange(for: binding.rect)
+                for row in range.rowRange {
+                    for col in range.colRange {
+                        buckets[row][col].append(binding)
+                    }
+                }
+            }
+
+            func binding(at point: CGPoint) -> KeyBinding? {
+                let row = bucketIndex(
+                    for: normalize(point.y, axisSize: canvasSize.height),
+                    count: rows
+                )
+                let col = bucketIndex(
+                    for: normalize(point.x, axisSize: canvasSize.width),
+                    count: cols
+                )
+                for binding in buckets[row][col] {
+                    if binding.rect.contains(point) {
+                        return binding
+                    }
+                }
+                return nil
+            }
+
+            private func bucketRange(for rect: CGRect) -> (rowRange: ClosedRange<Int>, colRange: ClosedRange<Int>) {
+                let minX = normalize(rect.minX, axisSize: canvasSize.width)
+                let maxX = normalize(rect.maxX, axisSize: canvasSize.width)
+                let minY = normalize(rect.minY, axisSize: canvasSize.height)
+                let maxY = normalize(rect.maxY, axisSize: canvasSize.height)
+                let startCol = bucketIndex(for: minX, count: cols)
+                let endCol = bucketIndex(for: maxX, count: cols)
+                let startRow = bucketIndex(for: minY, count: rows)
+                let endRow = bucketIndex(for: maxY, count: rows)
+                return (
+                    rowRange: min(startRow, endRow)...max(startRow, endRow),
+                    colRange: min(startCol, endCol)...max(startCol, endCol)
+                )
+            }
+
+            private func bucketIndex(for normalizedValue: CGFloat, count: Int) -> Int {
+                guard count > 0 else { return 0 }
+                let clamped = min(max(normalizedValue, 0), 1)
+                let index = Int(clamped * CGFloat(count))
+                return index >= count ? count - 1 : index
+            }
+
+            private func normalize(_ coordinate: CGFloat, axisSize: CGFloat) -> CGFloat {
+                guard axisSize > 0 else { return 0 }
+                return min(max(coordinate / axisSize, 0), 1)
+            }
+        }
+
         private struct BindingIndex {
-            let gridBindings: [[KeyBinding?]]
-            let rowRanges: [ClosedRange<CGFloat>]
-            let colRangesByRow: [[ClosedRange<CGFloat>]]
-            let customBindings: [KeyBinding]
+            let keyGrid: BindingGrid
+            let customGrid: BindingGrid
         }
 
         private let keyDispatcher: KeyEventDispatcher
@@ -1088,27 +1163,19 @@ final class ContentViewModel: ObservableObject {
             canvasSize: CGSize,
             side: TrackpadSide
         ) -> BindingIndex {
-            var gridBindings: [[KeyBinding?]] = []
-            var rowRanges: [ClosedRange<CGFloat>] = []
-            var colRangesByRow: [[ClosedRange<CGFloat>]] = []
-            var customBindings: [KeyBinding] = []
-
-            gridBindings.reserveCapacity(keyRects.count)
-            rowRanges.reserveCapacity(keyRects.count)
-            colRangesByRow.reserveCapacity(keyRects.count)
+            let keyRows = max(1, keyRects.count)
+            let keyCols = max(1, keyRects.first?.count ?? 1)
+            var keyGrid = BindingGrid(canvasSize: canvasSize, rows: keyRows, cols: keyCols)
+            var customGrid = BindingGrid(
+                canvasSize: canvasSize,
+                rows: max(4, keyRows),
+                cols: max(4, keyCols)
+            )
 
             for row in 0..<keyRects.count {
                 let rowRects = keyRects[row]
-                var rowBindings = [KeyBinding?](repeating: nil, count: rowRects.count)
-                var colRanges: [ClosedRange<CGFloat>] = []
-                colRanges.reserveCapacity(rowRects.count)
-                var minY = CGFloat.greatestFiniteMagnitude
-                var maxY = -CGFloat.greatestFiniteMagnitude
                 for col in 0..<rowRects.count {
                     let rect = rowRects[col]
-                    minY = min(minY, rect.minY)
-                    maxY = max(maxY, rect.maxY)
-                    colRanges.append(rect.minX...rect.maxX)
                     guard row < labels.count,
                           col < labels[row].count else { continue }
                     let label = labels[row][col]
@@ -1116,14 +1183,7 @@ final class ContentViewModel: ObservableObject {
                     guard let binding = bindingForLabel(label, rect: rect, position: position) else {
                         continue
                     }
-                    rowBindings[col] = binding
-                }
-                gridBindings.append(rowBindings)
-                colRangesByRow.append(colRanges)
-                if minY <= maxY {
-                    rowRanges.append(minY...maxY)
-                } else {
-                    rowRanges.append(0.0...0.0)
+                    keyGrid.insert(binding)
                 }
             }
 
@@ -1145,20 +1205,19 @@ final class ContentViewModel: ObservableObject {
                 case .none:
                     action = .none
                 }
-                customBindings.append(KeyBinding(
+                let binding = KeyBinding(
                     rect: rect,
                     label: button.action.label,
                     action: action,
                     position: nil,
                     holdAction: button.hold
-                ))
+                )
+                customGrid.insert(binding)
             }
 
             return BindingIndex(
-                gridBindings: gridBindings,
-                rowRanges: rowRanges,
-                colRangesByRow: colRangesByRow,
-                customBindings: customBindings
+                keyGrid: keyGrid,
+                customGrid: customGrid
             )
         }
 
@@ -1241,16 +1300,10 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func binding(at point: CGPoint, index: BindingIndex) -> KeyBinding? {
-            for row in index.rowRanges.indices where index.rowRanges[row].contains(point.y) {
-                let colRanges = index.colRangesByRow[row]
-                if let col = colRanges.firstIndex(where: { $0.contains(point.x) }) {
-                    if let binding = index.gridBindings[row][col],
-                       binding.rect.contains(point) {
-                        return binding
-                    }
-                }
+            if let binding = index.keyGrid.binding(at: point) {
+                return binding
             }
-            return index.customBindings.first { $0.rect.contains(point) }
+            return index.customGrid.binding(at: point)
         }
 
         private static func isContactState(_ state: OMSState) -> Bool {
@@ -1712,10 +1765,8 @@ final class ContentViewModel: ObservableObject {
                 bindingsGenerationBySide[side] = bindingsGeneration
             }
             return bindingsCache[side] ?? BindingIndex(
-                gridBindings: [],
-                rowRanges: [],
-                colRangesByRow: [],
-                customBindings: []
+                keyGrid: BindingGrid(canvasSize: .zero, rows: 1, cols: 1),
+                customGrid: BindingGrid(canvasSize: .zero, rows: 1, cols: 1)
             )
         }
     }
