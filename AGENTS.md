@@ -1,7 +1,7 @@
 $ccc# AGENTS
 
 ## Project summary
-- Purpose: observe global trackpad multitouch events via the private MultitouchSupport.framework. Build keyboard on top of apple magic trackpad.$$
+- Purpose: observe global trackpad multitouch events via the private MultitouchSupport.framework. Build keyboard on top of apple magic trackpad.
 - Deliverables: Swift wrapper API + Objective-C framework shipped as an XCFramework.
 - Platform: macOS 13+, Xcode 16+, Swift tools 6.0.
 - Sandbox: App Sandbox must be disabled for consumers and the GlassToKey app.
@@ -40,7 +40,7 @@ $ccc# AGENTS
 - Call out testing gaps when relevant.
 - GlassToKey build command (if the change was big automatically run): `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
 - If build fails due to added files, please add them to the project to fix the error.
-- Always write the most performant and efficient code to turn an Apple Magic Trackpad into a keyboard with an emphasis on running in the background as a status app and instant key recognition.
+- Always write the most performant and efficient code to turn an Apple Magic Trackpad into a keyboard with an emphasis on running in the background as a status app and instant key detection.
   
 ## Important notes for next instance of Codex
 - None given.

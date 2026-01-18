@@ -1,4 +1,6 @@
 ## TODO
+- I really think that when a touch is started, instead of immediately firing the keycode we should hold it for X (ms) to see if the the finger is still on the pad. If it is still on the pad (held) it should disqualify the key on/before release.
+- Is the key matrix the most efficient? lets look deeper! How about KeyDispatch? And is key hit detection as clean as it could be?
 - anayze custom button code vs key matrix detection, is it less efficient? If so can we fix?
 - refactor 2 finger click?
 - take over 2finger tap from BTT
