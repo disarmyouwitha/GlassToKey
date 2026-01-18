@@ -1095,7 +1095,7 @@ final class ContentViewModel: ObservableObject {
         ) {
             guard forceClickCap > 0 else { return }
 
-            if let active = activeTouches[touchKey], !active.isContinuousKey {
+            if let active = activeTouches[touchKey] {
                 let delta = max(0, pressure - active.initialPressure)
                 if delta >= forceClickCap {
                     disqualifyTouch(touchKey, reason: .forceCapExceeded)
@@ -1103,7 +1103,7 @@ final class ContentViewModel: ObservableObject {
                 return
             }
 
-            if let pending = pendingTouches[touchKey], !isContinuousKey(pending.binding) {
+            if let pending = pendingTouches[touchKey] {
                 let delta = max(0, pressure - pending.initialPressure)
                 if delta >= forceClickCap {
                     disqualifyTouch(touchKey, reason: .forceCapExceeded)

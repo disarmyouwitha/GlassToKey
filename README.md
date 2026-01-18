@@ -29,7 +29,7 @@ Clicking Edit will allow you to click any Column/Button and set the Action/Hold 
 - Force Cap (g): Pressure (in grams) beyond the initial touch that disqualifies the touch before it can type, preventing accidental strong presses.
 
 ## Diagnostics (Debug Builds)
-- Logs include key dispatches and disqualification reasons (drag cancelled, two-finger suppression, typing disabled, etc.).
+- Logs include key dispatches and disqualification reasons (drag cancelled, two-finger suppression, typing disabled, etc.)
 - Performance profiling uses `OSSignposter` intervals around touch processing.
 
 ---

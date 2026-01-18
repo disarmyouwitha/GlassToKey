@@ -24,7 +24,7 @@
 - `GlassToKey/ContentView.swift`: main UI for trackpad visualization and settings.
 - `GlassToKey/ContentViewModel.swift`: touch filtering, typing mode state, key dispatch.
 - `GlassToKey/GlassToKeyController.swift`: or@$chestrates app startup, persists layout/mapping defaults, and forwards user defaults, layouts, and devices into the view model for live trackpad control.
-- `GlassToKey/GlassToKeyDefaultsKeys.swift`: defines every UserDefaults key the app uses to store device IDs, layout presets, custom buttons, interaction thresholds, and auto-resync settings.
+- `GlassToKey/GlassToKeyDefaultsKeys.swift`: defines every UserDefaults key the app uses to store    device IDs, layout presets, custom buttons, interaction thresholds, and auto-resync settings.
 - `GlassToKey/ColumnLayoutSettings.swift`: serializes per-column scale/offset/spacing adjustments, provides normalized defaults, and migrates legacy layouts for UI editing.
 - `GlassToKey/TrackpadLayoutPreset.swift`: enumerates grid presets, label matrices, and anchor points that power the surface layout generator in `ContentView`.
 - `GlassToKey/KeyEventDispatcher.swift`: serializes Core Graphics keyboard events through `CGEventSource`, supplying a single entry point for posting key strokes and individual key down/up signals.
