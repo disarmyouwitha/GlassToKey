@@ -162,6 +162,8 @@ struct ContentView: View {
     private var layoutColumnAnchors: [CGPoint] { layoutOption.columnAnchors }
     private var leftGridLabels: [[String]] { layoutOption.leftLabels }
     private var rightGridLabels: [[String]] { layoutOption.rightLabels }
+    private let onEditModeChange: ((Bool) -> Void)?
+
     private var layoutSelectionBinding: Binding<TrackpadLayoutPreset> {
         Binding(
             get: { layoutOption },
@@ -169,7 +171,11 @@ struct ContentView: View {
         )
     }
 
-    init(viewModel: ContentViewModel = ContentViewModel()) {
+    init(
+        viewModel: ContentViewModel = ContentViewModel(),
+        onEditModeChange: ((Bool) -> Void)? = nil
+    ) {
+        self.onEditModeChange = onEditModeChange
         _viewModel = StateObject(wrappedValue: viewModel)
         let size = CGSize(
             width: Self.trackpadWidthMM * Self.displayScale,
@@ -220,14 +226,6 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button(action: {
-                    viewModel.loadDevices(preserveSelection: true)
-                }) {
-                    Image(systemName: "arrow.clockwise")
-                        .imageScale(.medium)
-                }
-                .buttonStyle(.bordered)
-                .help("Refresh trackpad list")
                 Toggle("Edit", isOn: $editModeEnabled)
                     .toggleStyle(SwitchToggleStyle())
                 Toggle("Visuals", isOn: $visualsEnabled)
@@ -326,15 +324,28 @@ struct ContentView: View {
                             }
                             .pickerStyle(MenuPickerStyle())
                         }
-                        Toggle("Auto-resync disconnected trackpads", isOn: Binding(
-                            get: { storedAutoResyncMissingTrackpads },
-                            set: { newValue in
-                                storedAutoResyncMissingTrackpads = newValue
-                                viewModel.setAutoResyncEnabled(newValue)
+                        HStack {
+                            Toggle("Auto-resync disconnected trackpads", isOn: Binding(
+                                get: { storedAutoResyncMissingTrackpads },
+                                set: { newValue in
+                                    storedAutoResyncMissingTrackpads = newValue
+                                    viewModel.setAutoResyncEnabled(newValue)
+                                }
+                            ))
+                            .toggleStyle(SwitchToggleStyle())
+                            .help("Polls every 8 seconds to detect disconnected trackpads.")
+
+                            Spacer()
+
+                            Button(action: {
+                                viewModel.loadDevices(preserveSelection: true)
+                            }) {
+                                Image(systemName: "arrow.clockwise")
+                                    .imageScale(.medium)
                             }
-                        ))
-                        .toggleStyle(SwitchToggleStyle())
-                        .help("Polls every 8 seconds to detect disconnected trackpads.")
+                            .buttonStyle(.bordered)
+                            .help("Refresh trackpad list")
+                        }
                     }
                     .padding(12)
                     .background(
@@ -572,7 +583,7 @@ struct ContentView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Typing Behavior")
+                        Text("Typing Tuning")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
@@ -675,11 +686,13 @@ struct ContentView: View {
             )
         )
         .frame(minWidth: trackpadSize.width * 2 + 520, minHeight: trackpadSize.height + 240)
+        .frame(maxHeight: .infinity, alignment: .top)
         .onAppear {
             applySavedSettings()
         }
         .onChange(of: visualsEnabled) { enabled in
             if !enabled {
+                editModeEnabled = false
                 selectedButtonID = nil
                 selectedColumn = nil
                 selectedGridKey = nil
@@ -694,6 +707,7 @@ struct ContentView: View {
                 selectedColumn = nil
                 selectedGridKey = nil
             }
+            onEditModeChange?(enabled)
         }
         .onAppear {
             viewModel.setAutoResyncEnabled(storedAutoResyncMissingTrackpads)
@@ -1504,6 +1518,9 @@ struct ContentView: View {
     private func addCustomButton(side: TrackpadSide) {
         if !visualsEnabled {
             visualsEnabled = true
+        }
+        if !editModeEnabled {
+            editModeEnabled = true
         }
         let action = KeyActionCatalog.action(for: "Space") ?? KeyActionCatalog.presets.first
         guard let action else { return }

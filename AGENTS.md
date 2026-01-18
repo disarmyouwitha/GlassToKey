@@ -1,7 +1,7 @@
 # AGENTS
 
 ## Project summary
-- Purpose: observe global trackpad multitouch events via the private MultitouchSupport.framework.
+- Purpose: observe global trackpad multitouch events via the private MultitouchSupport.framework. Build keyboard on top of apple magic trackpad.$$
 - Deliverables: Swift wrapper API + Objective-C framework shipped as an XCFramework.
 - Platform: macOS 13+, Xcode 16+, Swift tools 6.0.
 - Sandbox: App Sandbox must be disabled for consumers and the GlassToKey app.
@@ -23,7 +23,7 @@
 - `GlassToKey/GlassToKeyApp.swift`: menu bar status item + app lifecycle.
 - `GlassToKey/ContentView.swift`: main UI for trackpad visualization and settings.
 - `GlassToKey/ContentViewModel.swift`: touch filtering, typing mode state, key dispatch.
-- `README.md`: public usage and device selection docs.
+
 
 ## Working agreements
 - Keep Swift API changes in `Sources/OpenMultitouchSupport/`.
@@ -31,32 +31,22 @@
 - Treat `OpenMultitouchSupportXCF.xcframework` as generated output (rebuild instead of hand-editing).
 - Call out testing gaps when relevant.
 - GlassToKey build command (if the change was big automatically run): `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
-- If build fails due to added files, please add them to the project to fix the error. 
+- If build fails due to added files, please add them to the project to fix the error.
+- 
 
 ## Common workflows
 ### Swift wrapper changes only
 1. Edit files under `Sources/OpenMultitouchSupport/`.
 2. Commit and push (consumers tracking `main` pick up changes).
-
-## Performance notes
-- UI visuals are coalesced by touch revision (only redraw on new touch frames).
-- Key dispatch posts on a dedicated queue with a cached `CGEventSource`.
-- OMS touch timestamps are disabled by default (`OMSManager.shared.isTimestampEnabled = false`) but can be re-enabled with the flag.
-- Two-finger tap suppression uses a configurable interval (0–250 ms) in the settings so accidental taps don’t fire key presses.
-- Touch routing now uses a stable `deviceIndex` for cheaper comparisons in hot paths.
   
 ## Important notes for next instance of Codex
-- Debug logging: `ContentViewModel.TouchProcessor` logs key dispatches and disqualification reasons under `KeyDiagnostics` in DEBUG builds.
+- Debug logging: `ContentViewModel.TouchProcessor` logs key dispatches and disqualification reasons under
 
 ## TODO
-- If 1 or more trackpads are disconnected, show a warning triangle in the status bar to sync. (Or would it be better to try and resync every 5-10sec while trackpad is not connected? - if so, it should be an option so ppl can use the program w 1 trackpad)
 - refactor 2 finger click??
 - Refactor from the driver/api layer, any efficiency we can gain by rewrites?
-###
 - Have Codex refactor the code for compiler efficiency and runtime efficiency. Leave no stone unturned!
 - Have Codex refactor the GUI for effiency
 - "Auto" set column x,y based on finger splay "4 finger touch"
 - Toggle for capturing clicks using CGEventTapCreate??
-
-## FUTURE
-- Add functionality to use trackpad as a scale! Lovely repo @ https://github.com/KrishKrosh/TrackWeight
+- logic like phone that keeps a queue and triesto help correct out mistakes based on dictionary?
