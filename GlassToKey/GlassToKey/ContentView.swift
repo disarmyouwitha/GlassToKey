@@ -30,6 +30,20 @@ struct ContentView: View {
         let hold: String?
     }
 
+    private struct ColumnInspectorSelection: Equatable {
+        let index: Int
+        var settings: ColumnLayoutSettings
+    }
+
+    private struct ButtonInspectorSelection: Equatable {
+        var button: CustomButton
+    }
+
+    private struct KeyInspectorSelection: Equatable {
+        let key: SelectedGridKey
+        var mapping: KeyMapping
+    }
+
     @StateObject private var viewModel: ContentViewModel
     @State private var testText = ""
     @State private var visualsEnabled = true
@@ -41,6 +55,9 @@ struct ContentView: View {
     @State private var selectedButtonID: UUID?
     @State private var selectedColumn: Int?
     @State private var selectedGridKey: SelectedGridKey?
+    @State private var columnInspectorSelection: ColumnInspectorSelection?
+    @State private var buttonInspectorSelection: ButtonInspectorSelection?
+    @State private var keyInspectorSelection: KeyInspectorSelection?
     @State private var keyMappingsByLayer: LayeredKeyMappings = [:]
     @State private var layoutOption: TrackpadLayoutPreset = .sixByThree
     @State private var leftGridLabelInfo: [[GridLabel]] = []
@@ -256,11 +273,9 @@ struct ContentView: View {
                     autoResyncEnabled: $storedAutoResyncMissingTrackpads,
                     layoutSelection: layoutSelectionBinding,
                     layoutOption: layoutOption,
-                    columnSettings: columnSettings,
-                    selectedColumn: selectedColumn,
-                    customButtons: $customButtons,
-                    selectedButtonID: selectedButtonID,
-                    selectedGridKey: selectedGridKey,
+                    columnSelection: columnInspectorSelection,
+                    buttonSelection: buttonInspectorSelection,
+                    keySelection: keyInspectorSelection,
                     editModeEnabled: editModeEnabled,
                     tapHoldDurationMs: $tapHoldDurationMs,
                     dragCancelDistanceSetting: $dragCancelDistanceSetting,
@@ -283,50 +298,14 @@ struct ContentView: View {
                     onClearTouchState: {
                         viewModel.clearTouchState()
                     },
-                    columnScaleBinding: { index in
-                        columnScaleBinding(for: index)
+                    onUpdateColumn: { index, update in
+                        updateColumnSettingAndSelection(index: index, update: update)
                     },
-                    columnOffsetXBinding: { index in
-                        columnOffsetBinding(for: index, axis: .x)
+                    onUpdateButton: { id, update in
+                        updateCustomButtonAndSelection(id: id, update: update)
                     },
-                    columnOffsetYBinding: { index in
-                        columnOffsetBinding(for: index, axis: .y)
-                    },
-                    columnRowSpacingBinding: { index in
-                        columnRowSpacingBinding(for: index)
-                    },
-                    positionXBinding: { index in
-                        positionPercentBinding(for: index, axis: .x)
-                    },
-                    positionYBinding: { index in
-                        positionPercentBinding(for: index, axis: .y)
-                    },
-                    sizeWidthBinding: { index in
-                        sizePercentBinding(for: index, dimension: .width)
-                    },
-                    sizeHeightBinding: { index in
-                        sizePercentBinding(for: index, dimension: .height)
-                    },
-                    positionXRange: { index in
-                        positionPercentRange(for: index, axis: .x)
-                    },
-                    positionYRange: { index in
-                        positionPercentRange(for: index, axis: .y)
-                    },
-                    sizeWidthRange: { index in
-                        sizePercentRange(for: index, dimension: .width)
-                    },
-                    sizeHeightRange: { index in
-                        sizePercentRange(for: index, dimension: .height)
-                    },
-                    customButtonHoldBinding: { index in
-                        customButtonHoldBinding(for: index)
-                    },
-                    keyActionBinding: { key in
-                        keyActionBinding(for: key)
-                    },
-                    holdActionBinding: { key in
-                        holdActionBinding(for: key)
+                    onUpdateKeyMapping: { key, update in
+                        updateKeyMappingAndSelection(key: key, update: update)
                     }
                 )
             }
@@ -376,9 +355,11 @@ struct ContentView: View {
         }
         .onChange(of: columnSettings) { newValue in
             applyColumnSettings(newValue)
+            refreshColumnInspectorSelection()
         }
         .onChange(of: customButtons) { newValue in
             viewModel.updateCustomButtons(newValue)
+            refreshButtonInspectorSelection()
         }
         .onChange(of: viewModel.activeLayer) { _ in
             selectedButtonID = nil
@@ -389,6 +370,16 @@ struct ContentView: View {
         .onChange(of: keyMappingsByLayer) { newValue in
             viewModel.updateKeyMappings(newValue)
             updateGridLabelInfo()
+            refreshKeyInspectorSelection()
+        }
+        .onChange(of: selectedButtonID) { _ in
+            refreshButtonInspectorSelection()
+        }
+        .onChange(of: selectedColumn) { _ in
+            refreshColumnInspectorSelection()
+        }
+        .onChange(of: selectedGridKey) { _ in
+            refreshKeyInspectorSelection()
         }
         .onChange(of: tapHoldDurationMs) { newValue in
             viewModel.updateHoldThreshold(newValue / 1000.0)
@@ -514,11 +505,9 @@ struct ContentView: View {
         @Binding var autoResyncEnabled: Bool
         let layoutSelection: Binding<TrackpadLayoutPreset>
         let layoutOption: TrackpadLayoutPreset
-        let columnSettings: [ColumnLayoutSettings]
-        let selectedColumn: Int?
-        @Binding var customButtons: [CustomButton]
-        let selectedButtonID: UUID?
-        let selectedGridKey: SelectedGridKey?
+        let columnSelection: ColumnInspectorSelection?
+        let buttonSelection: ButtonInspectorSelection?
+        let keySelection: KeyInspectorSelection?
         let editModeEnabled: Bool
         @Binding var tapHoldDurationMs: Double
         @Binding var dragCancelDistanceSetting: Double
@@ -530,21 +519,9 @@ struct ContentView: View {
         let onAddCustomButton: (TrackpadSide) -> Void
         let onRemoveCustomButton: (UUID) -> Void
         let onClearTouchState: () -> Void
-        let columnScaleBinding: (Int) -> Binding<Double>
-        let columnOffsetXBinding: (Int) -> Binding<Double>
-        let columnOffsetYBinding: (Int) -> Binding<Double>
-        let columnRowSpacingBinding: (Int) -> Binding<Double>
-        let positionXBinding: (Int) -> Binding<Double>
-        let positionYBinding: (Int) -> Binding<Double>
-        let sizeWidthBinding: (Int) -> Binding<Double>
-        let sizeHeightBinding: (Int) -> Binding<Double>
-        let positionXRange: (Int) -> ClosedRange<Double>
-        let positionYRange: (Int) -> ClosedRange<Double>
-        let sizeWidthRange: (Int) -> ClosedRange<Double>
-        let sizeHeightRange: (Int) -> ClosedRange<Double>
-        let customButtonHoldBinding: (Int) -> Binding<KeyAction?>
-        let keyActionBinding: (SelectedGridKey) -> Binding<KeyAction>
-        let holdActionBinding: (SelectedGridKey) -> Binding<KeyAction?>
+        let onUpdateColumn: (Int, (inout ColumnLayoutSettings) -> Void) -> Void
+        let onUpdateButton: (UUID, (inout CustomButton) -> Void) -> Void
+        let onUpdateKeyMapping: (SelectedGridKey, (inout KeyMapping) -> Void) -> Void
 
         var body: some View {
             VStack(alignment: .leading, spacing: 14) {
@@ -567,31 +544,17 @@ struct ContentView: View {
                     ColumnTuningSectionView(
                         layoutSelection: layoutSelection,
                         layoutOption: layoutOption,
-                        columnSettings: columnSettings,
-                        selectedColumn: selectedColumn,
-                        columnScaleBinding: columnScaleBinding,
-                        columnOffsetXBinding: columnOffsetXBinding,
-                        columnOffsetYBinding: columnOffsetYBinding,
-                        columnRowSpacingBinding: columnRowSpacingBinding
+                        selection: columnSelection,
+                        onUpdateColumn: onUpdateColumn
                     )
                     ButtonTuningSectionView(
-                        customButtons: $customButtons,
-                        selectedButtonID: selectedButtonID,
-                        selectedGridKey: selectedGridKey,
+                        buttonSelection: buttonSelection,
+                        keySelection: keySelection,
                         onAddCustomButton: onAddCustomButton,
                         onRemoveCustomButton: onRemoveCustomButton,
                         onClearTouchState: onClearTouchState,
-                        positionXBinding: positionXBinding,
-                        positionYBinding: positionYBinding,
-                        sizeWidthBinding: sizeWidthBinding,
-                        sizeHeightBinding: sizeHeightBinding,
-                        positionXRange: positionXRange,
-                        positionYRange: positionYRange,
-                        sizeWidthRange: sizeWidthRange,
-                        sizeHeightRange: sizeHeightRange,
-                        customButtonHoldBinding: customButtonHoldBinding,
-                        keyActionBinding: keyActionBinding,
-                        holdActionBinding: holdActionBinding
+                        onUpdateButton: onUpdateButton,
+                        onUpdateKeyMapping: onUpdateKeyMapping
                     )
                 }
 
@@ -692,12 +655,8 @@ struct ContentView: View {
     private struct ColumnTuningSectionView: View {
         let layoutSelection: Binding<TrackpadLayoutPreset>
         let layoutOption: TrackpadLayoutPreset
-        let columnSettings: [ColumnLayoutSettings]
-        let selectedColumn: Int?
-        let columnScaleBinding: (Int) -> Binding<Double>
-        let columnOffsetXBinding: (Int) -> Binding<Double>
-        let columnOffsetYBinding: (Int) -> Binding<Double>
-        let columnRowSpacingBinding: (Int) -> Binding<Double>
+        let selection: ColumnInspectorSelection?
+        let onUpdateColumn: (Int, (inout ColumnLayoutSettings) -> Void) -> Void
 
         var body: some View {
             VStack(alignment: .leading, spacing: 10) {
@@ -715,15 +674,21 @@ struct ContentView: View {
                     .pickerStyle(MenuPickerStyle())
                 }
                 if layoutOption.hasGrid {
-                    if let selectedColumn,
-                       columnSettings.indices.contains(selectedColumn) {
-                        Text("Selected column \(selectedColumn + 1)")
+                    if let selection {
+                        Text("Selected column \(selection.index + 1)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: 14) {
                             ColumnTuningRow(
                                 title: "Scale",
-                                value: columnScaleBinding(selectedColumn),
+                                value: Binding(
+                                    get: { selection.settings.scale },
+                                    set: { newValue in
+                                        onUpdateColumn(selection.index) { setting in
+                                            setting.scale = ContentView.normalizedColumnScale(newValue)
+                                        }
+                                    }
+                                ),
                                 formatter: ContentView.columnScaleFormatter,
                                 range: ContentView.columnScaleRange,
                                 sliderStep: 0.05,
@@ -731,7 +696,14 @@ struct ContentView: View {
                             )
                             ColumnTuningRow(
                                 title: "X (%)",
-                                value: columnOffsetXBinding(selectedColumn),
+                                value: Binding(
+                                    get: { selection.settings.offsetXPercent },
+                                    set: { newValue in
+                                        onUpdateColumn(selection.index) { setting in
+                                            setting.offsetXPercent = ContentView.normalizedColumnOffsetPercent(newValue)
+                                        }
+                                    }
+                                ),
                                 formatter: ContentView.columnOffsetFormatter,
                                 range: ContentView.columnOffsetPercentRange,
                                 sliderStep: 1.0,
@@ -740,7 +712,14 @@ struct ContentView: View {
                             )
                             ColumnTuningRow(
                                 title: "Y (%)",
-                                value: columnOffsetYBinding(selectedColumn),
+                                value: Binding(
+                                    get: { selection.settings.offsetYPercent },
+                                    set: { newValue in
+                                        onUpdateColumn(selection.index) { setting in
+                                            setting.offsetYPercent = ContentView.normalizedColumnOffsetPercent(newValue)
+                                        }
+                                    }
+                                ),
                                 formatter: ContentView.columnOffsetFormatter,
                                 range: ContentView.columnOffsetPercentRange,
                                 sliderStep: 1.0,
@@ -749,7 +728,14 @@ struct ContentView: View {
                             )
                             ColumnTuningRow(
                                 title: "Pad",
-                                value: columnRowSpacingBinding(selectedColumn),
+                                value: Binding(
+                                    get: { selection.settings.rowSpacingPercent },
+                                    set: { newValue in
+                                        onUpdateColumn(selection.index) { setting in
+                                            setting.rowSpacingPercent = ContentView.normalizedRowSpacingPercent(newValue)
+                                        }
+                                    }
+                                ),
                                 formatter: ContentView.rowSpacingFormatter,
                                 range: ContentView.rowSpacingPercentRange,
                                 sliderStep: 1.0,
@@ -778,23 +764,13 @@ struct ContentView: View {
     }
 
     private struct ButtonTuningSectionView: View {
-        @Binding var customButtons: [CustomButton]
-        let selectedButtonID: UUID?
-        let selectedGridKey: SelectedGridKey?
+        let buttonSelection: ButtonInspectorSelection?
+        let keySelection: KeyInspectorSelection?
         let onAddCustomButton: (TrackpadSide) -> Void
         let onRemoveCustomButton: (UUID) -> Void
         let onClearTouchState: () -> Void
-        let positionXBinding: (Int) -> Binding<Double>
-        let positionYBinding: (Int) -> Binding<Double>
-        let sizeWidthBinding: (Int) -> Binding<Double>
-        let sizeHeightBinding: (Int) -> Binding<Double>
-        let positionXRange: (Int) -> ClosedRange<Double>
-        let positionYRange: (Int) -> ClosedRange<Double>
-        let sizeWidthRange: (Int) -> ClosedRange<Double>
-        let sizeHeightRange: (Int) -> ClosedRange<Double>
-        let customButtonHoldBinding: (Int) -> Binding<KeyAction?>
-        let keyActionBinding: (SelectedGridKey) -> Binding<KeyAction>
-        let holdActionBinding: (SelectedGridKey) -> Binding<KeyAction?>
+        let onUpdateButton: (UUID, (inout CustomButton) -> Void) -> Void
+        let onUpdateKeyMapping: (SelectedGridKey, (inout KeyMapping) -> Void) -> Void
 
         var body: some View {
             VStack(alignment: .leading, spacing: 10) {
@@ -810,9 +786,16 @@ struct ContentView: View {
                         onAddCustomButton(.right)
                     }
                 }
-                if let selectedIndex = customButtons.firstIndex(where: { $0.id == selectedButtonID }) {
+                if let selection = buttonSelection {
                     VStack(alignment: .leading, spacing: 6) {
-                        Picker("Action", selection: $customButtons[selectedIndex].action) {
+                        Picker("Action", selection: Binding(
+                            get: { selection.button.action },
+                            set: { newValue in
+                                onUpdateButton(selection.button.id) { button in
+                                    button.action = newValue
+                                }
+                            }
+                        )) {
                             Text(KeyActionCatalog.noneLabel)
                                 .tag(KeyActionCatalog.noneAction)
                             ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
@@ -820,7 +803,14 @@ struct ContentView: View {
                             }
                         }
                         .pickerStyle(MenuPickerStyle())
-                        Picker("Hold Action", selection: customButtonHoldBinding(selectedIndex)) {
+                        Picker("Hold Action", selection: Binding(
+                            get: { selection.button.hold },
+                            set: { newValue in
+                                onUpdateButton(selection.button.id) { button in
+                                    button.hold = newValue
+                                }
+                            }
+                        )) {
                             Text("None").tag(nil as KeyAction?)
                             ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
                                 ContentView.pickerLabel(for: action).tag(action as KeyAction?)
@@ -830,36 +820,36 @@ struct ContentView: View {
                         VStack(alignment: .leading, spacing: 14) {
                             ColumnTuningRow(
                                 title: "X (%)",
-                                value: positionXBinding(selectedIndex),
+                                value: positionBinding(for: selection.button, axis: .x),
                                 formatter: ContentView.columnOffsetFormatter,
-                                range: positionXRange(selectedIndex),
+                                range: positionRange(for: selection.button, axis: .x),
                                 sliderStep: 1.0,
                                 buttonStep: 0.5,
                                 showSlider: false
                             )
                             ColumnTuningRow(
                                 title: "Y (%)",
-                                value: positionYBinding(selectedIndex),
+                                value: positionBinding(for: selection.button, axis: .y),
                                 formatter: ContentView.columnOffsetFormatter,
-                                range: positionYRange(selectedIndex),
+                                range: positionRange(for: selection.button, axis: .y),
                                 sliderStep: 1.0,
                                 buttonStep: 0.5,
                                 showSlider: false
                             )
                             ColumnTuningRow(
                                 title: "Width (%)",
-                                value: sizeWidthBinding(selectedIndex),
+                                value: sizeBinding(for: selection.button, dimension: .width),
                                 formatter: ContentView.columnOffsetFormatter,
-                                range: sizeWidthRange(selectedIndex),
+                                range: sizeRange(for: selection.button, dimension: .width),
                                 sliderStep: 1.0,
                                 buttonStep: 0.5,
                                 showSlider: false
                             )
                             ColumnTuningRow(
                                 title: "Height (%)",
-                                value: sizeHeightBinding(selectedIndex),
+                                value: sizeBinding(for: selection.button, dimension: .height),
                                 formatter: ContentView.columnOffsetFormatter,
-                                range: sizeHeightRange(selectedIndex),
+                                range: sizeRange(for: selection.button, dimension: .height),
                                 sliderStep: 1.0,
                                 buttonStep: 0.5,
                                 showSlider: false
@@ -871,16 +861,23 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
                             Spacer()
                             Button("Delete") {
-                                onRemoveCustomButton(customButtons[selectedIndex].id)
+                                onRemoveCustomButton(selection.button.id)
                             }
                         }
                     }
-                } else if let gridKey = selectedGridKey {
+                } else if let selection = keySelection {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Selected key: \(gridKey.label)")
+                        Text("Selected key: \(selection.key.label)")
                             .font(.subheadline)
                             .bold()
-                        Picker("Action", selection: keyActionBinding(gridKey)) {
+                        Picker("Action", selection: Binding(
+                            get: { selection.mapping.primary },
+                            set: { newValue in
+                                onUpdateKeyMapping(selection.key) { mapping in
+                                    mapping.primary = newValue
+                                }
+                            }
+                        )) {
                             Text(KeyActionCatalog.noneLabel)
                                 .tag(KeyActionCatalog.noneAction)
                             ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
@@ -888,7 +885,14 @@ struct ContentView: View {
                             }
                         }
                         .pickerStyle(MenuPickerStyle())
-                        Picker("Hold Action", selection: holdActionBinding(gridKey)) {
+                        Picker("Hold Action", selection: Binding(
+                            get: { selection.mapping.hold },
+                            set: { newValue in
+                                onUpdateKeyMapping(selection.key) { mapping in
+                                    mapping.hold = newValue
+                                }
+                            }
+                        )) {
                             Text("None").tag(nil as KeyAction?)
                             ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
                                 ContentView.pickerLabel(for: action).tag(action as KeyAction?)
@@ -914,6 +918,111 @@ struct ContentView: View {
                     onClearTouchState()
                 }
             )
+        }
+
+        private enum CustomButtonAxis {
+            case x
+            case y
+        }
+
+        private enum CustomButtonDimension {
+            case width
+            case height
+        }
+
+        private func positionBinding(
+            for button: CustomButton,
+            axis: CustomButtonAxis
+        ) -> Binding<Double> {
+            Binding(
+                get: {
+                    let value = axis == .x ? button.rect.x : button.rect.y
+                    return Double(value * 100.0)
+                },
+                set: { newValue in
+                    onUpdateButton(button.id) { updated in
+                        let rect = updated.rect
+                        let maxNormalized = axis == .x
+                            ? (1.0 - rect.width)
+                            : (1.0 - rect.height)
+                        let upper = max(0.0, Double(maxNormalized))
+                        let normalized = min(max(newValue / 100.0, 0.0), upper)
+                        var next = rect
+                        if axis == .x {
+                            next.x = CGFloat(normalized)
+                        } else {
+                            next.y = CGFloat(normalized)
+                        }
+                        updated.rect = next.clamped(
+                            minWidth: ContentView.minCustomButtonSize.width,
+                            minHeight: ContentView.minCustomButtonSize.height
+                        )
+                    }
+                }
+            )
+        }
+
+        private func positionRange(
+            for button: CustomButton,
+            axis: CustomButtonAxis
+        ) -> ClosedRange<Double> {
+            let rect = button.rect
+            let maxNormalized = axis == .x
+                ? (1.0 - rect.width)
+                : (1.0 - rect.height)
+            let upper = max(0.0, Double(maxNormalized)) * 100.0
+            return 0.0...upper
+        }
+
+        private func sizeBinding(
+            for button: CustomButton,
+            dimension: CustomButtonDimension
+        ) -> Binding<Double> {
+            Binding(
+                get: {
+                    let value = dimension == .width ? button.rect.width : button.rect.height
+                    return Double(value * 100.0)
+                },
+                set: { newValue in
+                    onUpdateButton(button.id) { updated in
+                        let rect = updated.rect
+                        let maxNormalized = dimension == .width
+                            ? (1.0 - rect.x)
+                            : (1.0 - rect.y)
+                        let minNormalized = dimension == .width
+                            ? ContentView.minCustomButtonSize.width
+                            : ContentView.minCustomButtonSize.height
+                        let upper = max(minNormalized, maxNormalized)
+                        let normalized = min(max(newValue / 100.0, minNormalized), upper)
+                        var next = rect
+                        if dimension == .width {
+                            next.width = CGFloat(normalized)
+                        } else {
+                            next.height = CGFloat(normalized)
+                        }
+                        updated.rect = next.clamped(
+                            minWidth: ContentView.minCustomButtonSize.width,
+                            minHeight: ContentView.minCustomButtonSize.height
+                        )
+                    }
+                }
+            )
+        }
+
+        private func sizeRange(
+            for button: CustomButton,
+            dimension: CustomButtonDimension
+        ) -> ClosedRange<Double> {
+            let rect = button.rect
+            let maxNormalized = dimension == .width
+                ? (1.0 - rect.x)
+                : (1.0 - rect.y)
+            let minNormalized = dimension == .width
+                ? ContentView.minCustomButtonSize.width
+                : ContentView.minCustomButtonSize.height
+            let upper = max(minNormalized, maxNormalized) * 100.0
+            let lower = minNormalized * 100.0
+            return lower...upper
         }
     }
 
@@ -1587,18 +1696,18 @@ struct ContentView: View {
         ColumnLayoutDefaults.normalizedSettings(settings, columns: columns)
     }
 
-    private func normalizedColumnScale(_ value: Double) -> Double {
+    fileprivate static func normalizedColumnScale(_ value: Double) -> Double {
         min(max(value, Self.columnScaleRange.lowerBound), Self.columnScaleRange.upperBound)
     }
 
-    private func normalizedColumnOffsetPercent(_ value: Double) -> Double {
+    fileprivate static func normalizedColumnOffsetPercent(_ value: Double) -> Double {
         min(
             max(value, Self.columnOffsetPercentRange.lowerBound),
             Self.columnOffsetPercentRange.upperBound
         )
     }
 
-    private func normalizedRowSpacingPercent(_ value: Double) -> Double {
+    fileprivate static func normalizedRowSpacingPercent(_ value: Double) -> Double {
         min(max(value, Self.rowSpacingPercentRange.lowerBound), Self.rowSpacingPercentRange.upperBound)
     }
 
@@ -1610,6 +1719,14 @@ struct ContentView: View {
         var setting = columnSettings[index]
         update(&setting)
         columnSettings[index] = setting
+    }
+
+    private func updateColumnSettingAndSelection(
+        index: Int,
+        update: (inout ColumnLayoutSettings) -> Void
+    ) {
+        updateColumnSetting(index: index, update: update)
+        refreshColumnInspectorSelection()
     }
 
     private func applyColumnSettings(_ settings: [ColumnLayoutSettings]) {
@@ -1834,18 +1951,6 @@ struct ContentView: View {
         selectedButtonID = newButton.id
     }
 
-    private func customButtonHoldBinding(for index: Int) -> Binding<KeyAction?> {
-        Binding(
-            get: {
-                customButtons.indices.contains(index) ? customButtons[index].hold : nil
-            },
-            set: { newValue in
-                guard customButtons.indices.contains(index) else { return }
-                customButtons[index].hold = newValue
-            }
-        )
-    }
-
     private func removeCustomButton(id: UUID) {
         customButtons.removeAll { $0.id == id }
         if selectedButtonID == id {
@@ -1856,6 +1961,14 @@ struct ContentView: View {
     private func updateCustomButton(id: UUID, update: (inout CustomButton) -> Void) {
         guard let index = customButtons.firstIndex(where: { $0.id == id }) else { return }
         update(&customButtons[index])
+    }
+
+    private func updateCustomButtonAndSelection(
+        id: UUID,
+        update: (inout CustomButton) -> Void
+    ) {
+        updateCustomButton(id: id, update: update)
+        refreshButtonInspectorSelection()
     }
 
     private func defaultNewButtonRect() -> NormalizedRect {
@@ -1870,64 +1983,6 @@ struct ContentView: View {
         return rect.clamped(
             minWidth: Self.minCustomButtonSize.width,
             minHeight: Self.minCustomButtonSize.height
-        )
-    }
-
-    private enum ColumnAxis {
-        case x
-        case y
-    }
-
-    private func columnScaleBinding(for index: Int) -> Binding<Double> {
-        Binding(
-            get: {
-                columnSettings.indices.contains(index)
-                    ? columnSettings[index].scale
-                    : 1.0
-            },
-            set: { newValue in
-                updateColumnSetting(index: index) { setting in
-                    setting.scale = normalizedColumnScale(newValue)
-                }
-            }
-        )
-    }
-
-    private func columnOffsetBinding(
-        for index: Int,
-        axis: ColumnAxis
-    ) -> Binding<Double> {
-        Binding(
-            get: {
-                guard columnSettings.indices.contains(index) else { return 0.0 }
-                let setting = columnSettings[index]
-                return axis == .x ? setting.offsetXPercent : setting.offsetYPercent
-            },
-            set: { newValue in
-                updateColumnSetting(index: index) { setting in
-                    let normalized = normalizedColumnOffsetPercent(newValue)
-                    if axis == .x {
-                        setting.offsetXPercent = normalized
-                    } else {
-                        setting.offsetYPercent = normalized
-                    }
-                }
-            }
-        )
-    }
-
-    private func columnRowSpacingBinding(for index: Int) -> Binding<Double> {
-        Binding(
-            get: {
-                columnSettings.indices.contains(index)
-                    ? columnSettings[index].rowSpacingPercent
-                    : 0.0
-            },
-            set: { newValue in
-                updateColumnSetting(index: index) { setting in
-                    setting.rowSpacingPercent = normalizedRowSpacingPercent(newValue)
-                }
-            }
         )
     }
 
@@ -2011,108 +2066,6 @@ struct ContentView: View {
         }
     }
 
-    private enum CustomButtonAxis {
-        case x
-        case y
-    }
-
-    private enum CustomButtonDimension {
-        case width
-        case height
-    }
-
-    private func positionPercentBinding(
-        for index: Int,
-        axis: CustomButtonAxis
-    ) -> Binding<Double> {
-        Binding(
-            get: {
-                let rect = customButtons[index].rect
-                let value = axis == .x ? rect.x : rect.y
-                return Double(value * 100.0)
-            },
-            set: { newValue in
-                let rect = customButtons[index].rect
-                let maxNormalized = axis == .x
-                    ? (1.0 - rect.width)
-                    : (1.0 - rect.height)
-                let upper = max(0.0, Double(maxNormalized))
-                let normalized = min(max(newValue / 100.0, 0.0), upper)
-                var updated = rect
-                if axis == .x {
-                    updated.x = CGFloat(normalized)
-                } else {
-                    updated.y = CGFloat(normalized)
-                }
-                customButtons[index].rect = updated.clamped(
-                    minWidth: Self.minCustomButtonSize.width,
-                    minHeight: Self.minCustomButtonSize.height
-                )
-            }
-        )
-    }
-
-    private func positionPercentRange(
-        for index: Int,
-        axis: CustomButtonAxis
-    ) -> ClosedRange<Double> {
-        let rect = customButtons[index].rect
-        let maxNormalized = axis == .x
-            ? (1.0 - rect.width)
-            : (1.0 - rect.height)
-        let upper = max(0.0, Double(maxNormalized)) * 100.0
-        return 0.0...upper
-    }
-
-    private func sizePercentBinding(
-        for index: Int,
-        dimension: CustomButtonDimension
-    ) -> Binding<Double> {
-        Binding(
-            get: {
-                let rect = customButtons[index].rect
-                let value = dimension == .width ? rect.width : rect.height
-                return Double(value * 100.0)
-            },
-            set: { newValue in
-                let rect = customButtons[index].rect
-                let maxNormalized = dimension == .width
-                    ? (1.0 - rect.x)
-                    : (1.0 - rect.y)
-                let minNormalized = dimension == .width
-                    ? Self.minCustomButtonSize.width
-                    : Self.minCustomButtonSize.height
-                let upper = max(minNormalized, maxNormalized)
-                let normalized = min(max(newValue / 100.0, minNormalized), upper)
-                var updated = rect
-                if dimension == .width {
-                    updated.width = CGFloat(normalized)
-                } else {
-                    updated.height = CGFloat(normalized)
-                }
-                customButtons[index].rect = updated.clamped(
-                    minWidth: Self.minCustomButtonSize.width,
-                    minHeight: Self.minCustomButtonSize.height
-                )
-            }
-        )
-    }
-
-    private func sizePercentRange(
-        for index: Int,
-        dimension: CustomButtonDimension
-    ) -> ClosedRange<Double> {
-        let rect = customButtons[index].rect
-        let maxNormalized = dimension == .width
-            ? (1.0 - rect.x)
-            : (1.0 - rect.y)
-        let minNormalized = dimension == .width
-            ? Self.minCustomButtonSize.width
-            : Self.minCustomButtonSize.height
-        let upper = max(minNormalized, maxNormalized) * 100.0
-        let lower = minNormalized * 100.0
-        return lower...upper
-    }
 
     private func deviceForID(_ deviceID: String) -> OMSDeviceInfo? {
         guard !deviceID.isEmpty else { return nil }
@@ -2221,6 +2174,39 @@ struct ContentView: View {
         return (primary: mapping.primary.displayText, hold: mapping.hold?.label)
     }
 
+    private func refreshColumnInspectorSelection() {
+        guard let selectedColumn,
+              columnSettings.indices.contains(selectedColumn) else {
+            columnInspectorSelection = nil
+            return
+        }
+        columnInspectorSelection = ColumnInspectorSelection(
+            index: selectedColumn,
+            settings: columnSettings[selectedColumn]
+        )
+    }
+
+    private func refreshButtonInspectorSelection() {
+        guard let selectedButtonID,
+              let button = customButtons.first(where: { $0.id == selectedButtonID }) else {
+            buttonInspectorSelection = nil
+            return
+        }
+        buttonInspectorSelection = ButtonInspectorSelection(button: button)
+    }
+
+    private func refreshKeyInspectorSelection() {
+        guard let selectedGridKey else {
+            keyInspectorSelection = nil
+            return
+        }
+        let mapping = effectiveKeyMapping(for: selectedGridKey)
+        keyInspectorSelection = KeyInspectorSelection(
+            key: selectedGridKey,
+            mapping: mapping
+        )
+    }
+
     private func updateGridLabelInfo() {
         leftGridLabelInfo = gridLabelInfo(for: leftGridLabels, side: .left)
         rightGridLabelInfo = gridLabelInfo(for: rightGridLabels, side: .right)
@@ -2288,31 +2274,17 @@ struct ContentView: View {
         keyMappingsByLayer[layer] = layerMappings
     }
 
+    private func updateKeyMappingAndSelection(
+        key: SelectedGridKey,
+        update: (inout KeyMapping) -> Void
+    ) {
+        updateKeyMapping(for: key, update)
+        refreshKeyInspectorSelection()
+    }
+
     private func defaultKeyMapping(for label: String) -> KeyMapping? {
         guard let primary = KeyActionCatalog.action(for: label) else { return nil }
         return KeyMapping(primary: primary, hold: KeyActionCatalog.holdAction(for: label))
-    }
-
-    private func keyActionBinding(for key: SelectedGridKey) -> Binding<KeyAction> {
-        Binding(
-            get: {
-                effectiveKeyMapping(for: key).primary
-            },
-            set: { newValue in
-                updateKeyMapping(for: key) { $0.primary = newValue }
-            }
-        )
-    }
-
-    private func holdActionBinding(for key: SelectedGridKey) -> Binding<KeyAction?> {
-        Binding(
-            get: {
-                effectiveKeyMapping(for: key).hold
-            },
-            set: { newValue in
-                updateKeyMapping(for: key) { $0.hold = newValue }
-            }
-        )
     }
 
     private static func drawGridLabels(

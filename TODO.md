@@ -11,6 +11,7 @@
 - Have Codex refactor the GUI for effiency
 - Have Codex redesign the GUI for looks, keeping efficiency
 ###
+- Can we stop using % in the GUI for x, y, width,height and use like PX or something that is based on its logical position and size?
 - "Auto" set column x,y based on finger splay "4 finger touch"
 - Toggle for capturing clicks using CGEventTapCreate??
 - logic like phone that keeps a queue and triesto help correct out mistakes based on dictionary?
