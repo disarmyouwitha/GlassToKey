@@ -20,6 +20,8 @@ Clicking Visualize will draw the touches - it is toggleable for performance reas
 
 Clicking Edit will allow you to click any Column/Button and set the Action/Hold Action and set the positioning and size. (It's really laggy idk what to do, so it's in a toggle)
 
+<img src="Screenshots/GTK_keymap.png" alt="GlassToKey" width="900px" />
+
 ## Typing Behavior:
 - Tap/Hold (ms): Time in miliseconds until a tap becomds a hold
 - Drag Cancel (px): How far you need to move before top becomes a drag

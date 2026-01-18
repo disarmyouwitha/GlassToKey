@@ -226,14 +226,6 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button(action: {
-                    viewModel.loadDevices(preserveSelection: true)
-                }) {
-                    Image(systemName: "arrow.clockwise")
-                        .imageScale(.medium)
-                }
-                .buttonStyle(.bordered)
-                .help("Refresh trackpad list")
                 Toggle("Edit", isOn: $editModeEnabled)
                     .toggleStyle(SwitchToggleStyle())
                 Toggle("Visuals", isOn: $visualsEnabled)
@@ -332,15 +324,28 @@ struct ContentView: View {
                             }
                             .pickerStyle(MenuPickerStyle())
                         }
-                        Toggle("Auto-resync disconnected trackpads", isOn: Binding(
-                            get: { storedAutoResyncMissingTrackpads },
-                            set: { newValue in
-                                storedAutoResyncMissingTrackpads = newValue
-                                viewModel.setAutoResyncEnabled(newValue)
+                        HStack {
+                            Toggle("Auto-resync disconnected trackpads", isOn: Binding(
+                                get: { storedAutoResyncMissingTrackpads },
+                                set: { newValue in
+                                    storedAutoResyncMissingTrackpads = newValue
+                                    viewModel.setAutoResyncEnabled(newValue)
+                                }
+                            ))
+                            .toggleStyle(SwitchToggleStyle())
+                            .help("Polls every 8 seconds to detect disconnected trackpads.")
+
+                            Spacer()
+
+                            Button(action: {
+                                viewModel.loadDevices(preserveSelection: true)
+                            }) {
+                                Image(systemName: "arrow.clockwise")
+                                    .imageScale(.medium)
                             }
-                        ))
-                        .toggleStyle(SwitchToggleStyle())
-                        .help("Polls every 8 seconds to detect disconnected trackpads.")
+                            .buttonStyle(.bordered)
+                            .help("Refresh trackpad list")
+                        }
                     }
                     .padding(12)
                     .background(
