@@ -58,6 +58,7 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
     @AppStorage(GlassToKeyDefaultsKeys.forceClickThreshold) private var forceClickThresholdSetting: Double = GlassToKeySettings.forceClickThreshold
     @AppStorage(GlassToKeyDefaultsKeys.forceClickHoldDuration) private var forceClickHoldDurationMs: Double = GlassToKeySettings.forceClickHoldDurationMs
+    @AppStorage(GlassToKeyDefaultsKeys.forceClickCap) private var forceClickCapSetting: Double = GlassToKeySettings.forceClickCap
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -72,6 +73,7 @@ struct ContentView: View {
     private static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...250.0
     private static let forceClickThresholdRange: ClosedRange<Double> = 50.0...150.0
     private static let forceClickHoldDurationRange: ClosedRange<Double> = 0.0...250.0
+    private static let forceClickCapRange: ClosedRange<Double> = 50.0...150.0
     private static let keyCornerRadius: CGFloat = 6.0
     private static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -134,6 +136,15 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 0
         formatter.minimum = NSNumber(value: ContentView.forceClickThresholdRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.forceClickThresholdRange.upperBound)
+        return formatter
+    }()
+    private static let forceClickCapFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.minimum = NSNumber(value: ContentView.forceClickCapRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.forceClickCapRange.upperBound)
         return formatter
     }()
     private static let forceClickHoldDurationFormatter: NumberFormatter = {
@@ -650,6 +661,21 @@ struct ContentView: View {
                                 .frame(minWidth: 120)
                             }
                             GridRow {
+                                Text("Force Cap (g)")
+                                TextField(
+                                    "50",
+                                    value: $forceClickCapSetting,
+                                    formatter: Self.forceClickCapFormatter
+                                )
+                                .frame(width: 60)
+                                Slider(
+                                    value: $forceClickCapSetting,
+                                    in: Self.forceClickCapRange,
+                                    step: 5
+                                )
+                                .frame(minWidth: 120)
+                            }
+                            GridRow {
                                 Text("Force Guard (ms)")
                                 TextField(
                                     "0",
@@ -744,6 +770,9 @@ struct ContentView: View {
         }
         .onChange(of: forceClickThresholdSetting) { newValue in
             viewModel.updateForceClickThreshold(newValue)
+        }
+        .onChange(of: forceClickCapSetting) { newValue in
+            viewModel.updateForceClickCap(newValue)
         }
         .onChange(of: forceClickHoldDurationMs) { newValue in
             viewModel.updateForceClickHoldDuration(newValue / 1000.0)

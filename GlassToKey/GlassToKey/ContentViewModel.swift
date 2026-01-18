@@ -429,6 +429,12 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func updateForceClickCap(_ grams: Double) {
+        Task { [processor] in
+            await processor.updateForceClickCap(grams)
+        }
+    }
+
     func clearTouchState() {
         Task { [processor] in
             await processor.resetState()
@@ -454,6 +460,7 @@ final class ContentViewModel: ObservableObject {
             case pendingLeftRect
             case twoFingerSuppressed
             case typingDisabled
+            case forceCapExceeded
         }
 
         private struct TouchKey: Hashable {
@@ -662,6 +669,7 @@ final class ContentViewModel: ObservableObject {
         private var twoFingerTapMaxInterval: TimeInterval = 0.08
         private var forceClickThreshold: Float = 0
         private var forceClickHoldDuration: TimeInterval = 0
+        private var forceClickCap: Float = 0
         private var twoFingerTapCandidatesByDevice: [Int: TwoFingerTapCandidate] = [:]
         private let repeatInitialDelay: UInt64 = 350_000_000
         private let repeatInterval: UInt64 = 50_000_000
@@ -760,6 +768,10 @@ final class ContentViewModel: ObservableObject {
 
         func updateForceClickHoldDuration(_ seconds: TimeInterval) {
             forceClickHoldDuration = max(0, seconds)
+        }
+
+        func updateForceClickCap(_ grams: Double) {
+            forceClickCap = Float(max(0, grams))
         }
 
         func processTouchFrame(_ touchData: [OMSTouchData]) {
@@ -1158,10 +1170,24 @@ final class ContentViewModel: ObservableObject {
             pressure: Float,
             now: TimeInterval
         ) {
-            guard forceClickThreshold > 0 else { return }
+            guard forceClickThreshold > 0 || forceClickCap > 0 else { return }
+
             if var active = activeTouches[touchKey] {
                 guard !active.isContinuousKey else { return }
                 let delta = max(0, pressure - active.initialPressure)
+
+                if forceClickCap > 0, delta >= forceClickCap {
+                    logForceCapExceeded(
+                        touchKey: touchKey,
+                        binding: active.binding,
+                        pressure: pressure,
+                        delta: delta,
+                        cap: forceClickCap
+                    )
+                    disqualifyTouch(touchKey, reason: .forceCapExceeded)
+                    return
+                }
+
                 let triggered = active.registerForce(
                     pressure: pressure,
                     threshold: forceClickThreshold,
@@ -1180,9 +1206,25 @@ final class ContentViewModel: ObservableObject {
                     stopRepeat(for: touchKey)
                 }
                 activeTouches[touchKey] = active
-            } else if var pending = pendingTouches[touchKey] {
+                return
+            }
+
+            if var pending = pendingTouches[touchKey] {
                 guard !isContinuousKey(pending.binding) else { return }
                 let delta = max(0, pressure - pending.initialPressure)
+
+                if forceClickCap > 0, delta >= forceClickCap {
+                    logForceCapExceeded(
+                        touchKey: touchKey,
+                        binding: pending.binding,
+                        pressure: pressure,
+                        delta: delta,
+                        cap: forceClickCap
+                    )
+                    disqualifyTouch(touchKey, reason: .forceCapExceeded)
+                    return
+                }
+
                 let triggered = pending.registerForce(
                     pressure: pressure,
                     threshold: forceClickThreshold,
@@ -1814,6 +1856,20 @@ final class ContentViewModel: ObservableObject {
             let durationMs = holdDuration * 1000
             keyLogger.debug(
                 "force guard triggered deviceIndex=\(touchKey.deviceIndex) id=\(touchKey.id) label=\(binding.label) pressure=\(pressure) delta=\(delta) threshold=\(threshold) holdMs=\(durationMs)"
+            )
+            #endif
+        }
+
+        private func logForceCapExceeded(
+            touchKey: TouchKey,
+            binding: KeyBinding,
+            pressure: Float,
+            delta: Float,
+            cap: Float
+        ) {
+            #if DEBUG
+            keyLogger.debug(
+                "force cap exceeded deviceIndex=\(touchKey.deviceIndex) id=\(touchKey.id) label=\(binding.label) pressure=\(pressure) delta=\(delta) cap=\(cap)"
             )
             #endif
         }
