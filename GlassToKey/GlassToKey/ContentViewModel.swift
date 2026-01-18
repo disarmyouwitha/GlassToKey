@@ -107,10 +107,8 @@ final class ContentViewModel: ObservableObject {
         let timestamp: TimeInterval
     }
 
-#if DEBUG
     @Published private(set) var debugLastHitLeft: DebugHit?
     @Published private(set) var debugLastHitRight: DebugHit?
-#endif
 
     private var requestedLeftDeviceID: String?
     private var requestedRightDeviceID: String?
@@ -127,15 +125,11 @@ final class ContentViewModel: ObservableObject {
 
     init() {
         weak var weakSelf: ContentViewModel?
-#if DEBUG
         let debugBindingHandler: @Sendable (KeyBinding) -> Void = { binding in
             Task { @MainActor in
                 weakSelf?.recordDebugHit(binding)
             }
         }
-#else
-        let debugBindingHandler: @Sendable (KeyBinding) -> Void = { _ in }
-#endif
         processor = TouchProcessor(
             keyDispatcher: KeyEventDispatcher.shared,
             onTypingEnabledChanged: { isEnabled in
@@ -162,7 +156,6 @@ final class ContentViewModel: ObservableObject {
         touchSnapshotLock.withLockUnchecked { $0.right }
     }
 
-#if DEBUG
     private func recordDebugHit(_ binding: KeyBinding) {
         let hit = DebugHit(
             rect: binding.rect,
@@ -177,7 +170,6 @@ final class ContentViewModel: ObservableObject {
             debugLastHitRight = hit
         }
     }
-#endif
 
     func onAppear() {
         let snapshotLock = touchSnapshotLock

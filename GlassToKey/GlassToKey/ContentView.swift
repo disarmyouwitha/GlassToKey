@@ -34,9 +34,6 @@ struct ContentView: View {
     @State private var testText = ""
     @State private var visualsEnabled = true
     @State private var editModeEnabled = false
-#if DEBUG
-    @State private var debugOverlayEnabled = false
-#endif
     @State private var columnSettings: [ColumnLayoutSettings]
     @State private var leftLayout: ContentViewModel.Layout
     @State private var rightLayout: ContentViewModel.Layout
@@ -231,10 +228,6 @@ struct ContentView: View {
                 Spacer()
                 Toggle("Edit", isOn: $editModeEnabled)
                     .toggleStyle(SwitchToggleStyle())
-#if DEBUG
-                Toggle("Debug", isOn: $debugOverlayEnabled)
-                    .toggleStyle(SwitchToggleStyle())
-#endif
                 Toggle("Visuals", isOn: $visualsEnabled)
                     .toggleStyle(SwitchToggleStyle())
                 HStack(spacing: 6) {
@@ -262,7 +255,6 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Trackpad Deck")
                         .font(.headline)
-#if DEBUG
                     TrackpadDeckView(
                         viewModel: viewModel,
                         trackpadSize: trackpadSize,
@@ -275,34 +267,12 @@ struct ContentView: View {
                         customButtons: customButtons,
                         editModeEnabled: $editModeEnabled,
                         visualsEnabled: $visualsEnabled,
-                        debugOverlayEnabled: debugOverlayEnabled,
-                        debugLastHitLeft: viewModel.debugLastHitLeft,
-                        debugLastHitRight: viewModel.debugLastHitRight,
+                        lastHitLeft: viewModel.debugLastHitLeft,
+                        lastHitRight: viewModel.debugLastHitRight,
                         selectedButtonID: $selectedButtonID,
                         selectedColumn: $selectedColumn,
                         selectedGridKey: $selectedGridKey
                     )
-#else
-                    TrackpadDeckView(
-                        viewModel: viewModel,
-                        trackpadSize: trackpadSize,
-                        leftLayout: leftLayout,
-                        rightLayout: rightLayout,
-                        leftGridLabelInfo: leftGridLabelInfo,
-                        rightGridLabelInfo: rightGridLabelInfo,
-                        leftGridLabels: leftGridLabels,
-                        rightGridLabels: rightGridLabels,
-                        customButtons: customButtons,
-                        editModeEnabled: $editModeEnabled,
-                        visualsEnabled: $visualsEnabled,
-                        debugOverlayEnabled: false,
-                        debugLastHitLeft: nil,
-                        debugLastHitRight: nil,
-                        selectedButtonID: $selectedButtonID,
-                        selectedColumn: $selectedColumn,
-                        selectedGridKey: $selectedGridKey
-                    )
-#endif
                     TextEditor(text: $testText)
                         .font(.system(.body, design: .monospaced))
                         .frame(height: 100)
@@ -792,9 +762,8 @@ struct ContentView: View {
         let customButtons: [CustomButton]
         @Binding var editModeEnabled: Bool
         @Binding var visualsEnabled: Bool
-        let debugOverlayEnabled: Bool
-        let debugLastHitLeft: ContentViewModel.DebugHit?
-        let debugLastHitRight: ContentViewModel.DebugHit?
+        let lastHitLeft: ContentViewModel.DebugHit?
+        let lastHitRight: ContentViewModel.DebugHit?
         @Binding var selectedButtonID: UUID?
         @Binding var selectedColumn: Int?
         @Binding var selectedGridKey: SelectedGridKey?
@@ -814,8 +783,7 @@ struct ContentView: View {
                     labels: leftGridLabels,
                     customButtons: customButtons(for: .left),
                     visualsEnabled: visualsEnabled,
-                    debugOverlayEnabled: debugOverlayEnabled,
-                    debugLastHit: debugLastHitLeft,
+                    lastHit: lastHitLeft,
                     selectedButtonID: selectedButtonID
                 )
                 trackpadCanvas(
@@ -827,8 +795,7 @@ struct ContentView: View {
                     labels: rightGridLabels,
                     customButtons: customButtons(for: .right),
                     visualsEnabled: visualsEnabled,
-                    debugOverlayEnabled: debugOverlayEnabled,
-                    debugLastHit: debugLastHitRight,
+                    lastHit: lastHitRight,
                     selectedButtonID: selectedButtonID
                 )
             }
@@ -891,8 +858,7 @@ struct ContentView: View {
             labels: [[String]],
             customButtons: [CustomButton],
             visualsEnabled: Bool,
-            debugOverlayEnabled: Bool,
-            debugLastHit: ContentViewModel.DebugHit?,
+            lastHit: ContentViewModel.DebugHit?,
             selectedButtonID: UUID?
         ) -> some View {
             return VStack(alignment: .leading, spacing: 6) {
@@ -910,29 +876,22 @@ struct ContentView: View {
                                 trackpadSize: trackpadSize
                             )
                             .equatable()
-                        TrackpadSelectionLayer(
-                            keyRects: layout.keyRects,
-                            selectedColumn: editModeEnabled ? selectedColumn : nil,
-                            selectedKey: editModeEnabled ? selectedKeyForCanvas : nil
-                        )
-                        .equatable()
-                        if visualsEnabled {
-                            TrackpadTouchLayer(
-                                revision: lastTouchRevision,
+                            TrackpadSelectionLayer(
+                                keyRects: layout.keyRects,
+                                selectedColumn: editModeEnabled ? selectedColumn : nil,
+                                selectedKey: editModeEnabled ? selectedKeyForCanvas : nil
+                            )
+                            .equatable()
+                            if visualsEnabled {
+                                TrackpadTouchLayer(
+                                    revision: lastTouchRevision,
                                     touches: touches,
                                     trackpadSize: trackpadSize
                                 )
                             }
-#if DEBUG
-                        if debugOverlayEnabled {
-                            DebugOverlayLayer(
-                                keyRects: layout.keyRects,
-                                customButtons: customButtons,
-                                trackpadSize: trackpadSize,
-                                lastHit: debugLastHit
-                            )
-                        }
-#endif
+                            if let lastHit = lastHit {
+                                LastHitHighlightLayer(lastHit: lastHit)
+                            }
                         }
                     } else {
                         RoundedRectangle(cornerRadius: 6)
@@ -1204,68 +1163,38 @@ struct ContentView: View {
         }
     }
 
-#if DEBUG
-    private struct DebugOverlayLayer: View {
-        let keyRects: [[CGRect]]
-        let customButtons: [CustomButton]
-        let trackpadSize: CGSize
-        let lastHit: ContentViewModel.DebugHit?
+    private struct LastHitHighlightLayer: View {
+        let lastHit: ContentViewModel.DebugHit
 
         var body: some View {
-            Canvas { context, _ in
-                for row in keyRects.indices {
-                    for col in keyRects[row].indices {
-                        let rect = keyRects[row][col]
+            TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { _ in
+                let age = CACurrentMediaTime() - lastHit.timestamp
+                let fadeDuration: TimeInterval = 0.3
+                let normalized = max(0, fadeDuration - age) / fadeDuration
+                if normalized <= 0 {
+                    EmptyView()
+                } else {
+                    Canvas { context, _ in
+                        let cornerRadius = ContentView.keyCornerRadius
+                        let highlightColor = Color.green.opacity(normalized * 0.95)
+                        let strokePath = Path(roundedRect: lastHit.rect, cornerRadius: cornerRadius)
                         context.stroke(
-                            Path(rect),
-                            with: .color(.orange.opacity(0.85)),
-                            lineWidth: 0.6
+                            strokePath,
+                            with: .color(highlightColor),
+                            lineWidth: 2.5
                         )
-                        let label = "\(row),\(col)"
                         context.draw(
-                            Text(label)
-                                .font(.system(size: 7, weight: .semibold, design: .monospaced))
-                                .foregroundColor(.orange),
-                            at: CGPoint(x: rect.midX, y: rect.midY),
+                            Text(lastHit.label)
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(highlightColor),
+                            at: CGPoint(x: lastHit.rect.midX, y: lastHit.rect.minY - 8),
                             anchor: .center
                         )
                     }
                 }
-
-                for button in customButtons {
-                    let rect = button.rect.rect(in: trackpadSize)
-                    context.stroke(
-                        Path(rect),
-                        with: .color(.pink.opacity(0.85)),
-                        lineWidth: 1
-                    )
-                    context.draw(
-                        Text(button.action.label)
-                            .font(.system(size: 7, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.pink),
-                        at: CGPoint(x: rect.midX, y: rect.midY),
-                        anchor: .center
-                    )
-                }
-
-                if let lastHit {
-                    context.stroke(
-                        Path(lastHit.rect),
-                        with: .color(.green.opacity(0.95)),
-                        lineWidth: 2.5
-                    )
-                    context.draw(
-                        Text(lastHit.label)
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            .foregroundColor(.green),
-                        at: CGPoint(x: lastHit.rect.midX, y: lastHit.rect.minY - 8),
-                        anchor: .center
-                    )
-                }
             }
         }
     }
-#endif
 
     private struct TrackpadTouchLayer: View {
         let revision: UInt64

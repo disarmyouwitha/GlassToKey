@@ -6,7 +6,10 @@
 - take over 2finger tap from BTT
 - Refactor from the driver/api layer, any efficiency we can gain by rewrites?
 - Have Codex refactor the code for compiler efficiency and runtime efficiency. Leave no stone unturned!
+###
 - Have Codex refactor the GUI for effiency
+- Have Codex redesign the GUI for looks, keeping efficiency
+###
 - "Auto" set column x,y based on finger splay "4 finger touch"
 - Toggle for capturing clicks using CGEventTapCreate??
 - logic like phone that keeps a queue and triesto help correct out mistakes based on dictionary?
