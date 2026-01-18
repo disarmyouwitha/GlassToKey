@@ -1,4 +1,5 @@
 ## TODO
+- I been thinking.. we currently draw 2 trackpads in 2 seperate canvases and draw them seperately.. (I can tell when I put a finger on each trackpad it bounces back and forth between which one draws) It seems much smarter to have 1 canvas and draw both trackpads on it? (we could draw a rect around each one). Thoughts?
 -   1. Add “Mouse Intent Window/Distance” sliders logging (recommended). 2. Add velocity-based intent gate instead of distance-only.
 ###
 

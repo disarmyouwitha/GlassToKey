@@ -668,7 +668,7 @@ final class ContentViewModel: ObservableObject {
         private var dragCancelDistance: CGFloat = 2.5
         private var twoFingerTapMaxInterval: TimeInterval = 0.08
         private var twoFingerSuppressionDuration: TimeInterval = 0
-        private var twoFingerSuppressionExpiry: TimeInterval = 0
+        private var twoFingerSuppressionExpiryByDevice: [Int: TimeInterval] = [:]
         private var forceClickCap: Float = 0
         private var twoFingerTapCandidatesByDevice: [Int: TwoFingerTapCandidate] = [:]
         private let repeatInitialDelay: UInt64 = 350_000_000
@@ -766,7 +766,7 @@ final class ContentViewModel: ObservableObject {
             let clamped = max(0, seconds)
             twoFingerSuppressionDuration = clamped
             if clamped == 0 {
-                twoFingerSuppressionExpiry = 0
+                twoFingerSuppressionExpiryByDevice.removeAll()
             }
         }
 
@@ -855,7 +855,10 @@ final class ContentViewModel: ObservableObject {
                     activeTouchKeys: touchKeysInFrame
                 )
                 if !suppressed.isEmpty {
-                    extendTwoFingerSuppression(until: now)
+                    let devices = Set(suppressed.map { $0.deviceIndex })
+                    for deviceIndex in devices {
+                        extendTwoFingerSuppression(for: deviceIndex, until: now)
+                    }
                     for touchKey in suppressed {
                         cancelTwoFingerTapTouch(touchKey)
                     }
@@ -1179,11 +1182,11 @@ final class ContentViewModel: ObservableObject {
             return suppressed
         }
 
-        private func extendTwoFingerSuppression(until now: TimeInterval) {
+        private func extendTwoFingerSuppression(for deviceIndex: Int, until now: TimeInterval) {
             guard twoFingerSuppressionDuration > 0 else { return }
             let candidateExpiry = now + twoFingerSuppressionDuration
-            if candidateExpiry > twoFingerSuppressionExpiry {
-                twoFingerSuppressionExpiry = candidateExpiry
+            if candidateExpiry > (twoFingerSuppressionExpiryByDevice[deviceIndex] ?? 0) {
+                twoFingerSuppressionExpiryByDevice[deviceIndex] = candidateExpiry
             }
         }
 
@@ -1192,17 +1195,24 @@ final class ContentViewModel: ObservableObject {
             state: OMSState,
             now: TimeInterval
         ) -> Bool {
-            guard isSuppressionActive(at: now),
+            guard isSuppressionActive(for: touchKey.deviceIndex, at: now),
                   Self.isContactState(state),
-                  touchInitialContactPoint[touchKey] == nil,
                   !disqualifiedTouches.contains(touchKey) else {
                 return false
             }
             return true
         }
 
-        private func isSuppressionActive(at now: TimeInterval) -> Bool {
-            return twoFingerSuppressionDuration > 0 && now < twoFingerSuppressionExpiry
+        private func isSuppressionActive(for deviceIndex: Int, at now: TimeInterval) -> Bool {
+            guard twoFingerSuppressionDuration > 0,
+                  let expiry = twoFingerSuppressionExpiryByDevice[deviceIndex] else {
+                return false
+            }
+            if now >= expiry {
+                twoFingerSuppressionExpiryByDevice.removeValue(forKey: deviceIndex)
+                return false
+            }
+            return true
         }
 
         private func handleForceGuard(
