@@ -16,13 +16,13 @@ Clicking the indicator light will allow you to view the Config or Quit the progr
 
 <img src="Screenshots/GTK_config.png" alt="GlassToKey" />
 
-Clicking Visualize will draw the touches - it is toggleable for performance reasons.
+**Clicking Visualize will draw the touches - it is toggleable for performance reasons.**
 
 Clicking Edit will allow you to click any Column/Button and set the Action/Hold Action and set the positioning and size. (It's really laggy idk what to do, so it's in a toggle)
 
-<img src="Screenshots/GTK_keymap.png" alt="GlassToKey" />
+<img src="Screenshots/GTK_keymap.png" alt="GlassToKey"^ />
 
-## Typing Behavior:
+## Typing Tuning
 - Tap/Hold (ms): Time in miliseconds until a tap becomds a hold
 - Drag Cancel (px): How far you need to move before top becomes a drag
 - 2-Finger Tap (ms): Time in miliseconds of 2-finger tap detection. [0 = no detection; quickest rollovers]
@@ -45,12 +45,9 @@ This library refers the following frameworks very much. Special Thanks!
 - [KrishKrosh/OpenMultitouchSupport](https://github.com/KrishKrosh/OpenMultitouchSupport)
 
 ## Requirements
-
 - Development with Xcode 16.0+
 - swift-tools-version: 6.0
 - Compatible with macOS 13.0+
 
 ## FUTURE
-
-- Add windows support based on https://github.com/vitoplantamura/MagicTrackpad2ForWindows
-- (They should have USB drivers for USB-C support soon!@)
+- Add windows support based on https://github.com/vitoplantamura/MagicTrackpad2ForWindows (They should have USB drivers for USB-C support soon!@)
