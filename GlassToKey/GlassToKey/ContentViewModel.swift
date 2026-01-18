@@ -92,6 +92,9 @@ final class ContentViewModel: ObservableObject {
     nonisolated private let deviceSelectionLock = OSAllocatedUnfairLock<DeviceSelection>(
         uncheckedState: DeviceSelection()
     )
+    nonisolated private let snapshotRecordingLock = OSAllocatedUnfairLock<Bool>(
+        uncheckedState: true
+    )
     @Published var isListening: Bool = false
     @Published var isTypingEnabled: Bool = true
     @Published private(set) var activeLayer: Int = 0
@@ -174,15 +177,18 @@ final class ContentViewModel: ObservableObject {
     func onAppear() {
         let snapshotLock = touchSnapshotLock
         let selectionLock = deviceSelectionLock
-        task = Task.detached { [manager, processor, snapshotLock, selectionLock] in
+        let recordingLock = snapshotRecordingLock
+        task = Task.detached { [manager, processor, snapshotLock, selectionLock, recordingLock] in
             for await touchData in manager.touchDataStream {
                 let selection = selectionLock.withLockUnchecked { $0 }
                 let split = Self.splitTouches(touchData, selection: selection)
-                snapshotLock.withLockUnchecked { snapshot in
-                    snapshot.data = touchData
-                    snapshot.left = split.left
-                    snapshot.right = split.right
-                    snapshot.revision &+= 1
+                if recordingLock.withLockUnchecked(\.self) {
+                    snapshotLock.withLockUnchecked { snapshot in
+                        snapshot.data = touchData
+                        snapshot.left = split.left
+                        snapshot.right = split.right
+                        snapshot.revision &+= 1
+                    }
                 }
                 await processor.processTouchFrame(touchData)
             }
@@ -417,6 +423,12 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func updateTwoFingerSuppressionDuration(_ seconds: TimeInterval) {
+        Task { [processor] in
+            await processor.updateTwoFingerSuppressionDuration(seconds)
+        }
+    }
+
     func updateForceClickCap(_ grams: Double) {
         Task { [processor] in
             await processor.updateForceClickCap(grams)
@@ -426,6 +438,19 @@ final class ContentViewModel: ObservableObject {
     func clearTouchState() {
         Task { [processor] in
             await processor.resetState()
+        }
+    }
+
+    func clearVisualCaches() {
+        Task { [processor] in
+            await processor.clearVisualCaches()
+        }
+    }
+
+    func setTouchSnapshotRecordingEnabled(_ enabled: Bool) {
+        snapshotRecordingLock.withLockUnchecked { $0 = enabled }
+        if !enabled {
+            touchSnapshotLock.withLockUnchecked { $0 = TouchSnapshot() }
         }
     }
 
@@ -449,6 +474,18 @@ final class ContentViewModel: ObservableObject {
             case twoFingerSuppressed
             case typingDisabled
             case forceCapExceeded
+        }
+
+        private enum DispatchKind: String {
+            case tap
+            case hold
+            case continuous
+        }
+
+        private struct DispatchInfo {
+            let kind: DispatchKind
+            let durationMs: Int?
+            let maxDistance: CGFloat?
         }
 
         private struct TouchKey: Hashable {
@@ -600,6 +637,8 @@ final class ContentViewModel: ObservableObject {
         private let modifierActivationDelay: TimeInterval = 0.05
         private var dragCancelDistance: CGFloat = 2.5
         private var twoFingerTapMaxInterval: TimeInterval = 0.08
+        private var twoFingerSuppressionDuration: TimeInterval = 0
+        private var twoFingerSuppressionExpiry: TimeInterval = 0
         private var forceClickCap: Float = 0
         private var twoFingerTapCandidatesByDevice: [Int: TwoFingerTapCandidate] = [:]
         private let repeatInitialDelay: UInt64 = 350_000_000
@@ -691,6 +730,14 @@ final class ContentViewModel: ObservableObject {
 
         func updateTwoFingerTapInterval(_ seconds: TimeInterval) {
             twoFingerTapMaxInterval = max(0, seconds)
+        }
+
+        func updateTwoFingerSuppressionDuration(_ seconds: TimeInterval) {
+            let clamped = max(0, seconds)
+            twoFingerSuppressionDuration = clamped
+            if clamped == 0 {
+                twoFingerSuppressionExpiry = 0
+            }
         }
 
         func updateForceClickCap(_ grams: Double) {
@@ -791,6 +838,7 @@ final class ContentViewModel: ObservableObject {
                     activeTouchKeys: touchKeysInFrame
                 )
                 if !suppressed.isEmpty {
+                    extendTwoFingerSuppression(until: now)
                     for touchKey in suppressed {
                         cancelTwoFingerTapTouch(touchKey)
                     }
@@ -803,6 +851,14 @@ final class ContentViewModel: ObservableObject {
                     y: CGFloat(1.0 - touch.position.y) * canvasSize.height
                 )
                 let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
+                if shouldSuppressTouch(
+                    touchKey: touchKey,
+                    state: touch.state,
+                    now: now
+                ) {
+                    disqualifyTouch(touchKey, reason: .twoFingerSuppressed)
+                    continue
+                }
                 if touchInitialContactPoint[touchKey] == nil,
                    Self.isContactState(touch.state) {
                     touchInitialContactPoint[touchKey] = point
@@ -909,7 +965,13 @@ final class ContentViewModel: ObservableObject {
                            let holdBinding = active.holdBinding,
                            now - active.startTime >= holdMinDuration,
                            (!isDragDetectionEnabled || active.maxDistanceSquared <= dragCancelDistanceSquared) {
-                            triggerBinding(holdBinding, touchKey: touchKey)
+                            let dispatchInfo = makeDispatchInfo(
+                                kind: .hold,
+                                startTime: active.startTime,
+                                maxDistanceSquared: active.maxDistanceSquared,
+                                now: now
+                            )
+                            triggerBinding(holdBinding, touchKey: touchKey, dispatchInfo: dispatchInfo)
                             active.didHold = true
                             activeTouches[touchKey] = active
                         }
@@ -1021,7 +1083,13 @@ final class ContentViewModel: ObservableObject {
                                   now - active.startTime <= tapMaxDuration,
                                   (!isDragDetectionEnabled
                                    || releaseDistanceSquared <= dragCancelDistanceSquared) {
-                            triggerBinding(active.binding, touchKey: touchKey)
+                            let dispatchInfo = makeDispatchInfo(
+                                kind: .tap,
+                                startTime: active.startTime,
+                                maxDistanceSquared: active.maxDistanceSquared,
+                                now: now
+                            )
+                            triggerBinding(active.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
                         }
                         endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
                         if guardTriggered {
@@ -1088,6 +1156,32 @@ final class ContentViewModel: ObservableObject {
             return suppressed
         }
 
+        private func extendTwoFingerSuppression(until now: TimeInterval) {
+            guard twoFingerSuppressionDuration > 0 else { return }
+            let candidateExpiry = now + twoFingerSuppressionDuration
+            if candidateExpiry > twoFingerSuppressionExpiry {
+                twoFingerSuppressionExpiry = candidateExpiry
+            }
+        }
+
+        private func shouldSuppressTouch(
+            touchKey: TouchKey,
+            state: OMSState,
+            now: TimeInterval
+        ) -> Bool {
+            guard isSuppressionActive(at: now),
+                  Self.isContactState(state),
+                  touchInitialContactPoint[touchKey] == nil,
+                  !disqualifiedTouches.contains(touchKey) else {
+                return false
+            }
+            return true
+        }
+
+        private func isSuppressionActive(at now: TimeInterval) -> Bool {
+            return twoFingerSuppressionDuration > 0 && now < twoFingerSuppressionExpiry
+        }
+
         private func handleForceGuard(
             touchKey: TouchKey,
             pressure: Float,
@@ -1095,7 +1189,7 @@ final class ContentViewModel: ObservableObject {
         ) {
             guard forceClickCap > 0 else { return }
 
-            if let active = activeTouches[touchKey], !active.isContinuousKey {
+            if let active = activeTouches[touchKey] {
                 let delta = max(0, pressure - active.initialPressure)
                 if delta >= forceClickCap {
                     disqualifyTouch(touchKey, reason: .forceCapExceeded)
@@ -1103,7 +1197,7 @@ final class ContentViewModel: ObservableObject {
                 return
             }
 
-            if let pending = pendingTouches[touchKey], !isContinuousKey(pending.binding) {
+            if let pending = pendingTouches[touchKey] {
                 let delta = max(0, pressure - pending.initialPressure)
                 if delta >= forceClickCap {
                     disqualifyTouch(touchKey, reason: .forceCapExceeded)
@@ -1395,8 +1489,7 @@ final class ContentViewModel: ObservableObject {
 
         private func isContinuousKey(_ binding: KeyBinding) -> Bool {
             guard case let .key(code, _) = binding.action else { return false }
-            return code == CGKeyCode(kVK_Space)
-                || code == CGKeyCode(kVK_Delete)
+            return code == CGKeyCode(kVK_Delete)
                 || code == CGKeyCode(kVK_LeftArrow)
                 || code == CGKeyCode(kVK_RightArrow)
                 || code == CGKeyCode(kVK_UpArrow)
@@ -1436,12 +1529,19 @@ final class ContentViewModel: ObservableObject {
                   !pending.forceGuardTriggered else {
                 return
             }
-            sendKey(binding: pending.binding)
+            let dispatchInfo = makeDispatchInfo(
+                kind: .tap,
+                startTime: pending.startTime,
+                maxDistanceSquared: pending.maxDistanceSquared,
+                now: now
+            )
+            sendKey(binding: pending.binding, dispatchInfo: dispatchInfo)
         }
 
         private func triggerBinding(
             _ binding: KeyBinding,
-            touchKey: TouchKey?
+            touchKey: TouchKey?,
+            dispatchInfo: DispatchInfo? = nil
         ) {
             switch binding.action {
             case let .layerMomentary(layer):
@@ -1458,7 +1558,14 @@ final class ContentViewModel: ObservableObject {
 #if DEBUG
                 onDebugBindingDetected(binding)
 #endif
-                logKeyDispatch(label: binding.label, code: code, flags: flags)
+                logKeyDispatch(
+                    label: binding.label,
+                    code: code,
+                    flags: flags,
+                    kind: dispatchInfo?.kind ?? .continuous,
+                    durationMs: dispatchInfo?.durationMs,
+                    maxDistance: dispatchInfo?.maxDistance
+                )
                 sendKey(code: code, flags: flags)
             }
         }
@@ -1485,12 +1592,19 @@ final class ContentViewModel: ObservableObject {
             return modifierFlags
         }
 
-        private func sendKey(binding: KeyBinding) {
+        private func sendKey(binding: KeyBinding, dispatchInfo: DispatchInfo? = nil) {
             guard case let .key(code, flags) = binding.action else { return }
 #if DEBUG
             onDebugBindingDetected(binding)
 #endif
-            logKeyDispatch(label: binding.label, code: code, flags: flags)
+            logKeyDispatch(
+                label: binding.label,
+                code: code,
+                flags: flags,
+                kind: dispatchInfo?.kind ?? .continuous,
+                durationMs: dispatchInfo?.durationMs,
+                maxDistance: dispatchInfo?.maxDistance
+            )
             sendKey(code: code, flags: flags)
         }
 
@@ -1714,19 +1828,51 @@ final class ContentViewModel: ObservableObject {
             label: String,
             code: CGKeyCode,
             flags: CGEventFlags,
-            keyDown: Bool? = nil
+            keyDown: Bool? = nil,
+            kind: DispatchKind = .continuous,
+            durationMs: Int? = nil,
+            maxDistance: CGFloat? = nil
         ) {
             #if DEBUG
+            let shouldLogMetrics = (kind == .tap || kind == .hold)
+                && durationMs != nil
+                && maxDistance != nil
             if let keyDown {
-                keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue) keyDown=\(keyDown)")
+                if shouldLogMetrics, let durationMs, let maxDistance {
+                    keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue) keyDown=\(keyDown) kind=\(kind.rawValue) durationMs=\(durationMs) maxDistance=\(maxDistance)")
+                } else {
+                    keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue) keyDown=\(keyDown) kind=\(kind.rawValue)")
+                }
             } else {
-                keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue)")
+                if shouldLogMetrics, let durationMs, let maxDistance {
+                    keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue) kind=\(kind.rawValue) durationMs=\(durationMs) maxDistance=\(maxDistance)")
+                } else {
+                    keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue) kind=\(kind.rawValue)")
+                }
             }
             #endif
         }
 
+        private func makeDispatchInfo(
+            kind: DispatchKind,
+            startTime: TimeInterval,
+            maxDistanceSquared: CGFloat,
+            now: TimeInterval
+        ) -> DispatchInfo {
+            let durationMs = Int((now - startTime) * 1000.0)
+            let maxDistance = sqrt(maxDistanceSquared)
+            return DispatchInfo(kind: kind, durationMs: durationMs, maxDistance: maxDistance)
+        }
+
         private func invalidateBindingsCache() {
             bindingsGeneration &+= 1
+        }
+
+        func clearVisualCaches() {
+            bindingsCache.removeAll()
+            bindingsCacheLayer = -1
+            bindingsGeneration &+= 1
+            bindingsGenerationBySide.removeAll()
         }
 
         private func bindings(

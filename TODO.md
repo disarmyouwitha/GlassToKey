@@ -1,17 +1,36 @@
 ## TODO
-- Can we flush memory after Config GUI is closed? It stays at like 50mb after guy like 10mb before
-- Is there **ANY** way to refactor edit mode so it isn't laggy garbage? Is it possible to enable move & drag? It's specifically when a button or column is selected which cant be the problem because the green hit detection rect is so quick!
+- Is it possible to remove X,Y positioning enable move & drag? Is it possible to remove Width/Height and enable drag to resize? (Disable drawing touches with a toggle initially?)
+-   1. Add “Mouse Intent Window/Distance” sliders logging (recommended). 2. Add velocity-based intent gate instead of distance-only.
 ###
-- Is the key matrix the most efficient? lets look deeper! How about KeyDispatch? And is key hit detection as clean as it could be?
-- anayze custom button code vs key matrix detection, is it less efficient? If so can we fix?
-- refactor 2 finger click?
-- take over 2finger tap from BTT
+
+About mouse vs keyboard intent
+
+  - A better signal than just drag-cancel is usually a “mouse intent window”: if movement exceeds X within the first Y ms, disqualify as mouse; otherwise allow keyboard. This catches quick cursor nudges without killing taps/holds. We can add two sliders: Mouse Intent Window (ms) and Mouse Intent Distance (mm).
+  - Another option: “hold-to-type window”: require movement to stay under a tiny threshold for the first N ms before classifying as keyboard, but still allow later wiggle. This reduces accidental mouse taps.
+  - You can also incorporate velocity (distance / time) rather than raw distance; fast motion early is a strong mouse signal even if distance is small.
+
+  If you want, I can wire those thresholds as live sliders + logs next.
+
+
+  Next steps
+
+  1. Add “Mouse Intent Window/Distance” sliders + logging (recommended).
+  2. Add velocity-based intent gate instead of distance-only.
+
+
+Please wire up those controls for me to play with! 3. add hold-to-type window slider too! If it is 
+conflicting set it to 0 so I can at least try it. Build to make sure it all works!
+###
+- Is the key matrix the most efficient? lets look deeper! How about KeyDispatch? And is key hit detection as clean as $it could be?
+- analyze custom button code vs key matrix detection, is it less efficient? If so can we fix?
+- take over 2finger tap from BTT?
 - Refactor from the driver/api layer, any efficiency we can gain by rewrites?
 - Have Codex refactor the code for compiler efficiency and runtime efficiency. Leave no stone unturned!
 ###
 - Have Codex refactor the GUI for effiency
 - Have Codex redesign the GUI for looks, keeping efficiency
 ###
+- Can we stop using % in the GUI for x, y, width,height and use like PX or something that is based on its logical position and size?
 - "Auto" set column x,y based on finger splay "4 finger touch"
 - Toggle for capturing clicks using CGEventTapCreate??
 - logic like phone that keeps a queue and triesto help correct out mistakes based on dictionary?

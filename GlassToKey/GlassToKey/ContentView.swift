@@ -7,6 +7,7 @@
 
 import Combine
 import OpenMultitouchSupport
+import QuartzCore
 import SwiftUI
 
 struct ContentView: View {
@@ -30,6 +31,20 @@ struct ContentView: View {
         let hold: String?
     }
 
+    private struct ColumnInspectorSelection: Equatable {
+        let index: Int
+        var settings: ColumnLayoutSettings
+    }
+
+    private struct ButtonInspectorSelection: Equatable {
+        var button: CustomButton
+    }
+
+    private struct KeyInspectorSelection: Equatable {
+        let key: SelectedGridKey
+        var mapping: KeyMapping
+    }
+
     @StateObject private var viewModel: ContentViewModel
     @State private var testText = ""
     @State private var visualsEnabled = true
@@ -41,6 +56,9 @@ struct ContentView: View {
     @State private var selectedButtonID: UUID?
     @State private var selectedColumn: Int?
     @State private var selectedGridKey: SelectedGridKey?
+    @State private var columnInspectorSelection: ColumnInspectorSelection?
+    @State private var buttonInspectorSelection: ButtonInspectorSelection?
+    @State private var keyInspectorSelection: KeyInspectorSelection?
     @State private var keyMappingsByLayer: LayeredKeyMappings = [:]
     @State private var layoutOption: TrackpadLayoutPreset = .sixByThree
     @State private var leftGridLabelInfo: [[GridLabel]] = []
@@ -55,6 +73,7 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.autoResyncMissingTrackpads) private var storedAutoResyncMissingTrackpads = false
     @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = GlassToKeySettings.tapHoldDurationMs
     @AppStorage(GlassToKeyDefaultsKeys.twoFingerTapInterval) private var twoFingerTapIntervalMs: Double = GlassToKeySettings.twoFingerTapIntervalMs
+    @AppStorage(GlassToKeyDefaultsKeys.twoFingerSuppressionDuration) private var twoFingerSuppressionDurationMs: Double = GlassToKeySettings.twoFingerSuppressionMs
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
     @AppStorage(GlassToKeyDefaultsKeys.forceClickCap) private var forceClickCapSetting: Double = GlassToKeySettings.forceClickCap
     static let trackpadWidthMM: CGFloat = 160.0
@@ -63,15 +82,16 @@ struct ContentView: View {
     static let baseKeyWidthMM: CGFloat = 18.0
     static let baseKeyHeightMM: CGFloat = 17.0
     static let minCustomButtonSize = CGSize(width: 0.05, height: 0.05)
-    private static let columnScaleRange: ClosedRange<Double> = ColumnLayoutDefaults.scaleRange
-    private static let columnOffsetPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.offsetPercentRange
-    static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
-    private static let dragCancelDistanceRange: ClosedRange<Double> = 1.0...30.0
-    private static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
-    private static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...250.0
-    private static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
+    fileprivate static let columnScaleRange: ClosedRange<Double> = ColumnLayoutDefaults.scaleRange
+    fileprivate static let columnOffsetPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.offsetPercentRange
+    fileprivate static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
+    fileprivate static let dragCancelDistanceRange: ClosedRange<Double> = 1.0...30.0
+    fileprivate static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
+    fileprivate static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...20.0
+    fileprivate static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
+    fileprivate static let twoFingerSuppressionRange: ClosedRange<Double> = 0.0...100.0
     private static let keyCornerRadius: CGFloat = 6.0
-    private static let columnScaleFormatter: NumberFormatter = {
+    fileprivate static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.minimumFractionDigits = 0
@@ -80,7 +100,7 @@ struct ContentView: View {
         formatter.maximum = NSNumber(value: ContentView.columnScaleRange.upperBound)
         return formatter
     }()
-    private static let columnOffsetFormatter: NumberFormatter = {
+    fileprivate static let columnOffsetFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.minimumFractionDigits = 0
@@ -89,7 +109,7 @@ struct ContentView: View {
         formatter.maximum = NSNumber(value: ContentView.columnOffsetPercentRange.upperBound)
         return formatter
     }()
-    private static let rowSpacingFormatter: NumberFormatter = {
+    fileprivate static let rowSpacingFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.minimumFractionDigits = 0
@@ -98,7 +118,7 @@ struct ContentView: View {
         formatter.maximum = NSNumber(value: ContentView.rowSpacingPercentRange.upperBound)
         return formatter
     }()
-    private static let tapHoldDurationFormatter: NumberFormatter = {
+    fileprivate static let tapHoldDurationFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.minimumFractionDigits = 0
@@ -107,7 +127,7 @@ struct ContentView: View {
         formatter.maximum = NSNumber(value: ContentView.tapHoldDurationRange.upperBound)
         return formatter
     }()
-    private static let twoFingerTapIntervalFormatter: NumberFormatter = {
+    fileprivate static let twoFingerTapIntervalFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.minimumFractionDigits = 0
@@ -116,7 +136,16 @@ struct ContentView: View {
         formatter.maximum = NSNumber(value: ContentView.twoFingerTapIntervalRange.upperBound)
         return formatter
     }()
-    private static let dragCancelDistanceFormatter: NumberFormatter = {
+    fileprivate static let twoFingerSuppressionFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.minimum = NSNumber(value: ContentView.twoFingerSuppressionRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.twoFingerSuppressionRange.upperBound)
+        return formatter
+    }()
+    fileprivate static let dragCancelDistanceFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.minimumFractionDigits = 1
@@ -125,7 +154,7 @@ struct ContentView: View {
         formatter.maximum = NSNumber(value: ContentView.dragCancelDistanceRange.upperBound)
         return formatter
     }()
-    private static let forceClickCapFormatter: NumberFormatter = {
+    fileprivate static let forceClickCapFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.minimumFractionDigits = 0
@@ -204,7 +233,200 @@ struct ContentView: View {
     }
 
     var body: some View {
+        mainLayout
+        .padding()
+        .background(
+            RadialGradient(
+                colors: [
+                    Color.accentColor.opacity(0.08),
+                    Color.clear
+                ],
+                center: .topLeading,
+                startRadius: 40,
+                endRadius: 420
+            )
+        )
+        .frame(minWidth: trackpadSize.width * 2 + 520, minHeight: trackpadSize.height + 240)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .onAppear {
+            applySavedSettings()
+        }
+        .onDisappear {
+            persistConfig()
+        }
+        .onChange(of: visualsEnabled) { enabled in
+            viewModel.setTouchSnapshotRecordingEnabled(enabled)
+            if !enabled {
+                viewModel.clearVisualCaches()
+                editModeEnabled = false
+                selectedButtonID = nil
+                selectedColumn = nil
+                selectedGridKey = nil
+            }
+        }
+        .onChange(of: editModeEnabled) { enabled in
+            if enabled {
+                visualsEnabled = true
+            } else {
+                selectedButtonID = nil
+                selectedColumn = nil
+                selectedGridKey = nil
+            }
+            onEditModeChange?(enabled)
+        }
+        .onAppear {
+            viewModel.setAutoResyncEnabled(storedAutoResyncMissingTrackpads)
+        }
+        .onChange(of: columnSettings) { newValue in
+            applyColumnSettings(newValue)
+            refreshColumnInspectorSelection()
+        }
+        .onChange(of: customButtons) { newValue in
+            viewModel.updateCustomButtons(newValue)
+            refreshButtonInspectorSelection()
+        }
+        .onChange(of: viewModel.activeLayer) { _ in
+            selectedButtonID = nil
+            selectedColumn = nil
+            selectedGridKey = nil
+            updateGridLabelInfo()
+        }
+        .onChange(of: keyMappingsByLayer) { newValue in
+            viewModel.updateKeyMappings(newValue)
+            updateGridLabelInfo()
+            refreshKeyInspectorSelection()
+        }
+        .onChange(of: selectedButtonID) { _ in
+            refreshButtonInspectorSelection()
+        }
+        .onChange(of: selectedColumn) { _ in
+            refreshColumnInspectorSelection()
+        }
+        .onChange(of: selectedGridKey) { _ in
+            refreshKeyInspectorSelection()
+        }
+        .onChange(of: tapHoldDurationMs) { newValue in
+            viewModel.updateHoldThreshold(newValue / 1000.0)
+        }
+        .onChange(of: twoFingerTapIntervalMs) { newValue in
+            viewModel.updateTwoFingerTapInterval(newValue / 1000.0)
+        }
+        .onChange(of: twoFingerSuppressionDurationMs) { newValue in
+            viewModel.updateTwoFingerSuppressionDuration(newValue / 1000.0)
+        }
+        .onChange(of: dragCancelDistanceSetting) { newValue in
+            viewModel.updateDragCancelDistance(CGFloat(newValue))
+        }
+        .onChange(of: forceClickCapSetting) { newValue in
+            viewModel.updateForceClickCap(newValue)
+        }
+    }
+
+    @ViewBuilder
+    private var mainLayout: some View {
         VStack(spacing: 16) {
+            headerView
+            contentRow
+        }
+    }
+
+    private var headerView: some View {
+        HeaderControlsView(
+            editModeEnabled: $editModeEnabled,
+            visualsEnabled: $visualsEnabled,
+            layerToggleBinding: layerToggleBinding,
+            isListening: viewModel.isListening,
+            onStart: {
+                viewModel.start()
+            },
+            onStop: {
+                viewModel.stop()
+                visualsEnabled = false
+            }
+        )
+    }
+
+    private var contentRow: some View {
+        HStack(alignment: .top, spacing: 18) {
+            trackpadSectionView
+            rightSidebarView
+        }
+    }
+
+    private var trackpadSectionView: some View {
+        TrackpadSectionView(
+            viewModel: viewModel,
+            trackpadSize: trackpadSize,
+            leftLayout: leftLayout,
+            rightLayout: rightLayout,
+            leftGridLabelInfo: leftGridLabelInfo,
+            rightGridLabelInfo: rightGridLabelInfo,
+            leftGridLabels: leftGridLabels,
+            rightGridLabels: rightGridLabels,
+            customButtons: customButtons,
+            editModeEnabled: $editModeEnabled,
+            visualsEnabled: $visualsEnabled,
+            lastHitLeft: viewModel.debugLastHitLeft,
+            lastHitRight: viewModel.debugLastHitRight,
+            selectedButtonID: $selectedButtonID,
+            selectedColumn: $selectedColumn,
+            selectedGridKey: $selectedGridKey,
+            testText: $testText
+        )
+    }
+
+    private var rightSidebarView: some View {
+        RightSidebarView(
+            viewModel: viewModel,
+            autoResyncEnabled: $storedAutoResyncMissingTrackpads,
+            layoutSelection: layoutSelectionBinding,
+            layoutOption: layoutOption,
+            columnSelection: columnInspectorSelection,
+            buttonSelection: buttonInspectorSelection,
+            keySelection: keyInspectorSelection,
+            editModeEnabled: editModeEnabled,
+            tapHoldDurationMs: $tapHoldDurationMs,
+            dragCancelDistanceSetting: $dragCancelDistanceSetting,
+            twoFingerTapIntervalMs: $twoFingerTapIntervalMs,
+            twoFingerSuppressionDurationMs: $twoFingerSuppressionDurationMs,
+            forceClickCapSetting: $forceClickCapSetting,
+            onRefreshDevices: {
+                viewModel.loadDevices(preserveSelection: true)
+            },
+            onAutoResyncChange: { newValue in
+                storedAutoResyncMissingTrackpads = newValue
+                viewModel.setAutoResyncEnabled(newValue)
+            },
+            onAddCustomButton: { side in
+                addCustomButton(side: side)
+            },
+            onRemoveCustomButton: { id in
+                removeCustomButton(id: id)
+            },
+            onClearTouchState: {
+                viewModel.clearTouchState()
+            },
+            onUpdateColumn: { index, update in
+                updateColumnSettingAndSelection(index: index, update: update)
+            },
+            onUpdateButton: { id, update in
+                updateCustomButtonAndSelection(id: id, update: update)
+            },
+            onUpdateKeyMapping: { key, update in
+                updateKeyMappingAndSelection(key: key, update: update)
+            }
+        )
+    }
+
+    private struct HeaderControlsView: View {
+        @Binding var editModeEnabled: Bool
+        @Binding var visualsEnabled: Bool
+        let layerToggleBinding: Binding<Bool>
+        let isListening: Bool
+        let onStart: () -> Void
+        let onStop: () -> Void
+
+        var body: some View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("GlassToKey Studio")
@@ -226,500 +448,702 @@ struct ContentView: View {
                         .labelsHidden()
                     Text("Layer 1")
                 }
-                if viewModel.isListening {
+                if isListening {
                     Button("Stop") {
-                        viewModel.stop()
-                        visualsEnabled = false
+                        onStop()
                     }
                     .buttonStyle(.borderedProminent)
                 } else {
                     Button("Start") {
-                        viewModel.start()
+                        onStart()
                     }
                     .buttonStyle(.borderedProminent)
                 }
             }
-
-            HStack(alignment: .top, spacing: 18) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Trackpad Deck")
-                        .font(.headline)
-                    TrackpadDeckView(
-                        viewModel: viewModel,
-                        trackpadSize: trackpadSize,
-                        leftLayout: leftLayout,
-                        rightLayout: rightLayout,
-                        leftGridLabelInfo: leftGridLabelInfo,
-                        rightGridLabelInfo: rightGridLabelInfo,
-                        leftGridLabels: leftGridLabels,
-                        rightGridLabels: rightGridLabels,
-                        customButtons: customButtons,
-                        editModeEnabled: $editModeEnabled,
-                        visualsEnabled: $visualsEnabled,
-                        lastHitLeft: viewModel.debugLastHitLeft,
-                        lastHitRight: viewModel.debugLastHitRight,
-                        selectedButtonID: $selectedButtonID,
-                        selectedColumn: $selectedColumn,
-                        selectedGridKey: $selectedGridKey
-                    )
-                    TextEditor(text: $testText)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(height: 100)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
-                        )
-                }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.primary.opacity(0.05))
-                )
-
-                VStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Devices")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        if viewModel.availableDevices.isEmpty {
-                            Text("No trackpads detected.")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Picker("Left Trackpad", selection: Binding(
-                                get: { viewModel.leftDevice },
-                                set: { device in
-                                    viewModel.selectLeftDevice(device)
-                                }
-                            )) {
-                                Text("None")
-                                    .tag(nil as OMSDeviceInfo?)
-                                ForEach(viewModel.availableDevices, id: \.self) { device in
-                                    Text("\(device.deviceName) (ID: \(device.deviceID))")
-                                        .tag(device as OMSDeviceInfo?)
-                                }
-                            }
-                            .pickerStyle(MenuPickerStyle())
-
-                            Picker("Right Trackpad", selection: Binding(
-                                get: { viewModel.rightDevice },
-                                set: { device in
-                                    viewModel.selectRightDevice(device)
-                                }
-                            )) {
-                                Text("None")
-                                    .tag(nil as OMSDeviceInfo?)
-                                ForEach(viewModel.availableDevices, id: \.self) { device in
-                                    Text("\(device.deviceName) (ID: \(device.deviceID))")
-                                        .tag(device as OMSDeviceInfo?)
-                                }
-                            }
-                            .pickerStyle(MenuPickerStyle())
-                        }
-                        HStack {
-                            Toggle("Auto-resync disconnected trackpads", isOn: Binding(
-                                get: { storedAutoResyncMissingTrackpads },
-                                set: { newValue in
-                                    storedAutoResyncMissingTrackpads = newValue
-                                    viewModel.setAutoResyncEnabled(newValue)
-                                }
-                            ))
-                            .toggleStyle(SwitchToggleStyle())
-                            .help("Polls every 8 seconds to detect disconnected trackpads.")
-
-                            Spacer()
-
-                            Button(action: {
-                                viewModel.loadDevices(preserveSelection: true)
-                            }) {
-                                Image(systemName: "arrow.clockwise")
-                                    .imageScale(.medium)
-                            }
-                            .buttonStyle(.bordered)
-                            .help("Refresh trackpad list")
-                        }
-                    }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.primary.opacity(0.05))
-                    )
-
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Column Tuning")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                            HStack {
-                                Text("Layout")
-                                Spacer()
-                                Picker("", selection: layoutSelectionBinding) {
-                                    ForEach(TrackpadLayoutPreset.allCases) { preset in
-                                        Text(preset.rawValue).tag(preset)
-                                    }
-                                }
-                                .pickerStyle(MenuPickerStyle())
-                            }
-                            if layoutOption.hasGrid {
-                                if let selectedColumn,
-                                   columnSettings.indices.contains(selectedColumn) {
-                                    Text("Selected column \(selectedColumn + 1)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    VStack(alignment: .leading, spacing: 14) {
-                                        ColumnTuningRow(
-                                            title: "Scale",
-                                            value: columnScaleBinding(for: selectedColumn),
-                                            formatter: Self.columnScaleFormatter,
-                                            range: Self.columnScaleRange,
-                                            sliderStep: 0.05,
-                                            showSlider: false
-                                        )
-                                        ColumnTuningRow(
-                                            title: "X (%)",
-                                            value: columnOffsetBinding(
-                                                for: selectedColumn,
-                                                axis: .x
-                                            ),
-                                            formatter: Self.columnOffsetFormatter,
-                                            range: Self.columnOffsetPercentRange,
-                                            sliderStep: 1.0,
-                                            buttonStep: 0.5,
-                                            showSlider: false
-                                        )
-                                        ColumnTuningRow(
-                                            title: "Y (%)",
-                                            value: columnOffsetBinding(
-                                                for: selectedColumn,
-                                                axis: .y
-                                            ),
-                                            formatter: Self.columnOffsetFormatter,
-                                            range: Self.columnOffsetPercentRange,
-                                            sliderStep: 1.0,
-                                            buttonStep: 0.5,
-                                            showSlider: false
-                                        )
-                                        ColumnTuningRow(
-                                            title: "Pad",
-                                            value: columnRowSpacingBinding(for: selectedColumn),
-                                            formatter: Self.rowSpacingFormatter,
-                                            range: Self.rowSpacingPercentRange,
-                                            sliderStep: 1.0,
-                                            buttonStep: 0.5,
-                                            showSlider: false
-                                        )
-                                    }
-                                } else {
-                                    Text("Select a column on the trackpad to edit.")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            } else {
-                                Text("Layout has no grid. Pick one of the presets to show keys.")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.primary.opacity(0.05))
-                        )
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Button Tuning")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                            HStack(spacing: 8) {
-                                Button("Add Left") {
-                                    addCustomButton(side: .left)
-                                }
-                                Spacer()
-                                Button("Add Right") {
-                                    addCustomButton(side: .right)
-                                }
-                            }
-                            if let selectedIndex = customButtons.firstIndex(where: { $0.id == selectedButtonID }) {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Picker("Action", selection: $customButtons[selectedIndex].action) {
-                                        Text(KeyActionCatalog.noneLabel)
-                                            .tag(KeyActionCatalog.noneAction)
-                                        ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
-                                            pickerLabel(for: action).tag(action)
-                                        }
-                                    }
-                                    .pickerStyle(MenuPickerStyle())
-                                    Picker("Hold Action", selection: customButtonHoldBinding(for: selectedIndex)) {
-                                        Text("None").tag(nil as KeyAction?)
-                                        ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
-                                            pickerLabel(for: action).tag(action as KeyAction?)
-                                        }
-                                    }
-                                    .pickerStyle(MenuPickerStyle())
-                                    VStack(alignment: .leading, spacing: 14) {
-                                        let xBinding = positionPercentBinding(
-                                            for: selectedIndex,
-                                            axis: .x
-                                        )
-                                        ColumnTuningRow(
-                                            title: "X (%)",
-                                            value: xBinding,
-                                            formatter: Self.columnOffsetFormatter,
-                                            range: positionPercentRange(
-                                                for: selectedIndex,
-                                                axis: .x
-                                            ),
-                                            sliderStep: 1.0,
-                                            buttonStep: 0.5,
-                                            showSlider: false
-                                        )
-                                        let yBinding = positionPercentBinding(
-                                            for: selectedIndex,
-                                            axis: .y
-                                        )
-                                        ColumnTuningRow(
-                                            title: "Y (%)",
-                                            value: yBinding,
-                                            formatter: Self.columnOffsetFormatter,
-                                            range: positionPercentRange(
-                                                for: selectedIndex,
-                                                axis: .y
-                                            ),
-                                            sliderStep: 1.0,
-                                            buttonStep: 0.5,
-                                            showSlider: false
-                                        )
-                                        let widthBinding = sizePercentBinding(
-                                            for: selectedIndex,
-                                            dimension: .width
-                                        )
-                                        ColumnTuningRow(
-                                            title: "Width (%)",
-                                            value: widthBinding,
-                                            formatter: Self.columnOffsetFormatter,
-                                            range: sizePercentRange(
-                                                for: selectedIndex,
-                                                dimension: .width
-                                            ),
-                                            sliderStep: 1.0,
-                                            buttonStep: 0.5,
-                                            showSlider: false
-                                        )
-                                        let heightBinding = sizePercentBinding(
-                                            for: selectedIndex,
-                                            dimension: .height
-                                        )
-                                        ColumnTuningRow(
-                                            title: "Height (%)",
-                                            value: heightBinding,
-                                            formatter: Self.columnOffsetFormatter,
-                                            range: sizePercentRange(
-                                                for: selectedIndex,
-                                                dimension: .height
-                                            ),
-                                            sliderStep: 1.0,
-                                            buttonStep: 0.5,
-                                            showSlider: false
-                                        )
-                                    }
-                                    HStack {
-                                        Text("Selected")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                        Spacer()
-                                        Button("Delete") {
-                                            removeCustomButton(id: customButtons[selectedIndex].id)
-                                        }
-                                    }
-                                }
-                            } else if let gridKey = selectedGridKey {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("Selected key: \(gridKey.label)")
-                                        .font(.subheadline)
-                                        .bold()
-                                    Picker("Action", selection: keyActionBinding(for: gridKey)) {
-                                        Text(KeyActionCatalog.noneLabel)
-                                            .tag(KeyActionCatalog.noneAction)
-                                        ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
-                                            pickerLabel(for: action).tag(action)
-                                        }
-                                    }
-                                    .pickerStyle(MenuPickerStyle())
-                                    Picker("Hold Action", selection: holdActionBinding(for: gridKey)) {
-                                        Text("None").tag(nil as KeyAction?)
-                                        ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
-                                            pickerLabel(for: action).tag(action as KeyAction?)
-                                        }
-                                    }
-                                    .pickerStyle(MenuPickerStyle())
-                                }
-                            } else {
-                                Text("Select a button or key on the trackpad to edit.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.primary.opacity(0.05))
-                        )
-                        .contentShape(Rectangle())
-                        .simultaneousGesture(
-                            TapGesture().onEnded {
-                                viewModel.clearTouchState()
-                            }
-                        )
-                    }
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Typing Tuning")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
-                            GridRow {
-                                Text("Tap/Hold (ms)")
-                                TextField(
-                                    "200",
-                                    value: $tapHoldDurationMs,
-                                    formatter: Self.tapHoldDurationFormatter
-                                )
-                                .frame(width: 60)
-                                Slider(
-                                    value: $tapHoldDurationMs,
-                                    in: Self.tapHoldDurationRange,
-                                    step: 10
-                                )
-                                .frame(minWidth: 120)
-                            }
-                            GridRow {
-                                Text("Drag Cancel")
-                                TextField(
-                                    "1",
-                                    value: $dragCancelDistanceSetting,
-                                    formatter: Self.dragCancelDistanceFormatter
-                                )
-                                .frame(width: 60)
-                                Slider(
-                                    value: $dragCancelDistanceSetting,
-                                    in: Self.dragCancelDistanceRange,
-                                    step: 1
-                                )
-                                .frame(minWidth: 120)
-                            }
-                            GridRow {
-                                Text("2-Finger Tap (ms)")
-                                TextField(
-                                    "80",
-                                    value: $twoFingerTapIntervalMs,
-                                    formatter: Self.twoFingerTapIntervalFormatter
-                                )
-                                .frame(width: 60)
-                                Slider(
-                                    value: $twoFingerTapIntervalMs,
-                                    in: Self.twoFingerTapIntervalRange,
-                                    step: 10
-                                )
-                                .frame(minWidth: 120)
-                            }
-                            GridRow {
-                                Text("Force Cap (g)")
-                                TextField(
-                                    "0",
-                                    value: $forceClickCapSetting,
-                                    formatter: Self.forceClickCapFormatter
-                                )
-                                .frame(width: 60)
-                                Slider(
-                                    value: $forceClickCapSetting,
-                                    in: Self.forceClickCapRange,
-                                    step: 5
-                                )
-                                .frame(minWidth: 120)
-                            }
-                        }
-                    }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.primary.opacity(0.05))
-                    )
-                }
-                .frame(width: 420)
-            }
-        }
-        .padding()
-        .background(
-            RadialGradient(
-                colors: [
-                    Color.accentColor.opacity(0.08),
-                    Color.clear
-                ],
-                center: .topLeading,
-                startRadius: 40,
-                endRadius: 420
-            )
-        )
-        .frame(minWidth: trackpadSize.width * 2 + 520, minHeight: trackpadSize.height + 240)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .onAppear {
-            applySavedSettings()
-        }
-        .onChange(of: visualsEnabled) { enabled in
-            if !enabled {
-                editModeEnabled = false
-                selectedButtonID = nil
-                selectedColumn = nil
-                selectedGridKey = nil
-            }
-            saveSettings()
-        }
-        .onChange(of: editModeEnabled) { enabled in
-            if enabled {
-                visualsEnabled = true
-            } else {
-                selectedButtonID = nil
-                selectedColumn = nil
-                selectedGridKey = nil
-            }
-            onEditModeChange?(enabled)
-        }
-        .onAppear {
-            viewModel.setAutoResyncEnabled(storedAutoResyncMissingTrackpads)
-        }
-        .onChange(of: columnSettings) { newValue in
-            applyColumnSettings(newValue)
-            saveSettings()
-        }
-        .onChange(of: customButtons) { newValue in
-            viewModel.updateCustomButtons(newValue)
-            saveCustomButtons(newValue)
-        }
-        .onChange(of: viewModel.activeLayer) { _ in
-            selectedButtonID = nil
-            selectedColumn = nil
-            selectedGridKey = nil
-            updateGridLabelInfo()
-        }
-        .onChange(of: keyMappingsByLayer) { newValue in
-            viewModel.updateKeyMappings(newValue)
-            saveKeyMappings(newValue)
-            updateGridLabelInfo()
-        }
-        .onChange(of: tapHoldDurationMs) { newValue in
-            viewModel.updateHoldThreshold(newValue / 1000.0)
-        }
-        .onChange(of: twoFingerTapIntervalMs) { newValue in
-            viewModel.updateTwoFingerTapInterval(newValue / 1000.0)
-        }
-        .onChange(of: dragCancelDistanceSetting) { newValue in
-            viewModel.updateDragCancelDistance(CGFloat(newValue))
-        }
-        .onChange(of: forceClickCapSetting) { newValue in
-            viewModel.updateForceClickCap(newValue)
         }
     }
+
+    private struct TrackpadSectionView: View {
+        @ObservedObject var viewModel: ContentViewModel
+        let trackpadSize: CGSize
+        let leftLayout: ContentViewModel.Layout
+        let rightLayout: ContentViewModel.Layout
+        let leftGridLabelInfo: [[GridLabel]]
+        let rightGridLabelInfo: [[GridLabel]]
+        let leftGridLabels: [[String]]
+        let rightGridLabels: [[String]]
+        let customButtons: [CustomButton]
+        @Binding var editModeEnabled: Bool
+        @Binding var visualsEnabled: Bool
+        let lastHitLeft: ContentViewModel.DebugHit?
+        let lastHitRight: ContentViewModel.DebugHit?
+        @Binding var selectedButtonID: UUID?
+        @Binding var selectedColumn: Int?
+        @Binding var selectedGridKey: SelectedGridKey?
+        @Binding var testText: String
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Trackpad Deck")
+                    .font(.headline)
+                TrackpadDeckView(
+                    viewModel: viewModel,
+                    trackpadSize: trackpadSize,
+                    leftLayout: leftLayout,
+                    rightLayout: rightLayout,
+                    leftGridLabelInfo: leftGridLabelInfo,
+                    rightGridLabelInfo: rightGridLabelInfo,
+                    leftGridLabels: leftGridLabels,
+                    rightGridLabels: rightGridLabels,
+                    customButtons: customButtons,
+                    editModeEnabled: $editModeEnabled,
+                    visualsEnabled: $visualsEnabled,
+                    lastHitLeft: lastHitLeft,
+                    lastHitRight: lastHitRight,
+                    selectedButtonID: $selectedButtonID,
+                    selectedColumn: $selectedColumn,
+                    selectedGridKey: $selectedGridKey
+                )
+                TextEditor(text: $testText)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(height: 100)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.6), lineWidth: 1)
+                    )
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.primary.opacity(0.05))
+            )
+        }
+    }
+
+    private struct RightSidebarView: View {
+        @ObservedObject var viewModel: ContentViewModel
+        @Binding var autoResyncEnabled: Bool
+        let layoutSelection: Binding<TrackpadLayoutPreset>
+        let layoutOption: TrackpadLayoutPreset
+        let columnSelection: ColumnInspectorSelection?
+        let buttonSelection: ButtonInspectorSelection?
+        let keySelection: KeyInspectorSelection?
+        let editModeEnabled: Bool
+        @Binding var tapHoldDurationMs: Double
+        @Binding var dragCancelDistanceSetting: Double
+        @Binding var twoFingerTapIntervalMs: Double
+        @Binding var twoFingerSuppressionDurationMs: Double
+        @Binding var forceClickCapSetting: Double
+        let onRefreshDevices: () -> Void
+        let onAutoResyncChange: (Bool) -> Void
+        let onAddCustomButton: (TrackpadSide) -> Void
+        let onRemoveCustomButton: (UUID) -> Void
+        let onClearTouchState: () -> Void
+        let onUpdateColumn: (Int, (inout ColumnLayoutSettings) -> Void) -> Void
+        let onUpdateButton: (UUID, (inout CustomButton) -> Void) -> Void
+        let onUpdateKeyMapping: (SelectedGridKey, (inout KeyMapping) -> Void) -> Void
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 14) {
+                DevicesSectionView(
+                    availableDevices: viewModel.availableDevices,
+                    leftDevice: viewModel.leftDevice,
+                    rightDevice: viewModel.rightDevice,
+                    autoResyncEnabled: $autoResyncEnabled,
+                    onSelectLeft: { device in
+                        viewModel.selectLeftDevice(device)
+                    },
+                    onSelectRight: { device in
+                        viewModel.selectRightDevice(device)
+                    },
+                    onAutoResyncChange: onAutoResyncChange,
+                    onRefresh: onRefreshDevices
+                )
+
+                HStack(alignment: .top, spacing: 12) {
+                    ColumnTuningSectionView(
+                        layoutSelection: layoutSelection,
+                        layoutOption: layoutOption,
+                        selection: columnSelection,
+                        onUpdateColumn: onUpdateColumn
+                    )
+                    ButtonTuningSectionView(
+                        buttonSelection: buttonSelection,
+                        keySelection: keySelection,
+                        onAddCustomButton: onAddCustomButton,
+                        onRemoveCustomButton: onRemoveCustomButton,
+                        onClearTouchState: onClearTouchState,
+                        onUpdateButton: onUpdateButton,
+                        onUpdateKeyMapping: onUpdateKeyMapping
+                    )
+                }
+
+                if !editModeEnabled {
+                    TypingTuningSectionView(
+                        tapHoldDurationMs: $tapHoldDurationMs,
+                        dragCancelDistanceSetting: $dragCancelDistanceSetting,
+                        twoFingerTapIntervalMs: $twoFingerTapIntervalMs,
+                        twoFingerSuppressionDurationMs: $twoFingerSuppressionDurationMs,
+                        forceClickCapSetting: $forceClickCapSetting
+                    )
+                }
+            }
+            .frame(width: 420)
+        }
+    }
+
+    private struct DevicesSectionView: View {
+        let availableDevices: [OMSDeviceInfo]
+        let leftDevice: OMSDeviceInfo?
+        let rightDevice: OMSDeviceInfo?
+        @Binding var autoResyncEnabled: Bool
+        let onSelectLeft: (OMSDeviceInfo?) -> Void
+        let onSelectRight: (OMSDeviceInfo?) -> Void
+        let onAutoResyncChange: (Bool) -> Void
+        let onRefresh: () -> Void
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Devices")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                if availableDevices.isEmpty {
+                    Text("No trackpads detected.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Picker("Left Trackpad", selection: Binding(
+                        get: { leftDevice },
+                        set: { device in
+                            onSelectLeft(device)
+                        }
+                    )) {
+                        Text("None")
+                            .tag(nil as OMSDeviceInfo?)
+                        ForEach(availableDevices, id: \.self) { device in
+                            Text("\(device.deviceName) (ID: \(device.deviceID))")
+                                .tag(device as OMSDeviceInfo?)
+                        }
+                    }
+                    .pickerStyle(MenuPickerStyle())
+
+                    Picker("Right Trackpad", selection: Binding(
+                        get: { rightDevice },
+                        set: { device in
+                            onSelectRight(device)
+                        }
+                    )) {
+                        Text("None")
+                            .tag(nil as OMSDeviceInfo?)
+                        ForEach(availableDevices, id: \.self) { device in
+                            Text("\(device.deviceName) (ID: \(device.deviceID))")
+                                .tag(device as OMSDeviceInfo?)
+                        }
+                    }
+                    .pickerStyle(MenuPickerStyle())
+                }
+                HStack {
+                    Toggle("Auto-resync disconnected trackpads", isOn: Binding(
+                        get: { autoResyncEnabled },
+                        set: { newValue in
+                            autoResyncEnabled = newValue
+                            onAutoResyncChange(newValue)
+                        }
+                    ))
+                    .toggleStyle(SwitchToggleStyle())
+                    .help("Polls every 8 seconds to detect disconnected trackpads.")
+
+                    Spacer()
+
+                    Button(action: {
+                        onRefresh()
+                    }) {
+                        Image(systemName: "arrow.clockwise")
+                            .imageScale(.medium)
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Refresh trackpad list")
+                }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.primary.opacity(0.05))
+            )
+        }
+    }
+
+    private struct ColumnTuningSectionView: View {
+        let layoutSelection: Binding<TrackpadLayoutPreset>
+        let layoutOption: TrackpadLayoutPreset
+        let selection: ColumnInspectorSelection?
+        let onUpdateColumn: (Int, (inout ColumnLayoutSettings) -> Void) -> Void
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Column Tuning")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("Layout")
+                    Spacer()
+                    Picker("", selection: layoutSelection) {
+                        ForEach(TrackpadLayoutPreset.allCases) { preset in
+                            Text(preset.rawValue).tag(preset)
+                        }
+                    }
+                    .pickerStyle(MenuPickerStyle())
+                }
+                if layoutOption.hasGrid {
+                    if let selection {
+                        Text("Selected column \(selection.index + 1)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 14) {
+                            ColumnTuningRow(
+                                title: "Scale",
+                                value: Binding(
+                                    get: { selection.settings.scale },
+                                    set: { newValue in
+                                        onUpdateColumn(selection.index) { setting in
+                                            setting.scale = ContentView.normalizedColumnScale(newValue)
+                                        }
+                                    }
+                                ),
+                                formatter: ContentView.columnScaleFormatter,
+                                range: ContentView.columnScaleRange,
+                                sliderStep: 0.05,
+                                showSlider: false
+                            )
+                            ColumnTuningRow(
+                                title: "X (%)",
+                                value: Binding(
+                                    get: { selection.settings.offsetXPercent },
+                                    set: { newValue in
+                                        onUpdateColumn(selection.index) { setting in
+                                            setting.offsetXPercent = ContentView.normalizedColumnOffsetPercent(newValue)
+                                        }
+                                    }
+                                ),
+                                formatter: ContentView.columnOffsetFormatter,
+                                range: ContentView.columnOffsetPercentRange,
+                                sliderStep: 1.0,
+                                buttonStep: 0.5,
+                                showSlider: false
+                            )
+                            ColumnTuningRow(
+                                title: "Y (%)",
+                                value: Binding(
+                                    get: { selection.settings.offsetYPercent },
+                                    set: { newValue in
+                                        onUpdateColumn(selection.index) { setting in
+                                            setting.offsetYPercent = ContentView.normalizedColumnOffsetPercent(newValue)
+                                        }
+                                    }
+                                ),
+                                formatter: ContentView.columnOffsetFormatter,
+                                range: ContentView.columnOffsetPercentRange,
+                                sliderStep: 1.0,
+                                buttonStep: 0.5,
+                                showSlider: false
+                            )
+                            ColumnTuningRow(
+                                title: "Pad",
+                                value: Binding(
+                                    get: { selection.settings.rowSpacingPercent },
+                                    set: { newValue in
+                                        onUpdateColumn(selection.index) { setting in
+                                            setting.rowSpacingPercent = ContentView.normalizedRowSpacingPercent(newValue)
+                                        }
+                                    }
+                                ),
+                                formatter: ContentView.rowSpacingFormatter,
+                                range: ContentView.rowSpacingPercentRange,
+                                sliderStep: 1.0,
+                                buttonStep: 0.5,
+                                showSlider: false
+                            )
+                        }
+                    } else {
+                        Text("Select a column on the trackpad to edit.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("Layout has no grid. Pick one of the presets to show keys.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.primary.opacity(0.05))
+            )
+        }
+    }
+
+    private struct ButtonTuningSectionView: View {
+        let buttonSelection: ButtonInspectorSelection?
+        let keySelection: KeyInspectorSelection?
+        let onAddCustomButton: (TrackpadSide) -> Void
+        let onRemoveCustomButton: (UUID) -> Void
+        let onClearTouchState: () -> Void
+        let onUpdateButton: (UUID, (inout CustomButton) -> Void) -> Void
+        let onUpdateKeyMapping: (SelectedGridKey, (inout KeyMapping) -> Void) -> Void
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Button Tuning")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Button("Add Left") {
+                        onAddCustomButton(.left)
+                    }
+                    Spacer()
+                    Button("Add Right") {
+                        onAddCustomButton(.right)
+                    }
+                }
+                if let selection = buttonSelection {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Picker("Action", selection: Binding(
+                            get: { selection.button.action },
+                            set: { newValue in
+                                onUpdateButton(selection.button.id) { button in
+                                    button.action = newValue
+                                }
+                            }
+                        )) {
+                            Text(KeyActionCatalog.noneLabel)
+                                .tag(KeyActionCatalog.noneAction)
+                            ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
+                                ContentView.pickerLabel(for: action).tag(action)
+                            }
+                        }
+                        .pickerStyle(MenuPickerStyle())
+                        Picker("Hold Action", selection: Binding(
+                            get: { selection.button.hold },
+                            set: { newValue in
+                                onUpdateButton(selection.button.id) { button in
+                                    button.hold = newValue
+                                }
+                            }
+                        )) {
+                            Text("None").tag(nil as KeyAction?)
+                            ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
+                                ContentView.pickerLabel(for: action).tag(action as KeyAction?)
+                            }
+                        }
+                        .pickerStyle(MenuPickerStyle())
+                        VStack(alignment: .leading, spacing: 14) {
+                            ColumnTuningRow(
+                                title: "X (%)",
+                                value: positionBinding(for: selection.button, axis: .x),
+                                formatter: ContentView.columnOffsetFormatter,
+                                range: positionRange(for: selection.button, axis: .x),
+                                sliderStep: 1.0,
+                                buttonStep: 0.5,
+                                showSlider: false
+                            )
+                            ColumnTuningRow(
+                                title: "Y (%)",
+                                value: positionBinding(for: selection.button, axis: .y),
+                                formatter: ContentView.columnOffsetFormatter,
+                                range: positionRange(for: selection.button, axis: .y),
+                                sliderStep: 1.0,
+                                buttonStep: 0.5,
+                                showSlider: false
+                            )
+                            ColumnTuningRow(
+                                title: "Width (%)",
+                                value: sizeBinding(for: selection.button, dimension: .width),
+                                formatter: ContentView.columnOffsetFormatter,
+                                range: sizeRange(for: selection.button, dimension: .width),
+                                sliderStep: 1.0,
+                                buttonStep: 0.5,
+                                showSlider: false
+                            )
+                            ColumnTuningRow(
+                                title: "Height (%)",
+                                value: sizeBinding(for: selection.button, dimension: .height),
+                                formatter: ContentView.columnOffsetFormatter,
+                                range: sizeRange(for: selection.button, dimension: .height),
+                                sliderStep: 1.0,
+                                buttonStep: 0.5,
+                                showSlider: false
+                            )
+                        }
+                        HStack {
+                            Text("Selected")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Delete") {
+                                onRemoveCustomButton(selection.button.id)
+                            }
+                        }
+                    }
+                } else if let selection = keySelection {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Selected key: \(selection.key.label)")
+                            .font(.subheadline)
+                            .bold()
+                        Picker("Action", selection: Binding(
+                            get: { selection.mapping.primary },
+                            set: { newValue in
+                                onUpdateKeyMapping(selection.key) { mapping in
+                                    mapping.primary = newValue
+                                }
+                            }
+                        )) {
+                            Text(KeyActionCatalog.noneLabel)
+                                .tag(KeyActionCatalog.noneAction)
+                            ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
+                                ContentView.pickerLabel(for: action).tag(action)
+                            }
+                        }
+                        .pickerStyle(MenuPickerStyle())
+                        Picker("Hold Action", selection: Binding(
+                            get: { selection.mapping.hold },
+                            set: { newValue in
+                                onUpdateKeyMapping(selection.key) { mapping in
+                                    mapping.hold = newValue
+                                }
+                            }
+                        )) {
+                            Text("None").tag(nil as KeyAction?)
+                            ForEach(KeyActionCatalog.holdPresets, id: \.self) { action in
+                                ContentView.pickerLabel(for: action).tag(action as KeyAction?)
+                            }
+                        }
+                        .pickerStyle(MenuPickerStyle())
+                    }
+                } else {
+                    Text("Select a button or key on the trackpad to edit.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.primary.opacity(0.05))
+            )
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    onClearTouchState()
+                }
+            )
+        }
+
+        private enum CustomButtonAxis {
+            case x
+            case y
+        }
+
+        private enum CustomButtonDimension {
+            case width
+            case height
+        }
+
+        private func positionBinding(
+            for button: CustomButton,
+            axis: CustomButtonAxis
+        ) -> Binding<Double> {
+            Binding(
+                get: {
+                    let value = axis == .x ? button.rect.x : button.rect.y
+                    return Double(value * 100.0)
+                },
+                set: { newValue in
+                    onUpdateButton(button.id) { updated in
+                        let rect = updated.rect
+                        let maxNormalized = axis == .x
+                            ? (1.0 - rect.width)
+                            : (1.0 - rect.height)
+                        let upper = max(0.0, Double(maxNormalized))
+                        let normalized = min(max(newValue / 100.0, 0.0), upper)
+                        var next = rect
+                        if axis == .x {
+                            next.x = CGFloat(normalized)
+                        } else {
+                            next.y = CGFloat(normalized)
+                        }
+                        updated.rect = next.clamped(
+                            minWidth: ContentView.minCustomButtonSize.width,
+                            minHeight: ContentView.minCustomButtonSize.height
+                        )
+                    }
+                }
+            )
+        }
+
+        private func positionRange(
+            for button: CustomButton,
+            axis: CustomButtonAxis
+        ) -> ClosedRange<Double> {
+            let rect = button.rect
+            let maxNormalized = axis == .x
+                ? (1.0 - rect.width)
+                : (1.0 - rect.height)
+            let upper = max(0.0, Double(maxNormalized)) * 100.0
+            return 0.0...upper
+        }
+
+        private func sizeBinding(
+            for button: CustomButton,
+            dimension: CustomButtonDimension
+        ) -> Binding<Double> {
+            Binding(
+                get: {
+                    let value = dimension == .width ? button.rect.width : button.rect.height
+                    return Double(value * 100.0)
+                },
+                set: { newValue in
+                    onUpdateButton(button.id) { updated in
+                        let rect = updated.rect
+                        let maxNormalized = dimension == .width
+                            ? (1.0 - rect.x)
+                            : (1.0 - rect.y)
+                        let minNormalized = dimension == .width
+                            ? ContentView.minCustomButtonSize.width
+                            : ContentView.minCustomButtonSize.height
+                        let upper = max(minNormalized, maxNormalized)
+                        let normalized = min(max(newValue / 100.0, minNormalized), upper)
+                        var next = rect
+                        if dimension == .width {
+                            next.width = CGFloat(normalized)
+                        } else {
+                            next.height = CGFloat(normalized)
+                        }
+                        updated.rect = next.clamped(
+                            minWidth: ContentView.minCustomButtonSize.width,
+                            minHeight: ContentView.minCustomButtonSize.height
+                        )
+                    }
+                }
+            )
+        }
+
+        private func sizeRange(
+            for button: CustomButton,
+            dimension: CustomButtonDimension
+        ) -> ClosedRange<Double> {
+            let rect = button.rect
+            let maxNormalized = dimension == .width
+                ? (1.0 - rect.x)
+                : (1.0 - rect.y)
+            let minNormalized = dimension == .width
+                ? ContentView.minCustomButtonSize.width
+                : ContentView.minCustomButtonSize.height
+            let upper = max(minNormalized, maxNormalized) * 100.0
+            let lower = minNormalized * 100.0
+            return lower...upper
+        }
+    }
+
+    private struct TypingTuningSectionView: View {
+        @Binding var tapHoldDurationMs: Double
+        @Binding var dragCancelDistanceSetting: Double
+        @Binding var twoFingerTapIntervalMs: Double
+        @Binding var twoFingerSuppressionDurationMs: Double
+        @Binding var forceClickCapSetting: Double
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Typing Tuning")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                    GridRow {
+                        Text("Tap/Hold (ms)")
+                        TextField(
+                            "200",
+                            value: $tapHoldDurationMs,
+                            formatter: ContentView.tapHoldDurationFormatter
+                        )
+                        .frame(width: 60)
+                        Slider(
+                            value: $tapHoldDurationMs,
+                            in: ContentView.tapHoldDurationRange,
+                            step: 10
+                        )
+                        .frame(minWidth: 120)
+                    }
+                    GridRow {
+                        Text("Drag Cancel")
+                        TextField(
+                            "1",
+                            value: $dragCancelDistanceSetting,
+                            formatter: ContentView.dragCancelDistanceFormatter
+                        )
+                        .frame(width: 60)
+                        Slider(
+                            value: $dragCancelDistanceSetting,
+                            in: ContentView.dragCancelDistanceRange,
+                            step: 1
+                        )
+                        .frame(minWidth: 120)
+                    }
+                    GridRow {
+                        Text("2-Finger Tap (ms)")
+                        TextField(
+                            "10",
+                            value: $twoFingerTapIntervalMs,
+                            formatter: ContentView.twoFingerTapIntervalFormatter
+                        )
+                        .frame(width: 60)
+                        Slider(
+                            value: $twoFingerTapIntervalMs,
+                            in: ContentView.twoFingerTapIntervalRange,
+                            step: 1
+                        )
+                        .frame(minWidth: 120)
+                    }
+                    GridRow {
+                        Text("2-Finger Suppress (ms)")
+                        TextField(
+                            "0",
+                            value: $twoFingerSuppressionDurationMs,
+                            formatter: ContentView.twoFingerSuppressionFormatter
+                        )
+                        .frame(width: 60)
+                        Slider(
+                            value: $twoFingerSuppressionDurationMs,
+                            in: ContentView.twoFingerSuppressionRange,
+                            step: 5
+                        )
+                        .frame(minWidth: 120)
+                    }
+                    GridRow {
+                        Text("Force Cap (g)")
+                        TextField(
+                            "0",
+                            value: $forceClickCapSetting,
+                            formatter: ContentView.forceClickCapFormatter
+                        )
+                        .frame(width: 60)
+                        Slider(
+                            value: $forceClickCapSetting,
+                            in: ContentView.forceClickCapRange,
+                            step: 5
+                        )
+                        .frame(minWidth: 120)
+                    }
+                }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.primary.opacity(0.05))
+            )
+        }
+    }
+
 
     private struct TrackpadDeckView: View {
         @ObservedObject var viewModel: ContentViewModel
@@ -741,6 +1165,8 @@ struct ContentView: View {
         @State private var displayLeftTouchesState = [OMSTouchData]()
         @State private var displayRightTouchesState = [OMSTouchData]()
         @State private var lastTouchRevision: UInt64 = 0
+        @State private var lastDisplayUpdateTime: TimeInterval = 0
+        @State private var lastDisplayedHadTouches = false
         private let displayRefreshInterval: TimeInterval = 1.0 / 60.0
 
         var body: some View {
@@ -779,6 +1205,7 @@ struct ContentView: View {
                 } else {
                     displayLeftTouchesState = []
                     displayRightTouchesState = []
+                    lastDisplayedHadTouches = false
                 }
             }
             .task(id: visualsEnabled) {
@@ -796,15 +1223,23 @@ struct ContentView: View {
         }
 
         private func refreshTouchSnapshot(resetRevision: Bool) {
-            let sinceRevision: UInt64 = resetRevision ? 0 : lastTouchRevision
-            if let snapshot = viewModel.snapshotTouchDataIfUpdated(since: sinceRevision) {
-                displayLeftTouchesState = snapshot.left
-                displayRightTouchesState = snapshot.right
+            let snapshot: ContentViewModel.TouchSnapshot
+            if resetRevision {
+                snapshot = viewModel.snapshotTouchData()
                 lastTouchRevision = snapshot.revision
-            } else if resetRevision {
-                let snapshot = viewModel.snapshotTouchData()
+            } else if let updated = viewModel.snapshotTouchDataIfUpdated(since: lastTouchRevision) {
+                snapshot = updated
+                lastTouchRevision = updated.revision
+            } else {
+                return
+            }
+
+            let now = CACurrentMediaTime()
+            if resetRevision || shouldUpdateDisplay(snapshot: snapshot, now: now) {
                 displayLeftTouchesState = snapshot.left
                 displayRightTouchesState = snapshot.right
+                lastDisplayUpdateTime = now
+                lastDisplayedHadTouches = !(snapshot.left.isEmpty && snapshot.right.isEmpty)
             }
         }
 
@@ -818,6 +1253,33 @@ struct ContentView: View {
 
         private func customButtons(for side: TrackpadSide) -> [CustomButton] {
             customButtons.filter { $0.side == side && $0.layer == viewModel.activeLayer }
+        }
+
+        private func shouldUpdateDisplay(
+            snapshot: ContentViewModel.TouchSnapshot,
+            now: TimeInterval
+        ) -> Bool {
+            guard editModeEnabled else { return true }
+
+            let hasTouches = !(snapshot.left.isEmpty && snapshot.right.isEmpty)
+            if hasTouches != lastDisplayedHadTouches {
+                return true
+            }
+
+            if snapshot.data.contains(where: { touch in
+                switch touch.state {
+                case .starting, .breaking, .leaving:
+                    return true
+                default:
+                    return false
+                }
+            }) {
+                return true
+            }
+
+            let clampedHz = 5.0
+            let minInterval = 1.0 / clampedHz
+            return now - lastDisplayUpdateTime >= minInterval
         }
 
         private func trackpadCanvas(
@@ -851,6 +1313,11 @@ struct ContentView: View {
                                 keyRects: layout.keyRects,
                                 selectedColumn: editModeEnabled ? selectedColumn : nil,
                                 selectedKey: editModeEnabled ? selectedKeyForCanvas : nil
+                            )
+                            .equatable()
+                            TrackpadButtonSelectionLayer(
+                                button: selectedButton(for: customButtons),
+                                trackpadSize: trackpadSize
                             )
                             .equatable()
                         if visualsEnabled {
@@ -936,42 +1403,12 @@ struct ContentView: View {
                     .frame(width: trackpadSize.width, height: trackpadSize.height)
                     .contentShape(Rectangle())
                     .simultaneousGesture(selectGesture)
-                ForEach(buttons) { button in
-                    let rect = button.rect.rect(in: trackpadSize)
-                    let isSelected = button.id == selectedButtonID.wrappedValue
-
-                    let baseButton = RoundedRectangle(cornerRadius: ContentView.keyCornerRadius)
-                        .stroke(
-                            isSelected ? Color.accentColor.opacity(0.9) : Color.clear,
-                            lineWidth: 1.5
-                        )
-                        .background(
-                            RoundedRectangle(cornerRadius: ContentView.keyCornerRadius)
-                                .fill(Color.accentColor.opacity(isSelected ? 0.08 : 0.02))
-                        )
-                        .frame(width: rect.width, height: rect.height)
-                        .offset(x: rect.minX, y: rect.minY)
-                        .contentShape(Rectangle())
-                        .allowsHitTesting(false)
-
-                    baseButton
-                    if isSelected {
-                        VStack(spacing: 2) {
-                            Text(button.action.label)
-                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                            if let holdLabel = button.hold?.label {
-                                Text(holdLabel)
-                                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                                    .foregroundStyle(.secondary.opacity(0.7))
-                            }
-                        }
-                        .frame(width: rect.width, height: rect.height)
-                        .offset(x: rect.minX, y: rect.minY)
-                        .allowsHitTesting(false)
-                    }
-                }
             }
+        }
+
+        private func selectedButton(for buttons: [CustomButton]) -> CustomButton? {
+            guard let selectedButtonID else { return nil }
+            return buttons.first { $0.id == selectedButtonID }
         }
 
         private func columnRects(
@@ -1130,6 +1567,21 @@ struct ContentView: View {
                     selectedColumn: selectedColumn,
                     selectedKey: selectedKey
                 )
+            }
+        }
+    }
+
+    private struct TrackpadButtonSelectionLayer: View, Equatable {
+        let button: CustomButton?
+        let trackpadSize: CGSize
+
+        var body: some View {
+            Canvas { context, _ in
+                guard let button else { return }
+                let rect = button.rect.rect(in: trackpadSize)
+                let path = Path(roundedRect: rect, cornerRadius: ContentView.keyCornerRadius)
+                context.fill(path, with: .color(Color.accentColor.opacity(0.08)))
+                context.stroke(path, with: .color(Color.accentColor.opacity(0.9)), lineWidth: 1.5)
             }
         }
     }
@@ -1303,18 +1755,18 @@ struct ContentView: View {
         ColumnLayoutDefaults.normalizedSettings(settings, columns: columns)
     }
 
-    private func normalizedColumnScale(_ value: Double) -> Double {
+    fileprivate static func normalizedColumnScale(_ value: Double) -> Double {
         min(max(value, Self.columnScaleRange.lowerBound), Self.columnScaleRange.upperBound)
     }
 
-    private func normalizedColumnOffsetPercent(_ value: Double) -> Double {
+    fileprivate static func normalizedColumnOffsetPercent(_ value: Double) -> Double {
         min(
             max(value, Self.columnOffsetPercentRange.lowerBound),
             Self.columnOffsetPercentRange.upperBound
         )
     }
 
-    private func normalizedRowSpacingPercent(_ value: Double) -> Double {
+    fileprivate static func normalizedRowSpacingPercent(_ value: Double) -> Double {
         min(max(value, Self.rowSpacingPercentRange.lowerBound), Self.rowSpacingPercentRange.upperBound)
     }
 
@@ -1326,6 +1778,14 @@ struct ContentView: View {
         var setting = columnSettings[index]
         update(&setting)
         columnSettings[index] = setting
+    }
+
+    private func updateColumnSettingAndSelection(
+        index: Int,
+        update: (inout ColumnLayoutSettings) -> Void
+    ) {
+        updateColumnSetting(index: index, update: update)
+        refreshColumnInspectorSelection()
     }
 
     private func applyColumnSettings(_ settings: [ColumnLayoutSettings]) {
@@ -1419,7 +1879,9 @@ struct ContentView: View {
         }
         viewModel.updateHoldThreshold(tapHoldDurationMs / 1000.0)
         viewModel.updateTwoFingerTapInterval(twoFingerTapIntervalMs / 1000.0)
+        viewModel.updateTwoFingerSuppressionDuration(twoFingerSuppressionDurationMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragCancelDistanceSetting))
+        viewModel.setTouchSnapshotRecordingEnabled(visualsEnabled)
     }
 
     private func saveSettings() {
@@ -1428,6 +1890,12 @@ struct ContentView: View {
         storedVisualsEnabled = visualsEnabled
         storedLayoutPreset = layoutOption.rawValue
         saveCurrentColumnSettings()
+    }
+
+    private func persistConfig() {
+        saveSettings()
+        saveCustomButtons(customButtons)
+        saveKeyMappings(keyMappingsByLayer)
     }
 
     private func columnSettings(
@@ -1542,18 +2010,6 @@ struct ContentView: View {
         selectedButtonID = newButton.id
     }
 
-    private func customButtonHoldBinding(for index: Int) -> Binding<KeyAction?> {
-        Binding(
-            get: {
-                customButtons.indices.contains(index) ? customButtons[index].hold : nil
-            },
-            set: { newValue in
-                guard customButtons.indices.contains(index) else { return }
-                customButtons[index].hold = newValue
-            }
-        )
-    }
-
     private func removeCustomButton(id: UUID) {
         customButtons.removeAll { $0.id == id }
         if selectedButtonID == id {
@@ -1564,6 +2020,14 @@ struct ContentView: View {
     private func updateCustomButton(id: UUID, update: (inout CustomButton) -> Void) {
         guard let index = customButtons.firstIndex(where: { $0.id == id }) else { return }
         update(&customButtons[index])
+    }
+
+    private func updateCustomButtonAndSelection(
+        id: UUID,
+        update: (inout CustomButton) -> Void
+    ) {
+        updateCustomButton(id: id, update: update)
+        refreshButtonInspectorSelection()
     }
 
     private func defaultNewButtonRect() -> NormalizedRect {
@@ -1578,64 +2042,6 @@ struct ContentView: View {
         return rect.clamped(
             minWidth: Self.minCustomButtonSize.width,
             minHeight: Self.minCustomButtonSize.height
-        )
-    }
-
-    private enum ColumnAxis {
-        case x
-        case y
-    }
-
-    private func columnScaleBinding(for index: Int) -> Binding<Double> {
-        Binding(
-            get: {
-                columnSettings.indices.contains(index)
-                    ? columnSettings[index].scale
-                    : 1.0
-            },
-            set: { newValue in
-                updateColumnSetting(index: index) { setting in
-                    setting.scale = normalizedColumnScale(newValue)
-                }
-            }
-        )
-    }
-
-    private func columnOffsetBinding(
-        for index: Int,
-        axis: ColumnAxis
-    ) -> Binding<Double> {
-        Binding(
-            get: {
-                guard columnSettings.indices.contains(index) else { return 0.0 }
-                let setting = columnSettings[index]
-                return axis == .x ? setting.offsetXPercent : setting.offsetYPercent
-            },
-            set: { newValue in
-                updateColumnSetting(index: index) { setting in
-                    let normalized = normalizedColumnOffsetPercent(newValue)
-                    if axis == .x {
-                        setting.offsetXPercent = normalized
-                    } else {
-                        setting.offsetYPercent = normalized
-                    }
-                }
-            }
-        )
-    }
-
-    private func columnRowSpacingBinding(for index: Int) -> Binding<Double> {
-        Binding(
-            get: {
-                columnSettings.indices.contains(index)
-                    ? columnSettings[index].rowSpacingPercent
-                    : 0.0
-            },
-            set: { newValue in
-                updateColumnSetting(index: index) { setting in
-                    setting.rowSpacingPercent = normalizedRowSpacingPercent(newValue)
-                }
-            }
         )
     }
 
@@ -1719,108 +2125,6 @@ struct ContentView: View {
         }
     }
 
-    private enum CustomButtonAxis {
-        case x
-        case y
-    }
-
-    private enum CustomButtonDimension {
-        case width
-        case height
-    }
-
-    private func positionPercentBinding(
-        for index: Int,
-        axis: CustomButtonAxis
-    ) -> Binding<Double> {
-        Binding(
-            get: {
-                let rect = customButtons[index].rect
-                let value = axis == .x ? rect.x : rect.y
-                return Double(value * 100.0)
-            },
-            set: { newValue in
-                let rect = customButtons[index].rect
-                let maxNormalized = axis == .x
-                    ? (1.0 - rect.width)
-                    : (1.0 - rect.height)
-                let upper = max(0.0, Double(maxNormalized))
-                let normalized = min(max(newValue / 100.0, 0.0), upper)
-                var updated = rect
-                if axis == .x {
-                    updated.x = CGFloat(normalized)
-                } else {
-                    updated.y = CGFloat(normalized)
-                }
-                customButtons[index].rect = updated.clamped(
-                    minWidth: Self.minCustomButtonSize.width,
-                    minHeight: Self.minCustomButtonSize.height
-                )
-            }
-        )
-    }
-
-    private func positionPercentRange(
-        for index: Int,
-        axis: CustomButtonAxis
-    ) -> ClosedRange<Double> {
-        let rect = customButtons[index].rect
-        let maxNormalized = axis == .x
-            ? (1.0 - rect.width)
-            : (1.0 - rect.height)
-        let upper = max(0.0, Double(maxNormalized)) * 100.0
-        return 0.0...upper
-    }
-
-    private func sizePercentBinding(
-        for index: Int,
-        dimension: CustomButtonDimension
-    ) -> Binding<Double> {
-        Binding(
-            get: {
-                let rect = customButtons[index].rect
-                let value = dimension == .width ? rect.width : rect.height
-                return Double(value * 100.0)
-            },
-            set: { newValue in
-                let rect = customButtons[index].rect
-                let maxNormalized = dimension == .width
-                    ? (1.0 - rect.x)
-                    : (1.0 - rect.y)
-                let minNormalized = dimension == .width
-                    ? Self.minCustomButtonSize.width
-                    : Self.minCustomButtonSize.height
-                let upper = max(minNormalized, maxNormalized)
-                let normalized = min(max(newValue / 100.0, minNormalized), upper)
-                var updated = rect
-                if dimension == .width {
-                    updated.width = CGFloat(normalized)
-                } else {
-                    updated.height = CGFloat(normalized)
-                }
-                customButtons[index].rect = updated.clamped(
-                    minWidth: Self.minCustomButtonSize.width,
-                    minHeight: Self.minCustomButtonSize.height
-                )
-            }
-        )
-    }
-
-    private func sizePercentRange(
-        for index: Int,
-        dimension: CustomButtonDimension
-    ) -> ClosedRange<Double> {
-        let rect = customButtons[index].rect
-        let maxNormalized = dimension == .width
-            ? (1.0 - rect.x)
-            : (1.0 - rect.y)
-        let minNormalized = dimension == .width
-            ? Self.minCustomButtonSize.width
-            : Self.minCustomButtonSize.height
-        let upper = max(minNormalized, maxNormalized) * 100.0
-        let lower = minNormalized * 100.0
-        return lower...upper
-    }
 
     private func deviceForID(_ deviceID: String) -> OMSDeviceInfo? {
         guard !deviceID.isEmpty else { return nil }
@@ -1929,6 +2233,39 @@ struct ContentView: View {
         return (primary: mapping.primary.displayText, hold: mapping.hold?.label)
     }
 
+    private func refreshColumnInspectorSelection() {
+        guard let selectedColumn,
+              columnSettings.indices.contains(selectedColumn) else {
+            columnInspectorSelection = nil
+            return
+        }
+        columnInspectorSelection = ColumnInspectorSelection(
+            index: selectedColumn,
+            settings: columnSettings[selectedColumn]
+        )
+    }
+
+    private func refreshButtonInspectorSelection() {
+        guard let selectedButtonID,
+              let button = customButtons.first(where: { $0.id == selectedButtonID }) else {
+            buttonInspectorSelection = nil
+            return
+        }
+        buttonInspectorSelection = ButtonInspectorSelection(button: button)
+    }
+
+    private func refreshKeyInspectorSelection() {
+        guard let selectedGridKey else {
+            keyInspectorSelection = nil
+            return
+        }
+        let mapping = effectiveKeyMapping(for: selectedGridKey)
+        keyInspectorSelection = KeyInspectorSelection(
+            key: selectedGridKey,
+            mapping: mapping
+        )
+    }
+
     private func updateGridLabelInfo() {
         leftGridLabelInfo = gridLabelInfo(for: leftGridLabels, side: .left)
         rightGridLabelInfo = gridLabelInfo(for: rightGridLabels, side: .right)
@@ -1954,7 +2291,7 @@ struct ContentView: View {
         return output
     }
 
-    private func pickerLabel(for action: KeyAction) -> some View {
+    fileprivate static func pickerLabel(for action: KeyAction) -> some View {
         let label = action.kind == .typingToggle
             ? KeyActionCatalog.typingToggleDisplayLabel
             : action.label
@@ -1996,31 +2333,17 @@ struct ContentView: View {
         keyMappingsByLayer[layer] = layerMappings
     }
 
+    private func updateKeyMappingAndSelection(
+        key: SelectedGridKey,
+        update: (inout KeyMapping) -> Void
+    ) {
+        updateKeyMapping(for: key, update)
+        refreshKeyInspectorSelection()
+    }
+
     private func defaultKeyMapping(for label: String) -> KeyMapping? {
         guard let primary = KeyActionCatalog.action(for: label) else { return nil }
         return KeyMapping(primary: primary, hold: KeyActionCatalog.holdAction(for: label))
-    }
-
-    private func keyActionBinding(for key: SelectedGridKey) -> Binding<KeyAction> {
-        Binding(
-            get: {
-                effectiveKeyMapping(for: key).primary
-            },
-            set: { newValue in
-                updateKeyMapping(for: key) { $0.primary = newValue }
-            }
-        )
-    }
-
-    private func holdActionBinding(for key: SelectedGridKey) -> Binding<KeyAction?> {
-        Binding(
-            get: {
-                effectiveKeyMapping(for: key).hold
-            },
-            set: { newValue in
-                updateKeyMapping(for: key) { $0.hold = newValue }
-            }
-        )
     }
 
     private static func drawGridLabels(

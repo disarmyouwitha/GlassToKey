@@ -43,8 +43,6 @@ public final class OMSManager: Sendable {
     private let protectedDeviceIndexStore = OSAllocatedUnfairLock<DeviceIndexStore>(
         uncheckedState: DeviceIndexStore()
     )
-    private let dateFormatter = DateFormatter()
-
     private let touchDataSubject = PassthroughSubject<[OMSTouchData], Never>()
     public var touchDataStream: AsyncStream<[OMSTouchData]> {
         AsyncStream { continuation in
@@ -79,7 +77,6 @@ public final class OMSManager: Sendable {
 
     private init() {
         protectedManager = .init(uncheckedState: OpenMTManager.shared())
-        dateFormatter.dateFormat = "HH:mm:ss.SSSS"
     }
 
     @discardableResult
@@ -141,9 +138,10 @@ public final class OMSManager: Sendable {
         if touches.isEmpty {
             touchDataSubject.send([])
         } else {
-            let timestamp = protectedTimestampEnabled.withLockUnchecked(\.self)
-                ? dateFormatter.string(from: Date())
-                : ""
+            let frameTimestamp = event.timestamp
+            let formattedTimestamp = protectedTimestampEnabled.withLockUnchecked(\.self)
+                ? String(format: "%.5f", frameTimestamp)
+                : nil
             let deviceID = event.deviceID ?? "Unknown"
             let deviceIndex = resolveDeviceIndex(for: deviceID)
             var data: [OMSTouchData] = []
@@ -161,7 +159,8 @@ public final class OMSManager: Sendable {
                     angle: touch.angle,
                     density: touch.density,
                     state: state,
-                    timestamp: timestamp
+                    timestamp: frameTimestamp,
+                    formattedTimestamp: formattedTimestamp
                 ))
             }
             touchDataSubject.send(data)

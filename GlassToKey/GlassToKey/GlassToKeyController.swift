@@ -3,7 +3,8 @@ import SwiftUI
 
 enum GlassToKeySettings {
     static let tapHoldDurationMs: Double = 220.0
-    static let twoFingerTapIntervalMs: Double = 70.0
+    static let twoFingerTapIntervalMs: Double = 10.0
+    static let twoFingerSuppressionMs: Double = 0.0
     static let dragCancelDistanceMm: Double = 15.0
     static let forceClickCap: Double = 0.0
 
@@ -175,6 +176,11 @@ final class GlassToKeyController: ObservableObject {
             defaults: defaults,
             fallback: GlassToKeySettings.twoFingerTapIntervalMs
         )
+        let twoFingerSuppressionMs = GlassToKeySettings.persistedDouble(
+            forKey: GlassToKeyDefaultsKeys.twoFingerSuppressionDuration,
+            defaults: defaults,
+            fallback: GlassToKeySettings.twoFingerSuppressionMs
+        )
         let dragDistance = GlassToKeySettings.persistedDouble(
             forKey: GlassToKeyDefaultsKeys.dragCancelDistance,
             defaults: defaults,
@@ -188,6 +194,7 @@ final class GlassToKeyController: ObservableObject {
 
         viewModel.updateHoldThreshold(tapHoldMs / 1000.0)
         viewModel.updateTwoFingerTapInterval(twoFingerMs / 1000.0)
+        viewModel.updateTwoFingerSuppressionDuration(twoFingerSuppressionMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragDistance))
         viewModel.updateForceClickCap(forceCap)
     }
