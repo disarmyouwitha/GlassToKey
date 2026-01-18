@@ -101,6 +101,11 @@ final class ContentViewModel: ObservableObject {
     nonisolated private let snapshotRecordingLock = OSAllocatedUnfairLock<Bool>(
         uncheckedState: true
     )
+    final class ContinuationHolder: @unchecked Sendable {
+        var continuation: AsyncStream<UInt64>.Continuation?
+    }
+    nonisolated let touchRevisionUpdates: AsyncStream<UInt64>
+    nonisolated private let touchRevisionContinuationHolder: ContinuationHolder
     @Published var isListening: Bool = false
     @Published var isTypingEnabled: Bool = true
     @Published private(set) var activeLayer: Int = 0
@@ -133,6 +138,11 @@ final class ContentViewModel: ObservableObject {
     private let processor: TouchProcessor
 
     init() {
+        let holder = ContinuationHolder()
+        touchRevisionContinuationHolder = holder
+        touchRevisionUpdates = AsyncStream { continuation in
+            holder.continuation = continuation
+        }
         weak var weakSelf: ContentViewModel?
         let debugBindingHandler: @Sendable (KeyBinding) -> Void = { binding in
             Task { @MainActor in
@@ -184,7 +194,7 @@ final class ContentViewModel: ObservableObject {
         let snapshotLock = touchSnapshotLock
         let selectionLock = deviceSelectionLock
         let recordingLock = snapshotRecordingLock
-        task = Task.detached { [manager, processor, snapshotLock, selectionLock, recordingLock] in
+        task = Task.detached { [manager, processor, snapshotLock, selectionLock, recordingLock, self] in
             for await touchData in manager.touchDataStream {
                 let selection = selectionLock.withLockUnchecked { $0 }
                 let split = Self.splitTouches(touchData, selection: selection)
@@ -193,13 +203,18 @@ final class ContentViewModel: ObservableObject {
                     left: split.left,
                     right: split.right
                 )
+                var updatedRevision: UInt64?
                 if recordingLock.withLockUnchecked(\.self) {
                     snapshotLock.withLockUnchecked { snapshot in
                         snapshot.data = frame.data
                         snapshot.left = frame.left
                         snapshot.right = frame.right
                         snapshot.revision &+= 1
+                        updatedRevision = snapshot.revision
                     }
+                }
+                if let revision = updatedRevision {
+                    touchRevisionContinuationHolder.continuation?.yield(revision)
                 }
                 await processor.processTouchFrame(frame)
             }
@@ -933,7 +948,7 @@ final class ContentViewModel: ObservableObject {
                             stopRepeat(for: touchKey)
                        }
                     }
-                    removePendingTouch(for: touchKey)
+                    _ = removePendingTouch(for: touchKey)
                     disqualifiedTouches.remove(touchKey)
                     touchInitialContactPoint.removeValue(forKey: touchKey)
                     logDisqualify(touchKey, reason: .typingDisabled)
@@ -1016,7 +1031,7 @@ final class ContentViewModel: ObservableObject {
                             } else if isDragDetectionEnabled {
                                 disqualifyTouch(touchKey, reason: .pendingLeftRect)
                             } else {
-                                removePendingTouch(for: touchKey)
+                                _ = removePendingTouch(for: touchKey)
                             }
                         }
                     } else if let binding = bindingAtPoint {

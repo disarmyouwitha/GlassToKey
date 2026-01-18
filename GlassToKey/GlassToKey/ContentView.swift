@@ -1210,13 +1210,10 @@ struct ContentView: View {
             }
             .task(id: visualsEnabled) {
                 guard visualsEnabled else { return }
-                for await _ in Timer.publish(
-                    every: displayRefreshInterval,
-                    on: .main,
-                    in: .common
-                )
-                .autoconnect()
-                .values {
+                var iterator = viewModel.touchRevisionUpdates.makeAsyncIterator()
+                while !Task.isCancelled {
+                    guard let _ = await iterator.next() else { break }
+                    if Task.isCancelled { break }
                     refreshTouchSnapshot(resetRevision: false)
                 }
             }
