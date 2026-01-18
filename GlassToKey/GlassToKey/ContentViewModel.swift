@@ -81,6 +81,12 @@ final class ContentViewModel: ObservableObject {
         var revision: UInt64 = 0
     }
 
+    struct TouchFrame: Sendable {
+        let data: [OMSTouchData]
+        let left: [OMSTouchData]
+        let right: [OMSTouchData]
+    }
+
     private struct DeviceSelection: Sendable {
         var leftIndex: Int?
         var rightIndex: Int?
@@ -182,15 +188,20 @@ final class ContentViewModel: ObservableObject {
             for await touchData in manager.touchDataStream {
                 let selection = selectionLock.withLockUnchecked { $0 }
                 let split = Self.splitTouches(touchData, selection: selection)
+                let frame = TouchFrame(
+                    data: touchData,
+                    left: split.left,
+                    right: split.right
+                )
                 if recordingLock.withLockUnchecked(\.self) {
                     snapshotLock.withLockUnchecked { snapshot in
-                        snapshot.data = touchData
-                        snapshot.left = split.left
-                        snapshot.right = split.right
+                        snapshot.data = frame.data
+                        snapshot.left = frame.left
+                        snapshot.right = frame.right
                         snapshot.revision &+= 1
                     }
                 }
-                await processor.processTouchFrame(touchData)
+                await processor.processTouchFrame(frame)
             }
         }
     }
@@ -744,37 +755,24 @@ final class ContentViewModel: ObservableObject {
             forceClickCap = Float(max(0, grams))
         }
 
-        func processTouchFrame(_ touchData: [OMSTouchData]) {
+        func processTouchFrame(_ frame: TouchFrame) {
             guard isListening,
                   let leftLayout,
                   let rightLayout else {
                 return
             }
-            let leftIndex = leftDeviceIndex
-            let rightIndex = rightDeviceIndex
-            if leftIndex == nil && rightIndex == nil {
+            if leftDeviceIndex == nil && rightDeviceIndex == nil {
                 return
             }
-            var leftTouches: [OMSTouchData] = []
-            var rightTouches: [OMSTouchData] = []
-            leftTouches.reserveCapacity(touchData.count / 2)
-            rightTouches.reserveCapacity(touchData.count / 2)
-            for touch in touchData {
-                if let leftIndex, touch.deviceIndex == leftIndex {
-                    leftTouches.append(touch)
-                } else if let rightIndex, touch.deviceIndex == rightIndex {
-                    rightTouches.append(touch)
-                }
-            }
             processTouches(
-                leftTouches,
+                frame.left,
                 keyRects: leftLayout.keyRects,
                 canvasSize: trackpadSize,
                 labels: leftLabels,
                 isLeftSide: true
             )
             processTouches(
-                rightTouches,
+                frame.right,
                 keyRects: rightLayout.keyRects,
                 canvasSize: trackpadSize,
                 labels: rightLabels,
