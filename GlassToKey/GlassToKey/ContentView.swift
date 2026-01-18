@@ -56,7 +56,6 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = GlassToKeySettings.tapHoldDurationMs
     @AppStorage(GlassToKeyDefaultsKeys.twoFingerTapInterval) private var twoFingerTapIntervalMs: Double = GlassToKeySettings.twoFingerTapIntervalMs
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
-    @AppStorage(GlassToKeyDefaultsKeys.forceClickThreshold) private var forceClickThresholdSetting: Double = GlassToKeySettings.forceClickThreshold
     @AppStorage(GlassToKeyDefaultsKeys.forceClickHoldDuration) private var forceClickHoldDurationMs: Double = GlassToKeySettings.forceClickHoldDurationMs
     @AppStorage(GlassToKeyDefaultsKeys.forceClickCap) private var forceClickCapSetting: Double = GlassToKeySettings.forceClickCap
     static let trackpadWidthMM: CGFloat = 160.0
@@ -71,9 +70,8 @@ struct ContentView: View {
     private static let dragCancelDistanceRange: ClosedRange<Double> = 1.0...30.0
     private static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
     private static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...250.0
-    private static let forceClickThresholdRange: ClosedRange<Double> = 50.0...150.0
     private static let forceClickHoldDurationRange: ClosedRange<Double> = 0.0...250.0
-    private static let forceClickCapRange: ClosedRange<Double> = 50.0...150.0
+    private static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
     private static let keyCornerRadius: CGFloat = 6.0
     private static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -127,15 +125,6 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 1
         formatter.minimum = NSNumber(value: ContentView.dragCancelDistanceRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.dragCancelDistanceRange.upperBound)
-        return formatter
-    }()
-    private static let forceClickThresholdFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 0
-        formatter.minimum = NSNumber(value: ContentView.forceClickThresholdRange.lowerBound)
-        formatter.maximum = NSNumber(value: ContentView.forceClickThresholdRange.upperBound)
         return formatter
     }()
     private static let forceClickCapFormatter: NumberFormatter = {
@@ -646,24 +635,9 @@ struct ContentView: View {
                                 .frame(minWidth: 120)
                             }
                             GridRow {
-                                Text("Force Delta (g)")
-                                TextField(
-                                    "100",
-                                    value: $forceClickThresholdSetting,
-                                    formatter: Self.forceClickThresholdFormatter
-                                )
-                                .frame(width: 60)
-                                Slider(
-                                    value: $forceClickThresholdSetting,
-                                    in: Self.forceClickThresholdRange,
-                                    step: 5
-                                )
-                                .frame(minWidth: 120)
-                            }
-                            GridRow {
                                 Text("Force Cap (g)")
                                 TextField(
-                                    "50",
+                                    "0",
                                     value: $forceClickCapSetting,
                                     formatter: Self.forceClickCapFormatter
                                 )
@@ -767,9 +741,6 @@ struct ContentView: View {
         }
         .onChange(of: dragCancelDistanceSetting) { newValue in
             viewModel.updateDragCancelDistance(CGFloat(newValue))
-        }
-        .onChange(of: forceClickThresholdSetting) { newValue in
-            viewModel.updateForceClickThreshold(newValue)
         }
         .onChange(of: forceClickCapSetting) { newValue in
             viewModel.updateForceClickCap(newValue)
@@ -1478,7 +1449,6 @@ struct ContentView: View {
         viewModel.updateHoldThreshold(tapHoldDurationMs / 1000.0)
         viewModel.updateTwoFingerTapInterval(twoFingerTapIntervalMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragCancelDistanceSetting))
-        viewModel.updateForceClickThreshold(forceClickThresholdSetting)
         viewModel.updateForceClickHoldDuration(forceClickHoldDurationMs / 1000.0)
     }
 

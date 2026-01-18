@@ -417,12 +417,6 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    func updateForceClickThreshold(_ threshold: Double) {
-        Task { [processor] in
-            await processor.updateForceClickThreshold(threshold)
-        }
-    }
-
     func updateForceClickHoldDuration(_ seconds: TimeInterval) {
         Task { [processor] in
             await processor.updateForceClickHoldDuration(seconds)
@@ -667,7 +661,7 @@ final class ContentViewModel: ObservableObject {
         private let modifierActivationDelay: TimeInterval = 0.05
         private var dragCancelDistance: CGFloat = 2.5
         private var twoFingerTapMaxInterval: TimeInterval = 0.08
-        private var forceClickThreshold: Float = 0
+        private let forceClickThreshold: Float = 100
         private var forceClickHoldDuration: TimeInterval = 0
         private var forceClickCap: Float = 0
         private var twoFingerTapCandidatesByDevice: [Int: TwoFingerTapCandidate] = [:]
@@ -760,10 +754,6 @@ final class ContentViewModel: ObservableObject {
 
         func updateTwoFingerTapInterval(_ seconds: TimeInterval) {
             twoFingerTapMaxInterval = max(0, seconds)
-        }
-
-        func updateForceClickThreshold(_ threshold: Double) {
-            forceClickThreshold = Float(max(0, threshold))
         }
 
         func updateForceClickHoldDuration(_ seconds: TimeInterval) {
@@ -1195,14 +1185,6 @@ final class ContentViewModel: ObservableObject {
                     now: now
                 )
                 if triggered {
-                    logForceGuardTrigger(
-                        touchKey: touchKey,
-                        binding: active.binding,
-                        pressure: pressure,
-                        delta: delta,
-                        threshold: forceClickThreshold,
-                        holdDuration: forceClickHoldDuration
-                    )
                     stopRepeat(for: touchKey)
                 }
                 activeTouches[touchKey] = active
@@ -1225,22 +1207,12 @@ final class ContentViewModel: ObservableObject {
                     return
                 }
 
-                let triggered = pending.registerForce(
+                _ = pending.registerForce(
                     pressure: pressure,
                     threshold: forceClickThreshold,
                     duration: forceClickHoldDuration,
                     now: now
                 )
-                if triggered {
-                    logForceGuardTrigger(
-                        touchKey: touchKey,
-                        binding: pending.binding,
-                        pressure: pressure,
-                        delta: delta,
-                        threshold: forceClickThreshold,
-                        holdDuration: forceClickHoldDuration
-                    )
-                }
                 pendingTouches[touchKey] = pending
             }
         }
@@ -1841,22 +1813,6 @@ final class ContentViewModel: ObservableObject {
         private func logDisqualify(_ touchKey: TouchKey, reason: DisqualifyReason) {
             #if DEBUG
             keyLogger.debug("disqualify deviceIndex=\(touchKey.deviceIndex) id=\(touchKey.id) reason=\(reason.rawValue)")
-            #endif
-        }
-
-        private func logForceGuardTrigger(
-            touchKey: TouchKey,
-            binding: KeyBinding,
-            pressure: Float,
-            delta: Float,
-            threshold: Float,
-            holdDuration: TimeInterval
-        ) {
-            #if DEBUG
-            let durationMs = holdDuration * 1000
-            keyLogger.debug(
-                "force guard triggered deviceIndex=\(touchKey.deviceIndex) id=\(touchKey.id) label=\(binding.label) pressure=\(pressure) delta=\(delta) threshold=\(threshold) holdMs=\(durationMs)"
-            )
             #endif
         }
 
