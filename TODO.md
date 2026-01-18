@@ -1,7 +1,7 @@
 ## TODO
 - Can we flush memory after Config GUI is closed? It stays at like 50mb after guy like 10mb before
 - Is there **ANY** way to refactor edit mode so it isn't laggy garbage? Is it possible to enable move & drag? It's specifically when a button or column is selected which cant be the problem because the green hit detection rect is so quick!
-- refactor 2 finger click?
+- refactor 2 finger click????
 ###
 - Is the key matrix the most efficient? lets look deeper! How about KeyDispatch? And is key hit detection as clean as it could be?
 - analyze custom button code vs key matrix detection, is it less efficient? If so can we fix?
