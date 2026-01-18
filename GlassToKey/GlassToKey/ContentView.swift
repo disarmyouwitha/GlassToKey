@@ -687,6 +687,7 @@ struct ContentView: View {
         }
         .onChange(of: visualsEnabled) { enabled in
             if !enabled {
+                editModeEnabled = false
                 selectedButtonID = nil
                 selectedColumn = nil
                 selectedGridKey = nil
