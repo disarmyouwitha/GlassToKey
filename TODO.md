@@ -1,5 +1,7 @@
 ## TODO
-- I really think that when a touch is started, instead of immediately firing the keycode we should hold it for X (ms) to see if the the finger is still on the pad. If it is still on the pad (held) it should disqualify the key on/before release.
+
+- Is there **ANY** way to refactor edit mode so it isn't laggy garbage? Is it possible to enable move & drag? It's specifically when a button or column is selected which cant be the problem because the green hit detection rect is so quick!
+###
 - Is the key matrix the most efficient? lets look deeper! How about KeyDispatch? And is key hit detection as clean as it could be?
 - anayze custom button code vs key matrix detection, is it less efficient? If so can we fix?
 - refactor 2 finger click?
@@ -18,4 +20,4 @@
 The new “remove dead listeners inline” avoids calling removeListener (which syncs to main and can stall), but it also means you might not stop handling multitouch events when the last listener disappears. That’s not correctness-breaking, but it’s a small energy/overhead leak unless handled elsewhere.
 - Keyboard toggle/ keyboard only button. also, mouse only/keyboard only toggle button - how would you implement this?
 ######
-Is there **ANY** way to refactor edit mode so it isn't laggy garbage? Is it possible to enable move & drag? Maybe on the same row as the Trackpad Deck, floating to the right we can add a "fingers" toggle? That way we can seperate editing the buttons from drawing the fingers, but still allow the user to toggle them on because it is important sometimes.
+Maybe on the same row as the Trackpad Deck, floating to the right we can add a "fingers" toggle? That way we can seperate editing the buttons from drawing the fingers, but still allow the user to toggle them on because it is important sometimes. 

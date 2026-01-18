@@ -655,7 +655,7 @@ final class ContentViewModel: ObservableObject {
         private var layerToggleTouchStarts: [TouchKey: Int] = [:]
         private var momentaryLayerTouches: [TouchKey: Int] = [:]
         private var touchInitialContactPoint: [TouchKey: CGPoint] = [:]
-        private let tapMaxDuration: TimeInterval = 0.2
+        private var tapMaxDuration: TimeInterval = 0.2
         private var holdMinDuration: TimeInterval = 0.2
         private let modifierActivationDelay: TimeInterval = 0.05
         private var dragCancelDistance: CGFloat = 2.5
@@ -741,7 +741,9 @@ final class ContentViewModel: ObservableObject {
         }
 
         func updateHoldThreshold(_ seconds: TimeInterval) {
-            holdMinDuration = seconds
+            let clamped = max(0, seconds)
+            holdMinDuration = clamped
+            tapMaxDuration = clamped
         }
 
         func updateDragCancelDistance(_ distance: CGFloat) {
