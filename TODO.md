@@ -1,10 +1,25 @@
 ## TODO
-- Don't save user preference for Edit or Visualizer, always default to off when Config is open.
-- Can you think of any other improvements we can
-  make to the touchpad & touch drawing code? Don't be afraid to refactor at the private or public API level, or focus on the swift app if that is the best path.
-- Is it possible to remove X,Y positioning enable move & drag? (Disable gesure input)
-- Is it possible to remove Width/Height and enable drag to resize? (disable gesture input)
+- Is it possible to remove X,Y positioning enable move & drag? Is it possible to remove Width/Height and enable drag to resize? (Disable drawing touches with a toggle initially?)
 -   1. Add “Mouse Intent Window/Distance” sliders logging (recommended). 2. Add velocity-based intent gate instead of distance-only.
+###
+
+About mouse vs keyboard intent
+
+  - A better signal than just drag-cancel is usually a “mouse intent window”: if movement exceeds X within the first Y ms, disqualify as mouse; otherwise allow keyboard. This catches quick cursor nudges without killing taps/holds. We can add two sliders: Mouse Intent Window (ms) and Mouse Intent Distance (mm).
+  - Another option: “hold-to-type window”: require movement to stay under a tiny threshold for the first N ms before classifying as keyboard, but still allow later wiggle. This reduces accidental mouse taps.
+  - You can also incorporate velocity (distance / time) rather than raw distance; fast motion early is a strong mouse signal even if distance is small.
+
+  If you want, I can wire those thresholds as live sliders + logs next.
+
+
+  Next steps
+
+  1. Add “Mouse Intent Window/Distance” sliders + logging (recommended).
+  2. Add velocity-based intent gate instead of distance-only.
+
+
+Please wire up those controls for me to play with! 3. add hold-to-type window slider too! If it is 
+conflicting set it to 0 so I can at least try it. Build to make sure it all works!
 ###
 - Is the key matrix the most efficient? lets look deeper! How about KeyDispatch? And is key hit detection as clean as $it could be?
 - analyze custom button code vs key matrix detection, is it less efficient? If so can we fix?

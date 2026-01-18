@@ -53,7 +53,8 @@ public struct OMSTouchData: CustomStringConvertible, Sendable {
     public var angle: Float
     public var density: Float
     public var state: OMSState
-    public var timestamp: String
+    public var timestamp: TimeInterval
+    public var formattedTimestamp: String?
 
     public var description: String {
         var text = "deviceID:\(deviceID), "
@@ -65,7 +66,12 @@ public struct OMSTouchData: CustomStringConvertible, Sendable {
         text += String(format: "axis(%05.3f,%05.3f), ", axis.major, axis.minor)
         text += String(format: "angle:%05.3f, ", angle)
         text += String(format: "density:%05.3f, ", density)
-        text += "\(state.rawValue), \(timestamp)"
+        text += "\(state.rawValue)"
+        if let formattedTimestamp {
+            text += ", \(formattedTimestamp)"
+        } else {
+            text += String(format: ", %.6f", timestamp)
+        }
         return text
     }
 }
