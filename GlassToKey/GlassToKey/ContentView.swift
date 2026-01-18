@@ -1147,6 +1147,11 @@ struct ContentView: View {
                                 selectedKey: editModeEnabled ? selectedKeyForCanvas : nil
                             )
                             .equatable()
+                            TrackpadButtonSelectionLayer(
+                                button: selectedButton(for: customButtons),
+                                trackpadSize: trackpadSize
+                            )
+                            .equatable()
                         if visualsEnabled {
                             TrackpadTouchLayer(
                                 revision: lastTouchRevision,
@@ -1230,42 +1235,12 @@ struct ContentView: View {
                     .frame(width: trackpadSize.width, height: trackpadSize.height)
                     .contentShape(Rectangle())
                     .simultaneousGesture(selectGesture)
-                ForEach(buttons) { button in
-                    let rect = button.rect.rect(in: trackpadSize)
-                    let isSelected = button.id == selectedButtonID.wrappedValue
-
-                    let baseButton = RoundedRectangle(cornerRadius: ContentView.keyCornerRadius)
-                        .stroke(
-                            isSelected ? Color.accentColor.opacity(0.9) : Color.clear,
-                            lineWidth: 1.5
-                        )
-                        .background(
-                            RoundedRectangle(cornerRadius: ContentView.keyCornerRadius)
-                                .fill(Color.accentColor.opacity(isSelected ? 0.08 : 0.02))
-                        )
-                        .frame(width: rect.width, height: rect.height)
-                        .offset(x: rect.minX, y: rect.minY)
-                        .contentShape(Rectangle())
-                        .allowsHitTesting(false)
-
-                    baseButton
-                    if isSelected {
-                        VStack(spacing: 2) {
-                            Text(button.action.label)
-                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                            if let holdLabel = button.hold?.label {
-                                Text(holdLabel)
-                                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                                    .foregroundStyle(.secondary.opacity(0.7))
-                            }
-                        }
-                        .frame(width: rect.width, height: rect.height)
-                        .offset(x: rect.minX, y: rect.minY)
-                        .allowsHitTesting(false)
-                    }
-                }
             }
+        }
+
+        private func selectedButton(for buttons: [CustomButton]) -> CustomButton? {
+            guard let selectedButtonID else { return nil }
+            return buttons.first { $0.id == selectedButtonID }
         }
 
         private func columnRects(
@@ -1424,6 +1399,21 @@ struct ContentView: View {
                     selectedColumn: selectedColumn,
                     selectedKey: selectedKey
                 )
+            }
+        }
+    }
+
+    private struct TrackpadButtonSelectionLayer: View, Equatable {
+        let button: CustomButton?
+        let trackpadSize: CGSize
+
+        var body: some View {
+            Canvas { context, _ in
+                guard let button else { return }
+                let rect = button.rect.rect(in: trackpadSize)
+                let path = Path(roundedRect: rect, cornerRadius: ContentView.keyCornerRadius)
+                context.fill(path, with: .color(Color.accentColor.opacity(0.08)))
+                context.stroke(path, with: .color(Color.accentColor.opacity(0.9)), lineWidth: 1.5)
             }
         }
     }

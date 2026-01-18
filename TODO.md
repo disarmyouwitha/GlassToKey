@@ -1,5 +1,4 @@
 ## TODO
-- Is there **ANY** way to refactor edit mode so it isn't laggy garbage in edit mode with buttons selected? It's specifically when a button or column is selected which cant be the problem because the green hit detection rect is so quick!
 - Is it possible to enable move & drag?
 -   1. Add “Mouse Intent Window/Distance” sliders logging (recommended). 2. Add velocity-based intent gate instead of distance-only.
 ###
