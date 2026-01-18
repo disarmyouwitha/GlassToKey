@@ -1,5 +1,7 @@
 ## TODO
-- In Edit mode can we draw touch frames much less frequently? Like taps should be instant but hold should only draw X Hz. (Can we expose a slider temporarily while I am testing the right value?)
+- Don't save user preference for Edit or Visualizer, always default to off when Config is open.
+- Can you think of any other improvements we can
+  make to the touchpad & touch drawing code? Don't be afraid to refactor at the private or public API level, or focus on the swift app if that is the best path.
 - Is it possible to remove X,Y positioning enable move & drag? (Disable gesure input)
 - Is it possible to remove Width/Height and enable drag to resize? (disable gesture input)
 -   1. Add “Mouse Intent Window/Distance” sliders logging (recommended). 2. Add velocity-based intent gate instead of distance-only.
