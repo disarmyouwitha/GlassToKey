@@ -70,7 +70,7 @@ struct ContentView: View {
     private static let dragCancelDistanceRange: ClosedRange<Double> = 1.0...30.0
     private static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
     private static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...250.0
-    private static let forceClickThresholdRange: ClosedRange<Double> = 0.0...1.0
+    private static let forceClickThresholdRange: ClosedRange<Double> = 50.0...150.0
     private static let forceClickHoldDurationRange: ClosedRange<Double> = 0.0...250.0
     private static let keyCornerRadius: CGFloat = 6.0
     private static let columnScaleFormatter: NumberFormatter = {
@@ -130,8 +130,8 @@ struct ContentView: View {
     private static let forceClickThresholdFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
         formatter.minimum = NSNumber(value: ContentView.forceClickThresholdRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.forceClickThresholdRange.upperBound)
         return formatter
@@ -635,9 +635,9 @@ struct ContentView: View {
                                 .frame(minWidth: 120)
                             }
                             GridRow {
-                                Text("Force Delta")
+                                Text("Force Delta (g)")
                                 TextField(
-                                    "0.70",
+                                    "100",
                                     value: $forceClickThresholdSetting,
                                     formatter: Self.forceClickThresholdFormatter
                                 )
@@ -645,7 +645,7 @@ struct ContentView: View {
                                 Slider(
                                     value: $forceClickThresholdSetting,
                                     in: Self.forceClickThresholdRange,
-                                    step: 0.05
+                                    step: 5
                                 )
                                 .frame(minWidth: 120)
                             }

@@ -5,7 +5,7 @@ enum GlassToKeySettings {
     static let tapHoldDurationMs: Double = 220.0
     static let twoFingerTapIntervalMs: Double = 70.0
     static let dragCancelDistanceMm: Double = 15.0
-    static let forceClickThreshold: Double = 0.7
+    static let forceClickThreshold: Double = 100.0
     static let forceClickHoldDurationMs: Double = 160.0
 
     static func persistedDouble(

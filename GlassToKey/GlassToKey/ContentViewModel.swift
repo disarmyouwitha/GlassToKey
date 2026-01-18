@@ -1161,6 +1161,7 @@ final class ContentViewModel: ObservableObject {
             guard forceClickThreshold > 0 else { return }
             if var active = activeTouches[touchKey] {
                 guard !active.isContinuousKey else { return }
+                let delta = max(0, pressure - active.initialPressure)
                 let triggered = active.registerForce(
                     pressure: pressure,
                     threshold: forceClickThreshold,
@@ -1168,17 +1169,36 @@ final class ContentViewModel: ObservableObject {
                     now: now
                 )
                 if triggered {
+                    logForceGuardTrigger(
+                        touchKey: touchKey,
+                        binding: active.binding,
+                        pressure: pressure,
+                        delta: delta,
+                        threshold: forceClickThreshold,
+                        holdDuration: forceClickHoldDuration
+                    )
                     stopRepeat(for: touchKey)
                 }
                 activeTouches[touchKey] = active
             } else if var pending = pendingTouches[touchKey] {
                 guard !isContinuousKey(pending.binding) else { return }
-                _ = pending.registerForce(
+                let delta = max(0, pressure - pending.initialPressure)
+                let triggered = pending.registerForce(
                     pressure: pressure,
                     threshold: forceClickThreshold,
                     duration: forceClickHoldDuration,
                     now: now
                 )
+                if triggered {
+                    logForceGuardTrigger(
+                        touchKey: touchKey,
+                        binding: pending.binding,
+                        pressure: pressure,
+                        delta: delta,
+                        threshold: forceClickThreshold,
+                        holdDuration: forceClickHoldDuration
+                    )
+                }
                 pendingTouches[touchKey] = pending
             }
         }
@@ -1779,6 +1799,22 @@ final class ContentViewModel: ObservableObject {
         private func logDisqualify(_ touchKey: TouchKey, reason: DisqualifyReason) {
             #if DEBUG
             keyLogger.debug("disqualify deviceIndex=\(touchKey.deviceIndex) id=\(touchKey.id) reason=\(reason.rawValue)")
+            #endif
+        }
+
+        private func logForceGuardTrigger(
+            touchKey: TouchKey,
+            binding: KeyBinding,
+            pressure: Float,
+            delta: Float,
+            threshold: Float,
+            holdDuration: TimeInterval
+        ) {
+            #if DEBUG
+            let durationMs = holdDuration * 1000
+            keyLogger.debug(
+                "force guard triggered deviceIndex=\(touchKey.deviceIndex) id=\(touchKey.id) label=\(binding.label) pressure=\(pressure) delta=\(delta) threshold=\(threshold) holdMs=\(durationMs)"
+            )
             #endif
         }
 
