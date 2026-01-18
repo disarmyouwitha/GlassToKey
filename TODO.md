@@ -1,5 +1,4 @@
 ## TODO
-- Is it possible to remove X,Y positioning enable move & drag? Is it possible to remove Width/Height and enable drag to resize? (Disable drawing touches with a toggle initially?)
 -   1. Add “Mouse Intent Window/Distance” sliders logging (recommended). 2. Add velocity-based intent gate instead of distance-only.
 ###
 
@@ -21,6 +20,9 @@ About mouse vs keyboard intent
 Please wire up those controls for me to play with! 3. add hold-to-type window slider too! If it is 
 conflicting set it to 0 so I can at least try it. Build to make sure it all works!,
 ###
+- Can we have Backspace use Drag Cancel + 10 to give more wiggle room for that specific button?
+- Is it possible to remove X,Y positioning enable move & drag? Is it possible to remove Width/Height and enable drag to resize? (Disable drawing touches with a toggle initially?)
+###
 - Is the key matrix the most efficient? lets look deeper! How about KeyDispatch? And is key hit detection as clean as $it could be?
 - analyze custom button code vs key matrix detection, is it less efficient? If so can we fix?
 - take over 2finger tap from BTT?
@@ -33,7 +35,6 @@ conflicting set it to 0 so I can at least try it. Build to make sure it all work
 - Can we stop using % in the GUI for x, y, width,height and use like PX or something that is based on its logical position and size?
 - "Auto" set column x,y based on finger splay "4 finger touch"
 - Toggle for capturing clicks using CGEventTapCreate??
-- Can we have Backspace use Drag Cancel + 10 to give more wiggle room for that specific button?
 - logic like phone that keeps a queue and triesto help correct out mistakes based on dictionary?
 - A tiny behavioral footgun in OpenMT listener cleanup: The new “remove dead listeners inline” avoids calling removeListener (which syncs to main and can stall), but it also means you might not stop handling multitouch events when the last listener disappears. That’s not correctness-breaking, but it’s a small energy/overhead leak unless handled elsewhere.
 - Keyboard toggle/ keyboard only button. also, mouse only/keyboard only toggle button - how would you implement this?

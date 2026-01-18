@@ -529,6 +529,11 @@ final class ContentViewModel: ObservableObject {
 
         }
 
+        private enum TouchState {
+            case pending(PendingTouch)
+            case active(ActiveTouch)
+        }
+
         private struct TwoFingerTapCandidate {
             let touchKey: TouchKey
             let startTime: TimeInterval
@@ -630,8 +635,7 @@ final class ContentViewModel: ObservableObject {
         private var customButtons: [CustomButton] = []
         private var customButtonsByLayerAndSide: [Int: [TrackpadSide: [CustomButton]]] = [:]
         private var customKeyMappingsByLayer: LayeredKeyMappings = [:]
-        private var activeTouches: [TouchKey: ActiveTouch] = [:]
-        private var pendingTouches: [TouchKey: PendingTouch] = [:]
+        private var touchStates: [TouchKey: TouchState] = [:]
         private var disqualifiedTouches: Set<TouchKey> = []
         private var leftShiftTouchCount = 0
         private var controlTouchCount = 0
@@ -922,14 +926,14 @@ final class ContentViewModel: ObservableObject {
                     }
                 }
                 if !isTypingEnabled && momentaryLayerTouches.isEmpty {
-                    if let active = activeTouches.removeValue(forKey: touchKey) {
+                    if let active = removeActiveTouch(for: touchKey) {
                         if let modifierKey = active.modifierKey {
                             handleModifierUp(modifierKey, binding: active.binding)
                         } else if active.isContinuousKey {
                             stopRepeat(for: touchKey)
-                        }
+                       }
                     }
-                    pendingTouches.removeValue(forKey: touchKey)
+                    removePendingTouch(for: touchKey)
                     disqualifiedTouches.remove(touchKey)
                     touchInitialContactPoint.removeValue(forKey: touchKey)
                     logDisqualify(touchKey, reason: .typingDisabled)
@@ -938,10 +942,10 @@ final class ContentViewModel: ObservableObject {
 
                 switch touch.state {
                 case .starting, .making, .touching:
-                    if var active = activeTouches[touchKey] {
+                    if var active = activeTouch(for: touchKey) {
                         let distanceSquared = distanceSquared(from: active.startPoint, to: point)
                         active.maxDistanceSquared = max(active.maxDistanceSquared, distanceSquared)
-                        activeTouches[touchKey] = active
+                        setActiveTouch(touchKey, active)
 
                         if isDragDetectionEnabled,
                            active.modifierKey == nil,
@@ -971,12 +975,12 @@ final class ContentViewModel: ObservableObject {
                             )
                             triggerBinding(holdBinding, touchKey: touchKey, dispatchInfo: dispatchInfo)
                             active.didHold = true
-                            activeTouches[touchKey] = active
+                            setActiveTouch(touchKey, active)
                         }
-                    } else if var pending = pendingTouches[touchKey] {
+                    } else if var pending = pendingTouch(for: touchKey) {
                         let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
                         pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
-                        pendingTouches[touchKey] = pending
+                        setPendingTouch(touchKey, pending)
 
                         if isDragDetectionEnabled,
                            pending.maxDistanceSquared > dragCancelDistanceSquared {
@@ -989,7 +993,7 @@ final class ContentViewModel: ObservableObject {
                                 let modifierKey = modifierKey(for: pending.binding)
                                 let isContinuousKey = isContinuousKey(pending.binding)
                                 let holdBinding = holdBinding(for: pending.binding)
-                                activeTouches[touchKey] = ActiveTouch(
+                                let active = ActiveTouch(
                                     binding: pending.binding,
                                     startTime: pending.startTime,
                                     startPoint: pending.startPoint,
@@ -1002,7 +1006,7 @@ final class ContentViewModel: ObservableObject {
                                     forceEntryTime: pending.forceEntryTime,
                                     forceGuardTriggered: pending.forceGuardTriggered
                                 )
-                                pendingTouches.removeValue(forKey: touchKey)
+                                setActiveTouch(touchKey, active)
                                 if let modifierKey {
                                     handleModifierDown(modifierKey, binding: pending.binding)
                                 } else if isContinuousKey {
@@ -1012,7 +1016,7 @@ final class ContentViewModel: ObservableObject {
                             } else if isDragDetectionEnabled {
                                 disqualifyTouch(touchKey, reason: .pendingLeftRect)
                             } else {
-                                pendingTouches.removeValue(forKey: touchKey)
+                                removePendingTouch(for: touchKey)
                             }
                         }
                     } else if let binding = bindingAtPoint {
@@ -1020,28 +1024,34 @@ final class ContentViewModel: ObservableObject {
                         let isContinuousKey = isContinuousKey(binding)
                         let holdBinding = holdBinding(for: binding)
                         if isDragDetectionEnabled, (modifierKey != nil || isContinuousKey) {
-                            pendingTouches[touchKey] = PendingTouch(
-                                binding: binding,
-                        startTime: now,
-                        startPoint: point,
-                                maxDistanceSquared: 0,
-                                initialPressure: touch.pressure,
-                                forceEntryTime: nil,
-                                forceGuardTriggered: false
+                            setPendingTouch(
+                                touchKey,
+                                PendingTouch(
+                                    binding: binding,
+                                    startTime: now,
+                                    startPoint: point,
+                                    maxDistanceSquared: 0,
+                                    initialPressure: touch.pressure,
+                                    forceEntryTime: nil,
+                                    forceGuardTriggered: false
+                                )
                             )
                         } else {
-                            activeTouches[touchKey] = ActiveTouch(
-                                binding: binding,
-                                startTime: now,
-                                startPoint: point,
-                                modifierKey: modifierKey,
-                                isContinuousKey: isContinuousKey,
-                                holdBinding: holdBinding,
-                                didHold: false,
-                                maxDistanceSquared: 0,
-                                initialPressure: touch.pressure,
-                                forceEntryTime: nil,
-                                forceGuardTriggered: false
+                            setActiveTouch(
+                                touchKey,
+                                ActiveTouch(
+                                    binding: binding,
+                                    startTime: now,
+                                    startPoint: point,
+                                    modifierKey: modifierKey,
+                                    isContinuousKey: isContinuousKey,
+                                    holdBinding: holdBinding,
+                                    didHold: false,
+                                    maxDistanceSquared: 0,
+                                    initialPressure: touch.pressure,
+                                    forceEntryTime: nil,
+                                    forceGuardTriggered: false
+                                )
                             )
                             if let modifierKey {
                                 handleModifierDown(modifierKey, binding: binding)
@@ -1057,7 +1067,7 @@ final class ContentViewModel: ObservableObject {
                         twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
                     }
                     let releaseStartPoint = touchInitialContactPoint.removeValue(forKey: touchKey)
-                    if var pending = pendingTouches.removeValue(forKey: touchKey) {
+                    if var pending = removePendingTouch(for: touchKey) {
                         let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
                         pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
                         maybeSendPendingContinuousTap(pending, at: point, now: now)
@@ -1065,7 +1075,7 @@ final class ContentViewModel: ObservableObject {
                     if disqualifiedTouches.remove(touchKey) != nil {
                         continue
                     }
-                    if var active = activeTouches.removeValue(forKey: touchKey) {
+                    if var active = removeActiveTouch(for: touchKey) {
                         let releaseDistanceSquared = distanceSquared(
                             from: releaseStartPoint ?? active.startPoint,
                             to: point
@@ -1100,7 +1110,7 @@ final class ContentViewModel: ObservableObject {
                         twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
                     }
                     touchInitialContactPoint.removeValue(forKey: touchKey)
-                    if var pending = pendingTouches.removeValue(forKey: touchKey) {
+                    if var pending = removePendingTouch(for: touchKey) {
                         let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
                         pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
                         maybeSendPendingContinuousTap(pending, at: point, now: now)
@@ -1108,7 +1118,7 @@ final class ContentViewModel: ObservableObject {
                     if disqualifiedTouches.remove(touchKey) != nil {
                         continue
                     }
-                    if var active = activeTouches.removeValue(forKey: touchKey) {
+                    if var active = removeActiveTouch(for: touchKey) {
                         let distanceSquared = distanceSquared(from: active.startPoint, to: point)
                         active.maxDistanceSquared = max(active.maxDistanceSquared, distanceSquared)
                         if let modifierKey = active.modifierKey {
@@ -1187,7 +1197,7 @@ final class ContentViewModel: ObservableObject {
         ) {
             guard forceClickCap > 0 else { return }
 
-            if let active = activeTouches[touchKey] {
+            if let active = activeTouch(for: touchKey) {
                 let delta = max(0, pressure - active.initialPressure)
                 if delta >= forceClickCap {
                     disqualifyTouch(touchKey, reason: .forceCapExceeded)
@@ -1195,12 +1205,58 @@ final class ContentViewModel: ObservableObject {
                 return
             }
 
-            if let pending = pendingTouches[touchKey] {
+            if let pending = pendingTouch(for: touchKey) {
                 let delta = max(0, pressure - pending.initialPressure)
                 if delta >= forceClickCap {
                     disqualifyTouch(touchKey, reason: .forceCapExceeded)
                 }
             }
+        }
+
+        private func activeTouch(for touchKey: TouchKey) -> ActiveTouch? {
+            guard let state = touchStates[touchKey],
+                  case let .active(active) = state else {
+                return nil
+            }
+            return active
+        }
+
+        private func pendingTouch(for touchKey: TouchKey) -> PendingTouch? {
+            guard let state = touchStates[touchKey],
+                  case let .pending(pending) = state else {
+                return nil
+            }
+            return pending
+        }
+
+        private func setActiveTouch(_ touchKey: TouchKey, _ active: ActiveTouch) {
+            touchStates[touchKey] = .active(active)
+        }
+
+        private func setPendingTouch(_ touchKey: TouchKey, _ pending: PendingTouch) {
+            touchStates[touchKey] = .pending(pending)
+        }
+
+        private func removeActiveTouch(for touchKey: TouchKey) -> ActiveTouch? {
+            guard let state = touchStates[touchKey],
+                  case let .active(active) = state else {
+                return nil
+            }
+            touchStates.removeValue(forKey: touchKey)
+            return active
+        }
+
+        private func removePendingTouch(for touchKey: TouchKey) -> PendingTouch? {
+            guard let state = touchStates[touchKey],
+                  case let .pending(pending) = state else {
+                return nil
+            }
+            touchStates.removeValue(forKey: touchKey)
+            return pending
+        }
+
+        private func popTouchState(for touchKey: TouchKey) -> TouchState? {
+            touchStates.removeValue(forKey: touchKey)
         }
 
         private func cancelTwoFingerTapTouch(_ touchKey: TouchKey) {
@@ -1747,11 +1803,14 @@ final class ContentViewModel: ObservableObject {
                 postKey(binding: commandBinding, keyDown: false)
                 commandTouchCount = 0
             }
-            for touchKey in activeTouches.keys {
+            let activeTouchKeys = touchStates.compactMap { key, state in
+                if case .active = state { return key }
+                return nil
+            }
+            for touchKey in activeTouchKeys {
                 stopRepeat(for: touchKey)
             }
-            activeTouches.removeAll()
-            pendingTouches.removeAll()
+            touchStates.removeAll()
             disqualifiedTouches.removeAll()
             toggleTouchStarts.removeAll()
             layerToggleTouchStarts.removeAll()
@@ -1763,8 +1822,8 @@ final class ContentViewModel: ObservableObject {
         private func disqualifyTouch(_ touchKey: TouchKey, reason: DisqualifyReason) {
             touchInitialContactPoint.removeValue(forKey: touchKey)
             disqualifiedTouches.insert(touchKey)
-            pendingTouches.removeValue(forKey: touchKey)
-            if let active = activeTouches.removeValue(forKey: touchKey) {
+            if let state = popTouchState(for: touchKey),
+               case let .active(active) = state {
                 if let modifierKey = active.modifierKey {
                     handleModifierUp(modifierKey, binding: active.binding)
                 } else if active.isContinuousKey {
