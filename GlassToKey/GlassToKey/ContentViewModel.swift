@@ -66,6 +66,7 @@ final class ContentViewModel: ObservableObject {
         let label: String
         let action: KeyBindingAction
         let position: GridKeyPosition?
+        let side: TrackpadSide
         let holdAction: KeyAction?
     }
 
@@ -99,6 +100,17 @@ final class ContentViewModel: ObservableObject {
     @Published var leftDevice: OMSDeviceInfo?
     @Published var rightDevice: OMSDeviceInfo?
     @Published private(set) var hasDisconnectedTrackpads = false
+    struct DebugHit: Equatable {
+        let rect: CGRect
+        let label: String
+        let side: TrackpadSide
+        let timestamp: TimeInterval
+    }
+
+#if DEBUG
+    @Published private(set) var debugLastHitLeft: DebugHit?
+    @Published private(set) var debugLastHitRight: DebugHit?
+#endif
 
     private var requestedLeftDeviceID: String?
     private var requestedRightDeviceID: String?
@@ -115,6 +127,15 @@ final class ContentViewModel: ObservableObject {
 
     init() {
         weak var weakSelf: ContentViewModel?
+#if DEBUG
+        let debugBindingHandler: @Sendable (KeyBinding) -> Void = { binding in
+            Task { @MainActor in
+                weakSelf?.recordDebugHit(binding)
+            }
+        }
+#else
+        let debugBindingHandler: @Sendable (KeyBinding) -> Void = { _ in }
+#endif
         processor = TouchProcessor(
             keyDispatcher: KeyEventDispatcher.shared,
             onTypingEnabledChanged: { isEnabled in
@@ -126,7 +147,8 @@ final class ContentViewModel: ObservableObject {
                 Task { @MainActor in
                     weakSelf?.activeLayer = layer
                 }
-            }
+            },
+            onDebugBindingDetected: debugBindingHandler
         )
         weakSelf = self
         loadDevices()
@@ -139,6 +161,23 @@ final class ContentViewModel: ObservableObject {
     var rightTouches: [OMSTouchData] {
         touchSnapshotLock.withLockUnchecked { $0.right }
     }
+
+#if DEBUG
+    private func recordDebugHit(_ binding: KeyBinding) {
+        let hit = DebugHit(
+            rect: binding.rect,
+            label: binding.label,
+            side: binding.side,
+            timestamp: CACurrentMediaTime()
+        )
+        switch binding.side {
+        case .left:
+            debugLastHitLeft = hit
+        case .right:
+            debugLastHitRight = hit
+        }
+    }
+#endif
 
     func onAppear() {
         let snapshotLock = touchSnapshotLock
@@ -600,6 +639,7 @@ final class ContentViewModel: ObservableObject {
         private let keyDispatcher: KeyEventDispatcher
         private let onTypingEnabledChanged: @Sendable (Bool) -> Void
         private let onActiveLayerChanged: @Sendable (Int) -> Void
+        private let onDebugBindingDetected: @Sendable (KeyBinding) -> Void
         private let isDragDetectionEnabled = true
         private var isListening = false
         private var isTypingEnabled = true
@@ -658,11 +698,13 @@ final class ContentViewModel: ObservableObject {
         init(
             keyDispatcher: KeyEventDispatcher,
             onTypingEnabledChanged: @Sendable @escaping (Bool) -> Void,
-            onActiveLayerChanged: @Sendable @escaping (Int) -> Void
+            onActiveLayerChanged: @Sendable @escaping (Int) -> Void,
+            onDebugBindingDetected: @Sendable @escaping (KeyBinding) -> Void
         ) {
             self.keyDispatcher = keyDispatcher
             self.onTypingEnabledChanged = onTypingEnabledChanged
             self.onActiveLayerChanged = onActiveLayerChanged
+            self.onDebugBindingDetected = onDebugBindingDetected
         }
 
         func setListening(_ isListening: Bool) {
@@ -1210,6 +1252,7 @@ final class ContentViewModel: ObservableObject {
                     label: button.action.label,
                     action: action,
                     position: nil,
+                    side: button.side,
                     holdAction: button.hold
                 )
                 customGrid.insert(binding)
@@ -1223,7 +1266,7 @@ final class ContentViewModel: ObservableObject {
 
         private func bindingForLabel(_ label: String, rect: CGRect, position: GridKeyPosition) -> KeyBinding? {
             guard let action = keyAction(for: position, label: label) else { return nil }
-            return makeBinding(for: action, rect: rect, position: position)
+            return makeBinding(for: action, rect: rect, position: position, side: position.side)
         }
 
         private func keyAction(for position: GridKeyPosition, label: String) -> KeyAction? {
@@ -1252,6 +1295,7 @@ final class ContentViewModel: ObservableObject {
             for action: KeyAction,
             rect: CGRect,
             position: GridKeyPosition?,
+            side: TrackpadSide,
             holdAction: KeyAction? = nil
         ) -> KeyBinding? {
             switch action.kind {
@@ -1262,6 +1306,7 @@ final class ContentViewModel: ObservableObject {
                     label: action.label,
                     action: .key(code: CGKeyCode(action.keyCode), flags: flags),
                     position: position,
+                    side: side,
                     holdAction: holdAction
                 )
             case .typingToggle:
@@ -1270,6 +1315,7 @@ final class ContentViewModel: ObservableObject {
                     label: action.label,
                     action: .typingToggle,
                     position: position,
+                    side: side,
                     holdAction: holdAction
                 )
             case .layerMomentary:
@@ -1278,6 +1324,7 @@ final class ContentViewModel: ObservableObject {
                     label: action.label,
                     action: .layerMomentary(action.layer ?? 1),
                     position: position,
+                    side: side,
                     holdAction: holdAction
                 )
             case .layerToggle:
@@ -1286,6 +1333,7 @@ final class ContentViewModel: ObservableObject {
                     label: action.label,
                     action: .layerToggle(action.layer ?? 1),
                     position: position,
+                    side: side,
                     holdAction: holdAction
                 )
             case .none:
@@ -1294,6 +1342,7 @@ final class ContentViewModel: ObservableObject {
                     label: action.label,
                     action: .none,
                     position: position,
+                    side: side,
                     holdAction: holdAction
                 )
             }
@@ -1438,6 +1487,7 @@ final class ContentViewModel: ObservableObject {
                     for: holdAction,
                     rect: binding.rect,
                     position: binding.position,
+                    side: binding.side,
                     holdAction: binding.holdAction
                 )
             }
@@ -1445,7 +1495,8 @@ final class ContentViewModel: ObservableObject {
             return makeBinding(
                 for: action,
                 rect: binding.rect,
-                position: binding.position
+                position: binding.position,
+                side: binding.side
             )
         }
 
@@ -1482,6 +1533,9 @@ final class ContentViewModel: ObservableObject {
             case .none:
                 break
             case let .key(code, flags):
+#if DEBUG
+                onDebugBindingDetected(binding)
+#endif
                 logKeyDispatch(label: binding.label, code: code, flags: flags)
                 sendKey(code: code, flags: flags)
             }
@@ -1511,6 +1565,9 @@ final class ContentViewModel: ObservableObject {
 
         private func sendKey(binding: KeyBinding) {
             guard case let .key(code, flags) = binding.action else { return }
+#if DEBUG
+            onDebugBindingDetected(binding)
+#endif
             logKeyDispatch(label: binding.label, code: code, flags: flags)
             sendKey(code: code, flags: flags)
         }
@@ -1600,6 +1657,9 @@ final class ContentViewModel: ObservableObject {
 
         private func postKey(binding: KeyBinding, keyDown: Bool) {
             guard case let .key(code, flags) = binding.action else { return }
+#if DEBUG
+            onDebugBindingDetected(binding)
+#endif
             logKeyDispatch(label: binding.label, code: code, flags: flags, keyDown: keyDown)
             keyDispatcher.postKey(code: code, flags: flags, keyDown: keyDown)
         }
@@ -1611,6 +1671,7 @@ final class ContentViewModel: ObservableObject {
                     label: "Shift",
                     action: .key(code: CGKeyCode(kVK_Shift), flags: []),
                     position: nil,
+                    side: .left,
                     holdAction: nil
                 )
                 postKey(binding: shiftBinding, keyDown: false)
@@ -1622,6 +1683,7 @@ final class ContentViewModel: ObservableObject {
                     label: "Ctrl",
                     action: .key(code: CGKeyCode(kVK_Control), flags: []),
                     position: nil,
+                    side: .left,
                     holdAction: nil
                 )
                 postKey(binding: controlBinding, keyDown: false)
@@ -1633,6 +1695,7 @@ final class ContentViewModel: ObservableObject {
                     label: "Option",
                     action: .key(code: CGKeyCode(kVK_Option), flags: []),
                     position: nil,
+                    side: .left,
                     holdAction: nil
                 )
                 postKey(binding: optionBinding, keyDown: false)
@@ -1644,6 +1707,7 @@ final class ContentViewModel: ObservableObject {
                     label: "Cmd",
                     action: .key(code: CGKeyCode(kVK_Command), flags: []),
                     position: nil,
+                    side: .left,
                     holdAction: nil
                 )
                 postKey(binding: commandBinding, keyDown: false)
