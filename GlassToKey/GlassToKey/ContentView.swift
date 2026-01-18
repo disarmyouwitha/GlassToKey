@@ -645,7 +645,7 @@ struct ContentView: View {
                                 Slider(
                                     value: $twoFingerSuppressionDurationMs,
                                     in: Self.twoFingerSuppressionRange,
-                                    step: 10
+                                    step: 5
                                 )
                                 .frame(minWidth: 120)
                             }
