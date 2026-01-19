@@ -1,11 +1,12 @@
 ## TODO
-- Is it possible to remove X,Y positioning enable move & drag? Is it possible to remove Width/Height and enable drag to resize? (Disable drawing touches with a toggle initially?)
--   1. Add “Mouse Intent Window/Distance” sliders logging (recommended). 2. Add velocity-based intent gate instead of distance-only.
+- It seems more efficient having them in 1 track pad / I am still getting the bounce because either the API reports them that way, or we are drawing the touches per track pad? What do you think?
 ###
+-   1. Add “Mouse Intent Window/Distance” sliders logging (recommended). 2. Add velocity-based intent gate instead of distance-only.
 
 About mouse vs keyboard intent
 
   - A better signal than just drag-cancel is usually a “mouse intent window”: if movement exceeds X within the first Y ms, disqualify as mouse; otherwise allow keyboard. This catches quick cursor nudges without killing taps/holds. We can add two sliders: Mouse Intent Window (ms) and Mouse Intent Distance (mm).
+  ###
   - Another option: “hold-to-type window”: require movement to stay under a tiny threshold for the first N ms before classifying as keyboard, but still allow later wiggle. This reduces accidental mouse taps.
   - You can also incorporate velocity (distance / time) rather than raw distance; fast motion early is a strong mouse signal even if distance is small.
 
@@ -19,7 +20,10 @@ About mouse vs keyboard intent
 
 
 Please wire up those controls for me to play with! 3. add hold-to-type window slider too! If it is 
-conflicting set it to 0 so I can at least try it. Build to make sure it all works!
+conflicting set it to 0 so I can at least try it. Build to make sure it all works!,
+###
+- Can we have Backspace use Drag Cancel + 10 to give more wiggle room for that specific button?
+- Is it possible to remove X,Y positioning enable move & drag? Is it possible to remove Width/Height and enable drag to resize? (Disable drawing touches with a toggle initially?)
 ###
 - Is the key matrix the most efficient? lets look deeper! How about KeyDispatch? And is key hit detection as clean as $it could be?
 - analyze custom button code vs key matrix detection, is it less efficient? If so can we fix?
@@ -34,9 +38,7 @@ conflicting set it to 0 so I can at least try it. Build to make sure it all work
 - "Auto" set column x,y based on finger splay "4 finger touch"
 - Toggle for capturing clicks using CGEventTapCreate??
 - logic like phone that keeps a queue and triesto help correct out mistakes based on dictionary?
-- If you want the next easy win: add frame coalescing (process only the latest touch frame if the actor is behind). That prevents queue buildup and keeps latency bounded.
-- A tiny behavioral footgun in OpenMT listener cleanup
-The new “remove dead listeners inline” avoids calling removeListener (which syncs to main and can stall), but it also means you might not stop handling multitouch events when the last listener disappears. That’s not correctness-breaking, but it’s a small energy/overhead leak unless handled elsewhere.
+- A tiny behavioral footgun in OpenMT listener cleanup: The new “remove dead listeners inline” avoids calling removeListener (which syncs to main and can stall), but it also means you might not stop handling multitouch events when the last listener disappears. That’s not correctness-breaking, but it’s a small energy/overhead leak unless handled elsewhere.
 - Keyboard toggle/ keyboard only button. also, mouse only/keyboard only toggle button - how would you implement this?
 ######
 Maybe on the same row as the Trackpad Deck, floating to the right we can add a "fingers" toggle? That way we can seperate editing the buttons from drawing the fingers, but still allow the user to toggle them on because it is important sometimes. 
