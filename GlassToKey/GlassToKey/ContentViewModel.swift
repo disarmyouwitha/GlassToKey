@@ -95,6 +95,22 @@ final class ContentViewModel: ObservableObject {
     nonisolated private let touchSnapshotLock = OSAllocatedUnfairLock<TouchSnapshot>(
         uncheckedState: TouchSnapshot()
     )
+    private struct PendingTouchState {
+        var left: [OMSTouchData] = []
+        var right: [OMSTouchData] = []
+        var leftDirty = false
+        var rightDirty = false
+        var lastLeftUpdateTime: TimeInterval = 0
+        var lastRightUpdateTime: TimeInterval = 0
+    }
+    private struct PendingTouchSnapshot {
+        let left: [OMSTouchData]
+        let right: [OMSTouchData]
+    }
+    nonisolated private let pendingTouchLock = OSAllocatedUnfairLock<PendingTouchState>(
+        uncheckedState: PendingTouchState()
+    )
+    private let touchCoalesceInterval: TimeInterval = 0.02
     nonisolated private let deviceSelectionLock = OSAllocatedUnfairLock<DeviceSelection>(
         uncheckedState: DeviceSelection()
     )
@@ -203,12 +219,15 @@ final class ContentViewModel: ObservableObject {
                     left: split.left,
                     right: split.right
                 )
+                let now = CACurrentMediaTime()
+                let snapshotCandidate = updatePendingTouches(with: frame, at: now)
                 var updatedRevision: UInt64?
-                if recordingLock.withLockUnchecked(\.self) {
+                if let candidate = snapshotCandidate,
+                   recordingLock.withLockUnchecked(\.self) {
                     snapshotLock.withLockUnchecked { snapshot in
-                        snapshot.data = frame.data
-                        snapshot.left = frame.left
-                        snapshot.right = frame.right
+                        snapshot.data = candidate.left + candidate.right
+                        snapshot.left = candidate.left
+                        snapshot.right = candidate.right
                         snapshot.revision &+= 1
                         updatedRevision = snapshot.revision
                     }
@@ -405,6 +424,72 @@ final class ContentViewModel: ObservableObject {
             }
         }
         return (left, right)
+    }
+
+    nonisolated private func updatePendingTouches(
+        with frame: TouchFrame,
+        at now: TimeInterval
+    ) -> PendingTouchSnapshot? {
+        pendingTouchLock.withLockUnchecked { state in
+            if frame.data.isEmpty {
+                let hadPendingTouches = !state.left.isEmpty || !state.right.isEmpty
+                if hadPendingTouches {
+                    state.left.removeAll()
+                    state.right.removeAll()
+                    state.leftDirty = true
+                    state.rightDirty = true
+                    state.lastLeftUpdateTime = now
+                    state.lastRightUpdateTime = now
+                }
+                if shouldEmitSnapshot(state: &state, at: now) {
+                    return PendingTouchSnapshot(left: state.left, right: state.right)
+                }
+                return nil
+            }
+
+            var hasUpdates = false
+            if !frame.left.isEmpty {
+                state.left = frame.left
+                state.leftDirty = true
+                state.lastLeftUpdateTime = now
+                hasUpdates = true
+            }
+            if !frame.right.isEmpty {
+                state.right = frame.right
+                state.rightDirty = true
+                state.lastRightUpdateTime = now
+                hasUpdates = true
+            }
+
+            if hasUpdates && shouldEmitSnapshot(state: &state, at: now) {
+                return PendingTouchSnapshot(left: state.left, right: state.right)
+            }
+            return nil
+        }
+    }
+
+    nonisolated private func shouldEmitSnapshot(
+        state: inout PendingTouchState,
+        at now: TimeInterval
+    ) -> Bool {
+        let leftStale = now - state.lastLeftUpdateTime >= touchCoalesceInterval
+        let rightStale = now - state.lastRightUpdateTime >= touchCoalesceInterval
+        if state.leftDirty && state.rightDirty {
+            state.leftDirty = false
+            state.rightDirty = false
+            return true
+        }
+        if state.leftDirty && rightStale {
+            state.leftDirty = false
+            state.rightDirty = false
+            return true
+        }
+        if state.rightDirty && leftStale {
+            state.rightDirty = false
+            state.leftDirty = false
+            return true
+        }
+        return false
     }
 
     private func updateActiveDevices() {

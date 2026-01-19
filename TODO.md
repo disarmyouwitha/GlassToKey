@@ -1,11 +1,12 @@
 ## TODO
-- I been thinking.. we currently draw 2 trackpads in 2 seperate canvases and draw them seperately.. (I can tell when I put a finger on each trackpad it bounces back and forth between which one draws) It seems much smarter to have 1 canvas and draw both trackpads on it? (we could draw a rect around each one). Thoughts?
--   1. Add “Mouse Intent Window/Distance” sliders logging (recommended). 2. Add velocity-based intent gate instead of distance-only.
+- It seems more efficient having them in 1 track pad / I am still getting the bounce because either the API reports them that way, or we are drawing the touches per track pad? What do you think?
 ###
+-   1. Add “Mouse Intent Window/Distance” sliders logging (recommended). 2. Add velocity-based intent gate instead of distance-only.
 
 About mouse vs keyboard intent
 
   - A better signal than just drag-cancel is usually a “mouse intent window”: if movement exceeds X within the first Y ms, disqualify as mouse; otherwise allow keyboard. This catches quick cursor nudges without killing taps/holds. We can add two sliders: Mouse Intent Window (ms) and Mouse Intent Distance (mm).
+  ###
   - Another option: “hold-to-type window”: require movement to stay under a tiny threshold for the first N ms before classifying as keyboard, but still allow later wiggle. This reduces accidental mouse taps.
   - You can also incorporate velocity (distance / time) rather than raw distance; fast motion early is a strong mouse signal even if distance is small.
 
