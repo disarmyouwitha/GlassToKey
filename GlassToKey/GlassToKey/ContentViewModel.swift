@@ -506,8 +506,15 @@ final class ContentViewModel: ObservableObject {
             selection.leftIndex = leftIndex
             selection.rightIndex = rightIndex
         }
+        let leftDeviceID = leftDevice?.deviceID
+        let rightDeviceID = rightDevice?.deviceID
         Task { [processor] in
-            await processor.updateActiveDevices(leftIndex: leftIndex, rightIndex: rightIndex)
+            await processor.updateActiveDevices(
+                leftIndex: leftIndex,
+                rightIndex: rightIndex,
+                leftDeviceID: leftDeviceID,
+                rightDeviceID: rightDeviceID
+            )
         }
     }
     func setPersistentLayer(_ layer: Int) {
@@ -738,6 +745,8 @@ final class ContentViewModel: ObservableObject {
         private var persistentLayer: Int = 0
         private var leftDeviceIndex: Int?
         private var rightDeviceIndex: Int?
+        private var leftDeviceID: String?
+        private var rightDeviceID: String?
         private var customButtons: [CustomButton] = []
         private var customButtonsByLayerAndSide: [Int: [TrackpadSide: [CustomButton]]] = [:]
         private var customKeyMappingsByLayer: LayeredKeyMappings = [:]
@@ -803,9 +812,16 @@ final class ContentViewModel: ObservableObject {
             self.isListening = isListening
         }
 
-        func updateActiveDevices(leftIndex: Int?, rightIndex: Int?) {
+        func updateActiveDevices(
+            leftIndex: Int?,
+            rightIndex: Int?,
+            leftDeviceID: String?,
+            rightDeviceID: String?
+        ) {
             leftDeviceIndex = leftIndex
             rightDeviceIndex = rightIndex
+            self.leftDeviceID = leftDeviceID
+            self.rightDeviceID = rightDeviceID
         }
 
         func updateLayouts(
@@ -1742,14 +1758,14 @@ final class ContentViewModel: ObservableObject {
                     durationMs: dispatchInfo?.durationMs,
                     maxDistance: dispatchInfo?.maxDistance
                 )
-                sendKey(code: code, flags: flags)
+                sendKey(code: code, flags: flags, side: binding.side)
             }
         }
 
-        private func sendKey(code: CGKeyCode, flags: CGEventFlags) {
+        private func sendKey(code: CGKeyCode, flags: CGEventFlags, side: TrackpadSide?) {
             let combinedFlags = flags.union(currentModifierFlags())
             keyDispatcher.postKeyStroke(code: code, flags: combinedFlags)
-            playHapticIfNeeded()
+            playHapticIfNeeded(on: side)
         }
 
         private func currentModifierFlags() -> CGEventFlags {
@@ -1782,12 +1798,21 @@ final class ContentViewModel: ObservableObject {
                 durationMs: dispatchInfo?.durationMs,
                 maxDistance: dispatchInfo?.maxDistance
             )
-            sendKey(code: code, flags: flags)
+            sendKey(code: code, flags: flags, side: binding.side)
         }
 
-        private func playHapticIfNeeded() {
+        private func playHapticIfNeeded(on side: TrackpadSide?) {
             guard hapticStrength > 0 else { return }
-            _ = OMSManager.shared.playHapticFeedback(strength: hapticStrength)
+            let deviceID: String?
+            switch side {
+            case .left:
+                deviceID = leftDeviceID
+            case .right:
+                deviceID = rightDeviceID
+            case .none:
+                deviceID = nil
+            }
+            _ = OMSManager.shared.playHapticFeedback(strength: hapticStrength, deviceID: deviceID)
         }
 
         private func startRepeat(for touchKey: TouchKey, binding: KeyBinding) {

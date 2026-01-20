@@ -123,13 +123,13 @@ public final class OMSManager: Sendable {
     }
     
     @discardableResult
-    public func triggerRawHaptic(actuationID: Int32, unknown1: UInt32, unknown2: Float, unknown3: Float) -> Bool {
+    public func triggerRawHaptic(actuationID: Int32, unknown1: UInt32, unknown2: Float, unknown3: Float, deviceID: String? = nil) -> Bool {
         guard let xcfManager = protectedManager.withLockUnchecked(\.self) else { return false }
-        return xcfManager.triggerRawHaptic(actuationID, unknown1: unknown1, unknown2: unknown2, unknown3: unknown3)
+        return xcfManager.triggerRawHaptic(actuationID, unknown1: unknown1, unknown2: unknown2, unknown3: unknown3, deviceID: deviceID)
     }
 
     @discardableResult
-    public func playHapticFeedback(strength: Double) -> Bool {
+    public func playHapticFeedback(strength: Double, deviceID: String? = nil) -> Bool {
         let clampedStrength = min(max(strength, 0.0), 1.0)
         guard clampedStrength > 0 else {
             return false
@@ -137,7 +137,7 @@ public final class OMSManager: Sendable {
         let actuationStep = Int(max(0, min(5, Int(round(clampedStrength * 5.0)))))
         let actuationID = Int32(1 + actuationStep) // falls in 1..6
         let sharpness = Float(10.0 + (clampedStrength * 20.0))
-        return triggerRawHaptic(actuationID: actuationID, unknown1: 0, unknown2: sharpness, unknown3: 0)
+        return triggerRawHaptic(actuationID: actuationID, unknown1: 0, unknown2: sharpness, unknown3: 0, deviceID: deviceID)
     }
 
     public func deviceIndex(for deviceID: String) -> Int? {

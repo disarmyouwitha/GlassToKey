@@ -8,6 +8,7 @@
 
 #import <Cocoa/Cocoa.h>
 #import <IOKit/IOKitLib.h>
+#import <stdlib.h>
 
 #import "OpenMTManagerInternal.h"
 #import "OpenMTListenerInternal.h"
@@ -541,10 +542,22 @@
 // unknown 2 controls the sharpness. Test: activation id 1 with unknown2=10
 // unknown 3 is used as onset/offset in other cases. onset=0 offset=2. Can be negative
 - (BOOL)triggerRawHaptic:(SInt32)actuationID unknown1:(UInt32)unknown1 unknown2:(Float32)unknown2 unknown3:(Float32)unknown3 {
+    return [self triggerRawHaptic:actuationID unknown1:unknown1 unknown2:unknown2 unknown3:unknown3 deviceID:nil];
+}
+
+- (BOOL)triggerRawHaptic:(SInt32)actuationID unknown1:(UInt32)unknown1 unknown2:(Float32)unknown2 unknown3:(Float32)unknown3 deviceID:(NSString * _Nullable)deviceID {
     NSLog(@"🔧 Raw haptic trigger - ID: %d, unknown1: %u, unknown2: %f, unknown3: %f", actuationID, unknown1, unknown2, unknown3);
-    
-    // Try active device first, then fall back to any actuation-supported trackpad
-    UInt64 multitouchDeviceID = [self deviceIDForPrimaryActuator];
+
+    UInt64 multitouchDeviceID = 0;
+    if (deviceID.length) {
+        unsigned long long parsedID = strtoull(deviceID.UTF8String, NULL, 0);
+        if (parsedID > 0) {
+            multitouchDeviceID = (UInt64)parsedID;
+        }
+    }
+    if (multitouchDeviceID == 0) {
+        multitouchDeviceID = [self deviceIDForPrimaryActuator];
+    }
     if (multitouchDeviceID == 0) {
         multitouchDeviceID = [self findActuationSupportedTrackpadDeviceID];
     }
@@ -552,15 +565,19 @@
         NSLog(@"❌ Failed to find any actuation-supported trackpad device");
         return NO;
     }
-    NSLog(@"ℹ️ Triggering haptic on device ID 0x%llx", multitouchDeviceID);
-    
+    if (deviceID.length > 0) {
+        NSLog(@"ℹ️ Triggering haptic on device ID 0x%llx (requested %@)", multitouchDeviceID, deviceID);
+    } else {
+        NSLog(@"ℹ️ Triggering haptic on device ID 0x%llx", multitouchDeviceID);
+    }
+
     // Create actuator from device ID (HapticKey approach)
     CFTypeRef actuatorRef = MTActuatorCreateFromDeviceID(multitouchDeviceID);
     if (!actuatorRef) {
         NSLog(@"❌ Failed to create MTActuator from device ID");
         return NO;
     }
-    
+
     // Open the actuator (HapticKey approach)
     IOReturn openResult = MTActuatorOpen(actuatorRef);
     if (openResult != kIOReturnSuccess) {
@@ -568,16 +585,16 @@
         CFRelease(actuatorRef);
         return NO;
     }
-    
+
     // Single actuate call with raw parameters
     NSLog(@"🎯 Actuating with raw parameters");
     IOReturn result = MTActuatorActuate(actuatorRef, actuationID, unknown1, unknown2, unknown3);
     NSLog(@"🎯 Actuate result: 0x%x (0 = success)", result);
-    
+
     // Close and release
     MTActuatorClose(actuatorRef);
     CFRelease(actuatorRef);
-    
+
     BOOL success = (result == kIOReturnSuccess);
     NSLog(@"🎯 Raw haptic result: %s", success ? "SUCCESS" : "FAILED");
     return success;

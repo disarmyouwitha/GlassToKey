@@ -40,7 +40,7 @@
 - Call out testing gaps when relevant.
 - GlassToKey build command (if the change was big automatically run): `xcodebuild -project GlassToKey/GlassToKey.xcodeproj -scheme GlassToKey -configuration Debug -destination 'platform=macOS' build`
 - If build fails due to added files, please add them to the project to fix the error.
-- If you change `xcframework` you need to run release.sh and increment the latest build number.
+- If you change `xcframework` you need to run release.sh incrementing the latest build id. Make sure and update the checksum and URL in Package.swift 
 - Always write the most performant and efficient code to turn an Apple Magic Trackpad into a keyboard with an emphasis on running in the background as a status app and instant key detection.
 - Always consider re-writes to the Private or Public APIs if there are efficiency gains to be had at a higher level.
   
