@@ -585,9 +585,7 @@
     MTActuatorClose(actuatorRef);
     CFRelease(actuatorRef);
 
-    BOOL success = (result == kIOReturnSuccess);
-    NSLog(@"🎯 Raw haptic result: %s", success ? "SUCCESS" : "FAILED");
-    return success;
+    return result == kIOReturnSuccess;
 }
 // Utility Tools C Language
 static void dispatchSync(dispatch_queue_t queue, dispatch_block_t block) {
