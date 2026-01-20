@@ -1825,7 +1825,10 @@ final class ContentViewModel: ObservableObject {
             case .none:
                 deviceID = nil
             }
-            _ = OMSManager.shared.playHapticFeedback(strength: hapticStrength, deviceID: deviceID)
+            let strength = hapticStrength
+            Task.detached(priority: .userInitiated) {
+                _ = OMSManager.shared.playHapticFeedback(strength: strength, deviceID: deviceID)
+            }
         }
 
         private func startRepeat(for touchKey: TouchKey, binding: KeyBinding) {
