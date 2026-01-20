@@ -87,7 +87,7 @@ struct ContentView: View {
     fileprivate static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
     fileprivate static let dragCancelDistanceRange: ClosedRange<Double> = 1.0...30.0
     fileprivate static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
-    fileprivate static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...20.0
+    fileprivate static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...50.0
     fileprivate static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
     fileprivate static let twoFingerSuppressionRange: ClosedRange<Double> = 0.0...100.0
     private static let keyCornerRadius: CGFloat = 6.0
@@ -1102,7 +1102,7 @@ struct ContentView: View {
                     Slider(
                         value: $twoFingerTapIntervalMs,
                         in: ContentView.twoFingerTapIntervalRange,
-                        step: 1
+                        step: 5
                     )
                     .frame(minWidth: 120)
                 }
