@@ -1176,7 +1176,7 @@ struct ContentView: View {
                     Slider(
                         value: $hapticStrengthSetting,
                         in: ContentView.hapticStrengthRange,
-                        step: 1
+                        step: 10
                     )
                     .frame(minWidth: 120)
                 }

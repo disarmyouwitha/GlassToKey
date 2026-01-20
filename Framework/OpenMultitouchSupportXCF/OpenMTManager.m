@@ -546,8 +546,6 @@
 }
 
 - (BOOL)triggerRawHaptic:(SInt32)actuationID unknown1:(UInt32)unknown1 unknown2:(Float32)unknown2 unknown3:(Float32)unknown3 deviceID:(NSString * _Nullable)deviceID {
-    NSLog(@"🔧 Raw haptic trigger - ID: %d, unknown1: %u, unknown2: %f, unknown3: %f", actuationID, unknown1, unknown2, unknown3);
-
     UInt64 multitouchDeviceID = 0;
     if (deviceID.length) {
         unsigned long long parsedID = strtoull(deviceID.UTF8String, NULL, 0);
@@ -565,12 +563,6 @@
         NSLog(@"❌ Failed to find any actuation-supported trackpad device");
         return NO;
     }
-    if (deviceID.length > 0) {
-        NSLog(@"ℹ️ Triggering haptic on device ID 0x%llx (requested %@)", multitouchDeviceID, deviceID);
-    } else {
-        NSLog(@"ℹ️ Triggering haptic on device ID 0x%llx", multitouchDeviceID);
-    }
-
     // Create actuator from device ID (HapticKey approach)
     CFTypeRef actuatorRef = MTActuatorCreateFromDeviceID(multitouchDeviceID);
     if (!actuatorRef) {
@@ -587,9 +579,7 @@
     }
 
     // Single actuate call with raw parameters
-    NSLog(@"🎯 Actuating with raw parameters");
     IOReturn result = MTActuatorActuate(actuatorRef, actuationID, unknown1, unknown2, unknown3);
-    NSLog(@"🎯 Actuate result: 0x%x (0 = success)", result);
 
     // Close and release
     MTActuatorClose(actuatorRef);
