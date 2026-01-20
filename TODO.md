@@ -1,5 +1,4 @@
-## TODO@
-- haptics?
+## TODO
 - trackpad battery level?
 - two-finger-suppression branch, ignore all 2
 - key for enable/disable mouse using CGEventTapCreate?? finger events, don't send keys.

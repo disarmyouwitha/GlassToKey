@@ -1758,6 +1758,9 @@ final class ContentViewModel: ObservableObject {
             case .none:
                 break
             case let .key(code, flags):
+                if dispatchInfo?.kind == .hold {
+                    playHapticIfNeeded(on: binding.side)
+                }
 #if DEBUG
                 onDebugBindingDetected(binding)
 #endif
