@@ -630,6 +630,8 @@ final class ContentViewModel: ObservableObject {
             var forceEntryTime: TimeInterval?
             var forceGuardTriggered: Bool
 
+            var hasPlayedDownHaptic: Bool
+
         }
         private struct PendingTouch {
             let binding: KeyBinding
@@ -1136,6 +1138,8 @@ final class ContentViewModel: ObservableObject {
                                     initialPressure: pending.initialPressure,
                                     forceEntryTime: pending.forceEntryTime,
                                     forceGuardTriggered: pending.forceGuardTriggered
+                                    ,
+                                    hasPlayedDownHaptic: false
                                 )
                                 setActiveTouch(touchKey, active)
                                 if let modifierKey {
@@ -1182,6 +1186,8 @@ final class ContentViewModel: ObservableObject {
                                     initialPressure: touch.pressure,
                                     forceEntryTime: nil,
                                     forceGuardTriggered: false
+                                    ,
+                                    hasPlayedDownHaptic: false
                                 )
                             )
                             if let modifierKey {
@@ -1368,7 +1374,12 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func setActiveTouch(_ touchKey: TouchKey, _ active: ActiveTouch) {
-            touchStates[touchKey] = .active(active)
+            var next = active
+            if !next.hasPlayedDownHaptic {
+                playHapticIfNeeded(on: next.binding.side)
+                next.hasPlayedDownHaptic = true
+            }
+            touchStates[touchKey] = .active(next)
         }
 
         private func setPendingTouch(_ touchKey: TouchKey, _ pending: PendingTouch) {
@@ -1765,7 +1776,6 @@ final class ContentViewModel: ObservableObject {
         private func sendKey(code: CGKeyCode, flags: CGEventFlags, side: TrackpadSide?) {
             let combinedFlags = flags.union(currentModifierFlags())
             keyDispatcher.postKeyStroke(code: code, flags: combinedFlags)
-            playHapticIfNeeded(on: side)
         }
 
         private func currentModifierFlags() -> CGEventFlags {
