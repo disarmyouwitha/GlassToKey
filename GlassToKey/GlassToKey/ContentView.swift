@@ -484,8 +484,6 @@ struct ContentView: View {
 
         var body: some View {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Trackpad Deck")
-                    .font(.headline)
                 TrackpadDeckView(
                     viewModel: viewModel,
                     trackpadSize: trackpadSize,
@@ -534,6 +532,7 @@ struct ContentView: View {
         @Binding var twoFingerTapIntervalMs: Double
         @Binding var twoFingerSuppressionDurationMs: Double
         @Binding var forceClickCapSetting: Double
+        @State private var typingTuningExpanded = true
         let onRefreshDevices: () -> Void
         let onAutoResyncChange: (Bool) -> Void
         let onAddCustomButton: (TrackpadSide) -> Void
@@ -560,6 +559,30 @@ struct ContentView: View {
                     onRefresh: onRefreshDevices
                 )
 
+                if !editModeEnabled {
+                    DisclosureGroup(
+                        isExpanded: $typingTuningExpanded
+                    ) {
+                        TypingTuningSectionView(
+                            tapHoldDurationMs: $tapHoldDurationMs,
+                            dragCancelDistanceSetting: $dragCancelDistanceSetting,
+                            twoFingerTapIntervalMs: $twoFingerTapIntervalMs,
+                            twoFingerSuppressionDurationMs: $twoFingerSuppressionDurationMs,
+                            forceClickCapSetting: $forceClickCapSetting
+                        )
+                        .padding(.top, 8)
+                    } label: {
+                        Text("Typing Tuning")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.primary.opacity(0.05))
+                    )
+                }
+
                 HStack(alignment: .top, spacing: 12) {
                     ColumnTuningSectionView(
                         layoutSelection: layoutSelection,
@@ -575,16 +598,6 @@ struct ContentView: View {
                         onClearTouchState: onClearTouchState,
                         onUpdateButton: onUpdateButton,
                         onUpdateKeyMapping: onUpdateKeyMapping
-                    )
-                }
-
-                if !editModeEnabled {
-                    TypingTuningSectionView(
-                        tapHoldDurationMs: $tapHoldDurationMs,
-                        dragCancelDistanceSetting: $dragCancelDistanceSetting,
-                        twoFingerTapIntervalMs: $twoFingerTapIntervalMs,
-                        twoFingerSuppressionDurationMs: $twoFingerSuppressionDurationMs,
-                        forceClickCapSetting: $forceClickCapSetting
                     )
                 }
             }
@@ -1054,93 +1067,83 @@ struct ContentView: View {
         @Binding var forceClickCapSetting: Double
 
         var body: some View {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Typing Tuning")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
-                    GridRow {
-                        Text("Tap/Hold (ms)")
-                        TextField(
-                            "200",
-                            value: $tapHoldDurationMs,
-                            formatter: ContentView.tapHoldDurationFormatter
-                        )
-                        .frame(width: 60)
-                        Slider(
-                            value: $tapHoldDurationMs,
-                            in: ContentView.tapHoldDurationRange,
-                            step: 10
-                        )
-                        .frame(minWidth: 120)
-                    }
-                    GridRow {
-                        Text("Drag Cancel")
-                        TextField(
-                            "1",
-                            value: $dragCancelDistanceSetting,
-                            formatter: ContentView.dragCancelDistanceFormatter
-                        )
-                        .frame(width: 60)
-                        Slider(
-                            value: $dragCancelDistanceSetting,
-                            in: ContentView.dragCancelDistanceRange,
-                            step: 1
-                        )
-                        .frame(minWidth: 120)
-                    }
-                    GridRow {
-                        Text("2-Finger Tap (ms)")
-                        TextField(
-                            "10",
-                            value: $twoFingerTapIntervalMs,
-                            formatter: ContentView.twoFingerTapIntervalFormatter
-                        )
-                        .frame(width: 60)
-                        Slider(
-                            value: $twoFingerTapIntervalMs,
-                            in: ContentView.twoFingerTapIntervalRange,
-                            step: 1
-                        )
-                        .frame(minWidth: 120)
-                    }
-                    GridRow {
-                        Text("2-Finger Suppress (ms)")
-                        TextField(
-                            "0",
-                            value: $twoFingerSuppressionDurationMs,
-                            formatter: ContentView.twoFingerSuppressionFormatter
-                        )
-                        .frame(width: 60)
-                        Slider(
-                            value: $twoFingerSuppressionDurationMs,
-                            in: ContentView.twoFingerSuppressionRange,
-                            step: 5
-                        )
-                        .frame(minWidth: 120)
-                    }
-                    GridRow {
-                        Text("Force Cap (g)")
-                        TextField(
-                            "0",
-                            value: $forceClickCapSetting,
-                            formatter: ContentView.forceClickCapFormatter
-                        )
-                        .frame(width: 60)
-                        Slider(
-                            value: $forceClickCapSetting,
-                            in: ContentView.forceClickCapRange,
-                            step: 5
-                        )
-                        .frame(minWidth: 120)
-                    }
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                GridRow {
+                    Text("Tap/Hold (ms)")
+                    TextField(
+                        "200",
+                        value: $tapHoldDurationMs,
+                        formatter: ContentView.tapHoldDurationFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $tapHoldDurationMs,
+                        in: ContentView.tapHoldDurationRange,
+                        step: 10
+                    )
+                    .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("Drag Cancel")
+                    TextField(
+                        "1",
+                        value: $dragCancelDistanceSetting,
+                        formatter: ContentView.dragCancelDistanceFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $dragCancelDistanceSetting,
+                        in: ContentView.dragCancelDistanceRange,
+                        step: 1
+                    )
+                    .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("2-Finger Tap (ms)")
+                    TextField(
+                        "10",
+                        value: $twoFingerTapIntervalMs,
+                        formatter: ContentView.twoFingerTapIntervalFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $twoFingerTapIntervalMs,
+                        in: ContentView.twoFingerTapIntervalRange,
+                        step: 1
+                    )
+                    .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("2-Finger Suppress (ms)")
+                    TextField(
+                        "0",
+                        value: $twoFingerSuppressionDurationMs,
+                        formatter: ContentView.twoFingerSuppressionFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $twoFingerSuppressionDurationMs,
+                        in: ContentView.twoFingerSuppressionRange,
+                        step: 5
+                    )
+                    .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("Force Cap (g)")
+                    TextField(
+                        "0",
+                        value: $forceClickCapSetting,
+                        formatter: ContentView.forceClickCapFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $forceClickCapSetting,
+                        in: ContentView.forceClickCapRange,
+                        step: 5
+                    )
+                    .frame(minWidth: 120)
                 }
             }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.primary.opacity(0.05))
-            )
         }
     }
 
