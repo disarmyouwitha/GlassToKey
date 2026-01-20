@@ -128,6 +128,18 @@ public final class OMSManager: Sendable {
         return xcfManager.triggerRawHaptic(actuationID, unknown1: unknown1, unknown2: unknown2, unknown3: unknown3)
     }
 
+    @discardableResult
+    public func playHapticFeedback(strength: Double) -> Bool {
+        let clampedStrength = min(max(strength, 0.0), 1.0)
+        guard clampedStrength > 0 else {
+            return false
+        }
+        let actuationStep = Int(max(0, min(5, Int(round(clampedStrength * 5.0)))))
+        let actuationID = Int32(1 + actuationStep) // falls in 1..6
+        let sharpness = Float(10.0 + (clampedStrength * 20.0))
+        return triggerRawHaptic(actuationID: actuationID, unknown1: 0, unknown2: sharpness, unknown3: 0)
+    }
+
     public func deviceIndex(for deviceID: String) -> Int? {
         guard !deviceID.isEmpty else { return nil }
         return resolveDeviceIndex(for: deviceID)

@@ -7,6 +7,7 @@ enum GlassToKeySettings {
     static let twoFingerSuppressionMs: Double = 0.0
     static let dragCancelDistanceMm: Double = 15.0
     static let forceClickCap: Double = 0.0
+    static let hapticStrengthPercent: Double = 70.0
 
     static func persistedDouble(
         forKey key: String,
@@ -191,12 +192,18 @@ final class GlassToKeyController: ObservableObject {
             defaults: defaults,
             fallback: GlassToKeySettings.forceClickCap
         )
+        let hapticStrengthPercent = GlassToKeySettings.persistedDouble(
+            forKey: GlassToKeyDefaultsKeys.hapticStrength,
+            defaults: defaults,
+            fallback: GlassToKeySettings.hapticStrengthPercent
+        )
 
         viewModel.updateHoldThreshold(tapHoldMs / 1000.0)
         viewModel.updateTwoFingerTapInterval(twoFingerMs / 1000.0)
         viewModel.updateTwoFingerSuppressionDuration(twoFingerSuppressionMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragDistance))
         viewModel.updateForceClickCap(forceCap)
+        viewModel.updateHapticStrength(hapticStrengthPercent / 100.0)
     }
 
     private func legacyColumnSettings(

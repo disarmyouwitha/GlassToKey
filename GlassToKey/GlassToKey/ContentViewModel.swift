@@ -546,6 +546,12 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func updateHapticStrength(_ normalized: Double) {
+        Task { [processor] in
+            await processor.updateHapticStrength(normalized)
+        }
+    }
+
     func clearTouchState() {
         Task { [processor] in
             await processor.resetState()
@@ -768,6 +774,7 @@ final class ContentViewModel: ObservableObject {
         private var bindingsCacheLayer: Int = -1
         private var bindingsGeneration = 0
         private var bindingsGenerationBySide: [TrackpadSide: Int] = [:]
+        private var hapticStrength: Double = 0
 
 #if DEBUG
         private let signposter = OSSignposter(
@@ -857,6 +864,11 @@ final class ContentViewModel: ObservableObject {
 
         func updateForceClickCap(_ grams: Double) {
             forceClickCap = Float(max(0, grams))
+        }
+
+        func updateHapticStrength(_ normalized: Double) {
+            let clamped = min(max(normalized, 0.0), 1.0)
+            hapticStrength = clamped
         }
 
         func processTouchFrame(_ frame: TouchFrame) {
@@ -1737,6 +1749,7 @@ final class ContentViewModel: ObservableObject {
         private func sendKey(code: CGKeyCode, flags: CGEventFlags) {
             let combinedFlags = flags.union(currentModifierFlags())
             keyDispatcher.postKeyStroke(code: code, flags: combinedFlags)
+            playHapticIfNeeded()
         }
 
         private func currentModifierFlags() -> CGEventFlags {
@@ -1770,6 +1783,11 @@ final class ContentViewModel: ObservableObject {
                 maxDistance: dispatchInfo?.maxDistance
             )
             sendKey(code: code, flags: flags)
+        }
+
+        private func playHapticIfNeeded() {
+            guard hapticStrength > 0 else { return }
+            _ = OMSManager.shared.playHapticFeedback(strength: hapticStrength)
         }
 
         private func startRepeat(for touchKey: TouchKey, binding: KeyBinding) {

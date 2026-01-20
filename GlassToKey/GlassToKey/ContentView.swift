@@ -76,6 +76,7 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.twoFingerSuppressionDuration) private var twoFingerSuppressionDurationMs: Double = GlassToKeySettings.twoFingerSuppressionMs
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
     @AppStorage(GlassToKeyDefaultsKeys.forceClickCap) private var forceClickCapSetting: Double = GlassToKeySettings.forceClickCap
+    @AppStorage(GlassToKeyDefaultsKeys.hapticStrength) private var hapticStrengthSetting: Double = GlassToKeySettings.hapticStrengthPercent
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -90,6 +91,7 @@ struct ContentView: View {
     fileprivate static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...50.0
     fileprivate static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
     fileprivate static let twoFingerSuppressionRange: ClosedRange<Double> = 0.0...100.0
+    fileprivate static let hapticStrengthRange: ClosedRange<Double> = 0.0...100.0
     private static let keyCornerRadius: CGFloat = 6.0
     fileprivate static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -161,6 +163,15 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 0
         formatter.minimum = NSNumber(value: ContentView.forceClickCapRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.forceClickCapRange.upperBound)
+        return formatter
+    }()
+    fileprivate static let hapticStrengthFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.minimum = NSNumber(value: 0)
+        formatter.maximum = NSNumber(value: 100)
         return formatter
     }()
     private static let legacyKeyScaleKey = "GlassToKey.keyScale"
@@ -313,6 +324,9 @@ struct ContentView: View {
         .onChange(of: forceClickCapSetting) { newValue in
             viewModel.updateForceClickCap(newValue)
         }
+        .onChange(of: hapticStrengthSetting) { newValue in
+            viewModel.updateHapticStrength(newValue / 100.0)
+        }
     }
 
     @ViewBuilder
@@ -383,6 +397,7 @@ struct ContentView: View {
             twoFingerTapIntervalMs: $twoFingerTapIntervalMs,
             twoFingerSuppressionDurationMs: $twoFingerSuppressionDurationMs,
             forceClickCapSetting: $forceClickCapSetting,
+            hapticStrengthSetting: $hapticStrengthSetting,
             onRefreshDevices: {
                 viewModel.loadDevices(preserveSelection: true)
             },
@@ -525,6 +540,7 @@ struct ContentView: View {
         @Binding var twoFingerTapIntervalMs: Double
         @Binding var twoFingerSuppressionDurationMs: Double
         @Binding var forceClickCapSetting: Double
+        @Binding var hapticStrengthSetting: Double
         @State private var typingTuningExpanded = true
         let onRefreshDevices: () -> Void
         let onAutoResyncChange: (Bool) -> Void
@@ -561,7 +577,8 @@ struct ContentView: View {
                             dragCancelDistanceSetting: $dragCancelDistanceSetting,
                             twoFingerTapIntervalMs: $twoFingerTapIntervalMs,
                             twoFingerSuppressionDurationMs: $twoFingerSuppressionDurationMs,
-                            forceClickCapSetting: $forceClickCapSetting
+                            forceClickCapSetting: $forceClickCapSetting,
+                            hapticStrengthSetting: $hapticStrengthSetting
                         )
                         .padding(.top, 8)
                     } label: {
@@ -1058,6 +1075,7 @@ struct ContentView: View {
         @Binding var twoFingerTapIntervalMs: Double
         @Binding var twoFingerSuppressionDurationMs: Double
         @Binding var forceClickCapSetting: Double
+        @Binding var hapticStrengthSetting: Double
 
         var body: some View {
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
@@ -1133,6 +1151,21 @@ struct ContentView: View {
                         value: $forceClickCapSetting,
                         in: ContentView.forceClickCapRange,
                         step: 5
+                    )
+                    .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("Haptic Strength (%)")
+                    TextField(
+                        "70",
+                        value: $hapticStrengthSetting,
+                        formatter: ContentView.hapticStrengthFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $hapticStrengthSetting,
+                        in: ContentView.hapticStrengthRange,
+                        step: 1
                     )
                     .frame(minWidth: 120)
                 }
@@ -1846,6 +1879,7 @@ struct ContentView: View {
         viewModel.updateTwoFingerTapInterval(twoFingerTapIntervalMs / 1000.0)
         viewModel.updateTwoFingerSuppressionDuration(twoFingerSuppressionDurationMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragCancelDistanceSetting))
+        viewModel.updateHapticStrength(hapticStrengthSetting / 100.0)
         viewModel.setTouchSnapshotRecordingEnabled(visualsEnabled)
     }
 

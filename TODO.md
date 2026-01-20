@@ -1,5 +1,4 @@
 ## TODO@
-- restart gtk from menus
 - haptics?
 - trackpad battery level?
 - Capture all 2-finger input
