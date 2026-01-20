@@ -180,8 +180,6 @@ struct ContentView: View {
     private var layoutColumnAnchors: [CGPoint] { layoutOption.columnAnchors }
     private var leftGridLabels: [[String]] { layoutOption.leftLabels }
     private var rightGridLabels: [[String]] { layoutOption.rightLabels }
-    private let onEditModeChange: ((Bool) -> Void)?
-
     private var layoutSelectionBinding: Binding<TrackpadLayoutPreset> {
         Binding(
             get: { layoutOption },
@@ -189,11 +187,7 @@ struct ContentView: View {
         )
     }
 
-    init(
-        viewModel: ContentViewModel = ContentViewModel(),
-        onEditModeChange: ((Bool) -> Void)? = nil
-    ) {
-        self.onEditModeChange = onEditModeChange
+    init(viewModel: ContentViewModel = ContentViewModel()) {
         _viewModel = StateObject(wrappedValue: viewModel)
         let size = CGSize(
             width: Self.trackpadWidthMM * Self.displayScale,
@@ -272,7 +266,6 @@ struct ContentView: View {
                 selectedColumn = nil
                 selectedGridKey = nil
             }
-            onEditModeChange?(enabled)
         }
         .onAppear {
             viewModel.setAutoResyncEnabled(storedAutoResyncMissingTrackpads)
