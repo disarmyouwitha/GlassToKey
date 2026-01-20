@@ -238,95 +238,106 @@ struct ContentView: View {
     }
 
     var body: some View {
+        lifecycleContent(styledMainLayout)
+    }
+
+    private var styledMainLayout: some View {
         mainLayout
-        .padding()
-        .background(
-            RadialGradient(
-                colors: [
-                    Color.accentColor.opacity(0.08),
-                    Color.clear
-                ],
-                center: .topLeading,
-                startRadius: 40,
-                endRadius: 420
-            )
+            .padding()
+            .background(backgroundGradient)
+            .frame(minWidth: trackpadSize.width * 2 + 520, minHeight: trackpadSize.height + 240)
+            .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private var backgroundGradient: RadialGradient {
+        RadialGradient(
+            colors: [
+                Color.accentColor.opacity(0.08),
+                Color.clear
+            ],
+            center: .topLeading,
+            startRadius: 40,
+            endRadius: 420
         )
-        .frame(minWidth: trackpadSize.width * 2 + 520, minHeight: trackpadSize.height + 240)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .onAppear {
-            applySavedSettings()
-        }
-        .onDisappear {
-            persistConfig()
-        }
-        .onChange(of: visualsEnabled) { enabled in
-            viewModel.setTouchSnapshotRecordingEnabled(enabled)
-            if !enabled {
-                viewModel.clearVisualCaches()
-                editModeEnabled = false
+    }
+
+    private func lifecycleContent<Content: View>(_ content: Content) -> some View {
+        content
+            .onAppear {
+                applySavedSettings()
+                viewModel.setAutoResyncEnabled(storedAutoResyncMissingTrackpads)
+            }
+            .onDisappear {
+                persistConfig()
+            }
+            .onChange(of: visualsEnabled) { enabled in
+                viewModel.setTouchSnapshotRecordingEnabled(enabled)
+                if !enabled {
+                    viewModel.clearVisualCaches()
+                    editModeEnabled = false
+                    selectedButtonID = nil
+                    selectedColumn = nil
+                    selectedGridKey = nil
+                }
+            }
+            .onChange(of: editModeEnabled) { enabled in
+                if enabled {
+                    visualsEnabled = true
+                } else {
+                    selectedButtonID = nil
+                    selectedColumn = nil
+                    selectedGridKey = nil
+                }
+            }
+            .onChange(of: columnSettings) { newValue in
+                applyColumnSettings(newValue)
+                refreshColumnInspectorSelection()
+            }
+            .onChange(of: customButtons) { newValue in
+                viewModel.updateCustomButtons(newValue)
+                refreshButtonInspectorSelection()
+            }
+            .onChange(of: viewModel.activeLayer) { _ in
                 selectedButtonID = nil
                 selectedColumn = nil
                 selectedGridKey = nil
+                updateGridLabelInfo()
             }
-        }
-        .onChange(of: editModeEnabled) { enabled in
-            if enabled {
-                visualsEnabled = true
-            } else {
-                selectedButtonID = nil
-                selectedColumn = nil
-                selectedGridKey = nil
+            .onChange(of: keyMappingsByLayer) { newValue in
+                viewModel.updateKeyMappings(newValue)
+                updateGridLabelInfo()
+                refreshKeyInspectorSelection()
             }
-        }
-        .onAppear {
-            viewModel.setAutoResyncEnabled(storedAutoResyncMissingTrackpads)
-        }
-        .onChange(of: columnSettings) { newValue in
-            applyColumnSettings(newValue)
-            refreshColumnInspectorSelection()
-        }
-        .onChange(of: customButtons) { newValue in
-            viewModel.updateCustomButtons(newValue)
-            refreshButtonInspectorSelection()
-        }
-        .onChange(of: viewModel.activeLayer) { _ in
-            selectedButtonID = nil
-            selectedColumn = nil
-            selectedGridKey = nil
-            updateGridLabelInfo()
-        }
-        .onChange(of: keyMappingsByLayer) { newValue in
-            viewModel.updateKeyMappings(newValue)
-            updateGridLabelInfo()
-            refreshKeyInspectorSelection()
-        }
-        .onChange(of: selectedButtonID) { _ in
-            refreshButtonInspectorSelection()
-        }
-        .onChange(of: selectedColumn) { _ in
-            refreshColumnInspectorSelection()
-        }
-        .onChange(of: selectedGridKey) { _ in
-            refreshKeyInspectorSelection()
-        }
-        .onChange(of: tapHoldDurationMs) { newValue in
-            viewModel.updateHoldThreshold(newValue / 1000.0)
-        }
-        .onChange(of: twoFingerTapIntervalMs) { newValue in
-            viewModel.updateTwoFingerTapInterval(newValue / 1000.0)
-        }
-        .onChange(of: twoFingerSuppressionDurationMs) { newValue in
-            viewModel.updateTwoFingerSuppressionDuration(newValue / 1000.0)
-        }
-        .onChange(of: dragCancelDistanceSetting) { newValue in
-            viewModel.updateDragCancelDistance(CGFloat(newValue))
-        }
-        .onChange(of: forceClickCapSetting) { newValue in
-            viewModel.updateForceClickCap(newValue)
-        }
-        .onChange(of: hapticStrengthSetting) { newValue in
-            viewModel.updateHapticStrength(newValue / 100.0)
-        }
+            .onChange(of: selectedButtonID) { _ in
+                refreshButtonInspectorSelection()
+            }
+            .onChange(of: selectedColumn) { _ in
+                refreshColumnInspectorSelection()
+            }
+            .onChange(of: selectedGridKey) { _ in
+                refreshKeyInspectorSelection()
+            }
+            .onChange(of: tapHoldDurationMs) { newValue in
+                viewModel.updateHoldThreshold(newValue / 1000.0)
+            }
+            .onChange(of: twoFingerTapIntervalMs) { newValue in
+                viewModel.updateTwoFingerTapInterval(newValue / 1000.0)
+            }
+            .onChange(of: twoFingerSuppressionDurationMs) { newValue in
+                viewModel.updateTwoFingerSuppressionDuration(newValue / 1000.0)
+            }
+            .onChange(of: dragCancelDistanceSetting) { newValue in
+                viewModel.updateDragCancelDistance(CGFloat(newValue))
+            }
+            .onChange(of: forceClickCapSetting) { newValue in
+                viewModel.updateForceClickCap(newValue)
+            }
+            .onChange(of: hapticStrengthSetting) { newValue in
+                viewModel.updateHapticStrength(newValue / 100.0)
+            }
+            .onChange(of: storedAutoResyncMissingTrackpads) { newValue in
+                viewModel.setAutoResyncEnabled(newValue)
+            }
     }
 
     @ViewBuilder

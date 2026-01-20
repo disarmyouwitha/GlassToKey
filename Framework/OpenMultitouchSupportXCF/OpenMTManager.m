@@ -478,8 +478,22 @@
     return result == noErr;
 }
 
-- (UInt64)findBuiltInTrackpadDeviceID {
-    // Use IOKit to find the built-in trackpad (HapticKey approach)
+- (UInt64)deviceIDForPrimaryActuator {
+    MTDeviceRef primaryRef = [self primaryDeviceRef];
+    if (!primaryRef) {
+        return 0;
+    }
+    uint64_t deviceID = 0;
+    OSStatus err = MTDeviceGetDeviceID(primaryRef, &deviceID);
+    if (err || deviceID == 0) {
+        return 0;
+    }
+    NSLog(@"ℹ️ Primary device ID for actuator: 0x%llx", deviceID);
+    return deviceID;
+}
+
+- (UInt64)findActuationSupportedTrackpadDeviceID {
+    // Use IOKit to find any actuation-supported trackpad
     io_iterator_t iterator = IO_OBJECT_NULL;
     const CFMutableDictionaryRef matchingRef = IOServiceMatching("AppleMultitouchDevice");
     const kern_return_t result = IOServiceGetMatchingServices(kIOMainPortDefault, matchingRef, &iterator);
@@ -489,7 +503,8 @@
         return 0;
     }
     
-    UInt64 foundDeviceID = 0;
+    UInt64 selectedDeviceID = 0;
+    NSString *selectedDeviceName = nil;
     io_service_t service = IO_OBJECT_NULL;
     
     while ((service = IOIteratorNext(iterator)) != IO_OBJECT_NULL) {
@@ -504,26 +519,23 @@
         NSDictionary *properties = (__bridge_transfer NSDictionary *)propertiesRef;
         NSLog(@"🔍 Found multitouch device: %@", properties[@"Product"]);
         
-        // Look for actuation-supported, built-in device (trackpad)
         NSNumber *actuationSupported = properties[@"ActuationSupported"];
-        NSNumber *mtBuiltIn = properties[@"MT Built-In"];
-        
-        if (actuationSupported.boolValue && mtBuiltIn.boolValue) {
+        if (actuationSupported.boolValue) {
             NSNumber *multitouchID = properties[@"Multitouch ID"];
-            foundDeviceID = multitouchID.unsignedLongLongValue;
-            NSLog(@"✅ Found built-in trackpad: %@ (ID: 0x%llx)", properties[@"Product"], foundDeviceID);
+            selectedDeviceID = multitouchID.unsignedLongLongValue;
+            selectedDeviceName = properties[@"Product"];
+            NSLog(@"✅ Found actuation-supported trackpad: %@ (ID: 0x%llx)", selectedDeviceName, selectedDeviceID);
             IOObjectRelease(service);
             break;
         } else {
-            NSLog(@"⏭️ Skipping device %@ (ActuationSupported: %@, Built-In: %@)", 
-                  properties[@"Product"], actuationSupported, mtBuiltIn);
+            NSLog(@"⏭️ Skipping device %@ (ActuationSupported: %@)", properties[@"Product"], actuationSupported);
         }
         
         IOObjectRelease(service);
     }
     
     IOObjectRelease(iterator);
-    return foundDeviceID;
+    return selectedDeviceID;
 }
 // actuation IDs range from 1-6 going weakest to strongest
 // unknown 2 controls the sharpness. Test: activation id 1 with unknown2=10
@@ -531,12 +543,16 @@
 - (BOOL)triggerRawHaptic:(SInt32)actuationID unknown1:(UInt32)unknown1 unknown2:(Float32)unknown2 unknown3:(Float32)unknown3 {
     NSLog(@"🔧 Raw haptic trigger - ID: %d, unknown1: %u, unknown2: %f, unknown3: %f", actuationID, unknown1, unknown2, unknown3);
     
-    // Find the built-in trackpad device using IOKit (HapticKey approach)
-    UInt64 multitouchDeviceID = [self findBuiltInTrackpadDeviceID];
+    // Try active device first, then fall back to any actuation-supported trackpad
+    UInt64 multitouchDeviceID = [self deviceIDForPrimaryActuator];
     if (multitouchDeviceID == 0) {
-        NSLog(@"❌ Failed to find built-in trackpad device");
+        multitouchDeviceID = [self findActuationSupportedTrackpadDeviceID];
+    }
+    if (multitouchDeviceID == 0) {
+        NSLog(@"❌ Failed to find any actuation-supported trackpad device");
         return NO;
     }
+    NSLog(@"ℹ️ Triggering haptic on device ID 0x%llx", multitouchDeviceID);
     
     // Create actuator from device ID (HapticKey approach)
     CFTypeRef actuatorRef = MTActuatorCreateFromDeviceID(multitouchDeviceID);
