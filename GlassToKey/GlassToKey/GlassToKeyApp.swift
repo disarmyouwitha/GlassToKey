@@ -68,6 +68,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(syncItem)
         menu.addItem(.separator())
 
+        let restartItem = NSMenuItem(
+            title: "Restart GlassToKey",
+            action: #selector(restartApp),
+            keyEquivalent: ""
+        )
+        restartItem.target = self
+        menu.addItem(restartItem)
+
         let quitItem = NSMenuItem(
             title: "Quit GlassToKey",
             action: #selector(quitApp),
@@ -165,6 +173,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func syncDevices() {
         controller.viewModel.loadDevices(preserveSelection: true)
+    }
+
+    @objc private func restartApp() {
+        let bundlePath = Bundle.main.bundlePath
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        task.arguments = ["-n", bundlePath]
+        try? task.run()
+        NSApp.terminate(nil)
     }
 
     @objc private func quitApp() {
