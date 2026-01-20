@@ -506,8 +506,15 @@ final class ContentViewModel: ObservableObject {
             selection.leftIndex = leftIndex
             selection.rightIndex = rightIndex
         }
+        let leftDeviceID = leftDevice?.deviceID
+        let rightDeviceID = rightDevice?.deviceID
         Task { [processor] in
-            await processor.updateActiveDevices(leftIndex: leftIndex, rightIndex: rightIndex)
+            await processor.updateActiveDevices(
+                leftIndex: leftIndex,
+                rightIndex: rightIndex,
+                leftDeviceID: leftDeviceID,
+                rightDeviceID: rightDeviceID
+            )
         }
     }
     func setPersistentLayer(_ layer: Int) {
@@ -543,6 +550,12 @@ final class ContentViewModel: ObservableObject {
     func updateForceClickCap(_ grams: Double) {
         Task { [processor] in
             await processor.updateForceClickCap(grams)
+        }
+    }
+
+    func updateHapticStrength(_ normalized: Double) {
+        Task { [processor] in
+            await processor.updateHapticStrength(normalized)
         }
     }
 
@@ -616,6 +629,8 @@ final class ContentViewModel: ObservableObject {
             let initialPressure: Float
             var forceEntryTime: TimeInterval?
             var forceGuardTriggered: Bool
+
+            var hasPlayedDownHaptic: Bool
 
         }
         private struct PendingTouch {
@@ -732,6 +747,8 @@ final class ContentViewModel: ObservableObject {
         private var persistentLayer: Int = 0
         private var leftDeviceIndex: Int?
         private var rightDeviceIndex: Int?
+        private var leftDeviceID: String?
+        private var rightDeviceID: String?
         private var customButtons: [CustomButton] = []
         private var customButtonsByLayerAndSide: [Int: [TrackpadSide: [CustomButton]]] = [:]
         private var customKeyMappingsByLayer: LayeredKeyMappings = [:]
@@ -768,6 +785,7 @@ final class ContentViewModel: ObservableObject {
         private var bindingsCacheLayer: Int = -1
         private var bindingsGeneration = 0
         private var bindingsGenerationBySide: [TrackpadSide: Int] = [:]
+        private var hapticStrength: Double = 0
 
 #if DEBUG
         private let signposter = OSSignposter(
@@ -796,9 +814,16 @@ final class ContentViewModel: ObservableObject {
             self.isListening = isListening
         }
 
-        func updateActiveDevices(leftIndex: Int?, rightIndex: Int?) {
+        func updateActiveDevices(
+            leftIndex: Int?,
+            rightIndex: Int?,
+            leftDeviceID: String?,
+            rightDeviceID: String?
+        ) {
             leftDeviceIndex = leftIndex
             rightDeviceIndex = rightIndex
+            self.leftDeviceID = leftDeviceID
+            self.rightDeviceID = rightDeviceID
         }
 
         func updateLayouts(
@@ -857,6 +882,11 @@ final class ContentViewModel: ObservableObject {
 
         func updateForceClickCap(_ grams: Double) {
             forceClickCap = Float(max(0, grams))
+        }
+
+        func updateHapticStrength(_ normalized: Double) {
+            let clamped = min(max(normalized, 0.0), 1.0)
+            hapticStrength = clamped
         }
 
         func processTouchFrame(_ frame: TouchFrame) {
@@ -1108,6 +1138,8 @@ final class ContentViewModel: ObservableObject {
                                     initialPressure: pending.initialPressure,
                                     forceEntryTime: pending.forceEntryTime,
                                     forceGuardTriggered: pending.forceGuardTriggered
+                                    ,
+                                    hasPlayedDownHaptic: false
                                 )
                                 setActiveTouch(touchKey, active)
                                 if let modifierKey {
@@ -1154,6 +1186,8 @@ final class ContentViewModel: ObservableObject {
                                     initialPressure: touch.pressure,
                                     forceEntryTime: nil,
                                     forceGuardTriggered: false
+                                    ,
+                                    hasPlayedDownHaptic: false
                                 )
                             )
                             if let modifierKey {
@@ -1340,7 +1374,12 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func setActiveTouch(_ touchKey: TouchKey, _ active: ActiveTouch) {
-            touchStates[touchKey] = .active(active)
+            var next = active
+            if !next.hasPlayedDownHaptic {
+                playHapticIfNeeded(on: next.binding.side)
+                next.hasPlayedDownHaptic = true
+            }
+            touchStates[touchKey] = .active(next)
         }
 
         private func setPendingTouch(_ touchKey: TouchKey, _ pending: PendingTouch) {
@@ -1719,6 +1758,9 @@ final class ContentViewModel: ObservableObject {
             case .none:
                 break
             case let .key(code, flags):
+                if dispatchInfo?.kind == .hold {
+                    playHapticIfNeeded(on: binding.side)
+                }
 #if DEBUG
                 onDebugBindingDetected(binding)
 #endif
@@ -1730,11 +1772,11 @@ final class ContentViewModel: ObservableObject {
                     durationMs: dispatchInfo?.durationMs,
                     maxDistance: dispatchInfo?.maxDistance
                 )
-                sendKey(code: code, flags: flags)
+                sendKey(code: code, flags: flags, side: binding.side)
             }
         }
 
-        private func sendKey(code: CGKeyCode, flags: CGEventFlags) {
+        private func sendKey(code: CGKeyCode, flags: CGEventFlags, side: TrackpadSide?) {
             let combinedFlags = flags.union(currentModifierFlags())
             keyDispatcher.postKeyStroke(code: code, flags: combinedFlags)
         }
@@ -1769,7 +1811,24 @@ final class ContentViewModel: ObservableObject {
                 durationMs: dispatchInfo?.durationMs,
                 maxDistance: dispatchInfo?.maxDistance
             )
-            sendKey(code: code, flags: flags)
+            sendKey(code: code, flags: flags, side: binding.side)
+        }
+
+        private func playHapticIfNeeded(on side: TrackpadSide?) {
+            guard hapticStrength > 0 else { return }
+            let deviceID: String?
+            switch side {
+            case .left:
+                deviceID = leftDeviceID
+            case .right:
+                deviceID = rightDeviceID
+            case .none:
+                deviceID = nil
+            }
+            let strength = hapticStrength
+            Task.detached(priority: .userInitiated) {
+                _ = OMSManager.shared.playHapticFeedback(strength: strength, deviceID: deviceID)
+            }
         }
 
         private func startRepeat(for touchKey: TouchKey, binding: KeyBinding) {

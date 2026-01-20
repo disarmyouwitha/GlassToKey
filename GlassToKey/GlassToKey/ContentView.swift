@@ -76,6 +76,7 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.twoFingerSuppressionDuration) private var twoFingerSuppressionDurationMs: Double = GlassToKeySettings.twoFingerSuppressionMs
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
     @AppStorage(GlassToKeyDefaultsKeys.forceClickCap) private var forceClickCapSetting: Double = GlassToKeySettings.forceClickCap
+    @AppStorage(GlassToKeyDefaultsKeys.hapticStrength) private var hapticStrengthSetting: Double = GlassToKeySettings.hapticStrengthPercent
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -87,9 +88,10 @@ struct ContentView: View {
     fileprivate static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
     fileprivate static let dragCancelDistanceRange: ClosedRange<Double> = 1.0...30.0
     fileprivate static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
-    fileprivate static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...20.0
+    fileprivate static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...50.0
     fileprivate static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
     fileprivate static let twoFingerSuppressionRange: ClosedRange<Double> = 0.0...100.0
+    fileprivate static let hapticStrengthRange: ClosedRange<Double> = 0.0...100.0
     private static let keyCornerRadius: CGFloat = 6.0
     fileprivate static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -163,6 +165,15 @@ struct ContentView: View {
         formatter.maximum = NSNumber(value: ContentView.forceClickCapRange.upperBound)
         return formatter
     }()
+    fileprivate static let hapticStrengthFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.minimum = NSNumber(value: 0)
+        formatter.maximum = NSNumber(value: 100)
+        return formatter
+    }()
     private static let legacyKeyScaleKey = "GlassToKey.keyScale"
     private static let legacyKeyOffsetXKey = "GlassToKey.keyOffsetX"
     private static let legacyKeyOffsetYKey = "GlassToKey.keyOffsetY"
@@ -180,8 +191,6 @@ struct ContentView: View {
     private var layoutColumnAnchors: [CGPoint] { layoutOption.columnAnchors }
     private var leftGridLabels: [[String]] { layoutOption.leftLabels }
     private var rightGridLabels: [[String]] { layoutOption.rightLabels }
-    private let onEditModeChange: ((Bool) -> Void)?
-
     private var layoutSelectionBinding: Binding<TrackpadLayoutPreset> {
         Binding(
             get: { layoutOption },
@@ -189,11 +198,7 @@ struct ContentView: View {
         )
     }
 
-    init(
-        viewModel: ContentViewModel = ContentViewModel(),
-        onEditModeChange: ((Bool) -> Void)? = nil
-    ) {
-        self.onEditModeChange = onEditModeChange
+    init(viewModel: ContentViewModel = ContentViewModel()) {
         _viewModel = StateObject(wrappedValue: viewModel)
         let size = CGSize(
             width: Self.trackpadWidthMM * Self.displayScale,
@@ -233,93 +238,106 @@ struct ContentView: View {
     }
 
     var body: some View {
+        lifecycleContent(styledMainLayout)
+    }
+
+    private var styledMainLayout: some View {
         mainLayout
-        .padding()
-        .background(
-            RadialGradient(
-                colors: [
-                    Color.accentColor.opacity(0.08),
-                    Color.clear
-                ],
-                center: .topLeading,
-                startRadius: 40,
-                endRadius: 420
-            )
+            .padding()
+            .background(backgroundGradient)
+            .frame(minWidth: trackpadSize.width * 2 + 520, minHeight: trackpadSize.height + 240)
+            .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private var backgroundGradient: RadialGradient {
+        RadialGradient(
+            colors: [
+                Color.accentColor.opacity(0.08),
+                Color.clear
+            ],
+            center: .topLeading,
+            startRadius: 40,
+            endRadius: 420
         )
-        .frame(minWidth: trackpadSize.width * 2 + 520, minHeight: trackpadSize.height + 240)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .onAppear {
-            applySavedSettings()
-        }
-        .onDisappear {
-            persistConfig()
-        }
-        .onChange(of: visualsEnabled) { enabled in
-            viewModel.setTouchSnapshotRecordingEnabled(enabled)
-            if !enabled {
-                viewModel.clearVisualCaches()
-                editModeEnabled = false
+    }
+
+    private func lifecycleContent<Content: View>(_ content: Content) -> some View {
+        content
+            .onAppear {
+                applySavedSettings()
+                viewModel.setAutoResyncEnabled(storedAutoResyncMissingTrackpads)
+            }
+            .onDisappear {
+                persistConfig()
+            }
+            .onChange(of: visualsEnabled) { enabled in
+                viewModel.setTouchSnapshotRecordingEnabled(enabled)
+                if !enabled {
+                    viewModel.clearVisualCaches()
+                    editModeEnabled = false
+                    selectedButtonID = nil
+                    selectedColumn = nil
+                    selectedGridKey = nil
+                }
+            }
+            .onChange(of: editModeEnabled) { enabled in
+                if enabled {
+                    visualsEnabled = true
+                } else {
+                    selectedButtonID = nil
+                    selectedColumn = nil
+                    selectedGridKey = nil
+                }
+            }
+            .onChange(of: columnSettings) { newValue in
+                applyColumnSettings(newValue)
+                refreshColumnInspectorSelection()
+            }
+            .onChange(of: customButtons) { newValue in
+                viewModel.updateCustomButtons(newValue)
+                refreshButtonInspectorSelection()
+            }
+            .onChange(of: viewModel.activeLayer) { _ in
                 selectedButtonID = nil
                 selectedColumn = nil
                 selectedGridKey = nil
+                updateGridLabelInfo()
             }
-        }
-        .onChange(of: editModeEnabled) { enabled in
-            if enabled {
-                visualsEnabled = true
-            } else {
-                selectedButtonID = nil
-                selectedColumn = nil
-                selectedGridKey = nil
+            .onChange(of: keyMappingsByLayer) { newValue in
+                viewModel.updateKeyMappings(newValue)
+                updateGridLabelInfo()
+                refreshKeyInspectorSelection()
             }
-            onEditModeChange?(enabled)
-        }
-        .onAppear {
-            viewModel.setAutoResyncEnabled(storedAutoResyncMissingTrackpads)
-        }
-        .onChange(of: columnSettings) { newValue in
-            applyColumnSettings(newValue)
-            refreshColumnInspectorSelection()
-        }
-        .onChange(of: customButtons) { newValue in
-            viewModel.updateCustomButtons(newValue)
-            refreshButtonInspectorSelection()
-        }
-        .onChange(of: viewModel.activeLayer) { _ in
-            selectedButtonID = nil
-            selectedColumn = nil
-            selectedGridKey = nil
-            updateGridLabelInfo()
-        }
-        .onChange(of: keyMappingsByLayer) { newValue in
-            viewModel.updateKeyMappings(newValue)
-            updateGridLabelInfo()
-            refreshKeyInspectorSelection()
-        }
-        .onChange(of: selectedButtonID) { _ in
-            refreshButtonInspectorSelection()
-        }
-        .onChange(of: selectedColumn) { _ in
-            refreshColumnInspectorSelection()
-        }
-        .onChange(of: selectedGridKey) { _ in
-            refreshKeyInspectorSelection()
-        }
-        .onChange(of: tapHoldDurationMs) { newValue in
-            viewModel.updateHoldThreshold(newValue / 1000.0)
-        }
-        .onChange(of: twoFingerTapIntervalMs) { newValue in
-            viewModel.updateTwoFingerTapInterval(newValue / 1000.0)
-        }
-        .onChange(of: twoFingerSuppressionDurationMs) { newValue in
-            viewModel.updateTwoFingerSuppressionDuration(newValue / 1000.0)
-        }
-        .onChange(of: dragCancelDistanceSetting) { newValue in
-            viewModel.updateDragCancelDistance(CGFloat(newValue))
-        }
-        .onChange(of: forceClickCapSetting) { newValue in
-            viewModel.updateForceClickCap(newValue)
-        }
+            .onChange(of: selectedButtonID) { _ in
+                refreshButtonInspectorSelection()
+            }
+            .onChange(of: selectedColumn) { _ in
+                refreshColumnInspectorSelection()
+            }
+            .onChange(of: selectedGridKey) { _ in
+                refreshKeyInspectorSelection()
+            }
+            .onChange(of: tapHoldDurationMs) { newValue in
+                viewModel.updateHoldThreshold(newValue / 1000.0)
+            }
+            .onChange(of: twoFingerTapIntervalMs) { newValue in
+                viewModel.updateTwoFingerTapInterval(newValue / 1000.0)
+            }
+            .onChange(of: twoFingerSuppressionDurationMs) { newValue in
+                viewModel.updateTwoFingerSuppressionDuration(newValue / 1000.0)
+            }
+            .onChange(of: dragCancelDistanceSetting) { newValue in
+                viewModel.updateDragCancelDistance(CGFloat(newValue))
+            }
+            .onChange(of: forceClickCapSetting) { newValue in
+                viewModel.updateForceClickCap(newValue)
+            }
+            .onChange(of: hapticStrengthSetting) { newValue in
+                viewModel.updateHapticStrength(newValue / 100.0)
+            }
+            .onChange(of: storedAutoResyncMissingTrackpads) { newValue in
+                viewModel.setAutoResyncEnabled(newValue)
+            }
     }
 
     @ViewBuilder
@@ -390,6 +408,7 @@ struct ContentView: View {
             twoFingerTapIntervalMs: $twoFingerTapIntervalMs,
             twoFingerSuppressionDurationMs: $twoFingerSuppressionDurationMs,
             forceClickCapSetting: $forceClickCapSetting,
+            hapticStrengthSetting: $hapticStrengthSetting,
             onRefreshDevices: {
                 viewModel.loadDevices(preserveSelection: true)
             },
@@ -484,8 +503,6 @@ struct ContentView: View {
 
         var body: some View {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Trackpad Deck")
-                    .font(.headline)
                 TrackpadDeckView(
                     viewModel: viewModel,
                     trackpadSize: trackpadSize,
@@ -534,6 +551,8 @@ struct ContentView: View {
         @Binding var twoFingerTapIntervalMs: Double
         @Binding var twoFingerSuppressionDurationMs: Double
         @Binding var forceClickCapSetting: Double
+        @Binding var hapticStrengthSetting: Double
+        @State private var typingTuningExpanded = true
         let onRefreshDevices: () -> Void
         let onAutoResyncChange: (Bool) -> Void
         let onAddCustomButton: (TrackpadSide) -> Void
@@ -560,6 +579,31 @@ struct ContentView: View {
                     onRefresh: onRefreshDevices
                 )
 
+                if !editModeEnabled {
+                    DisclosureGroup(
+                        isExpanded: $typingTuningExpanded
+                    ) {
+                        TypingTuningSectionView(
+                            tapHoldDurationMs: $tapHoldDurationMs,
+                            dragCancelDistanceSetting: $dragCancelDistanceSetting,
+                            twoFingerTapIntervalMs: $twoFingerTapIntervalMs,
+                            twoFingerSuppressionDurationMs: $twoFingerSuppressionDurationMs,
+                            forceClickCapSetting: $forceClickCapSetting,
+                            hapticStrengthSetting: $hapticStrengthSetting
+                        )
+                        .padding(.top, 8)
+                    } label: {
+                        Text("Typing Tuning")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.primary.opacity(0.05))
+                    )
+                }
+
                 HStack(alignment: .top, spacing: 12) {
                     ColumnTuningSectionView(
                         layoutSelection: layoutSelection,
@@ -575,16 +619,6 @@ struct ContentView: View {
                         onClearTouchState: onClearTouchState,
                         onUpdateButton: onUpdateButton,
                         onUpdateKeyMapping: onUpdateKeyMapping
-                    )
-                }
-
-                if !editModeEnabled {
-                    TypingTuningSectionView(
-                        tapHoldDurationMs: $tapHoldDurationMs,
-                        dragCancelDistanceSetting: $dragCancelDistanceSetting,
-                        twoFingerTapIntervalMs: $twoFingerTapIntervalMs,
-                        twoFingerSuppressionDurationMs: $twoFingerSuppressionDurationMs,
-                        forceClickCapSetting: $forceClickCapSetting
                     )
                 }
             }
@@ -1052,95 +1086,101 @@ struct ContentView: View {
         @Binding var twoFingerTapIntervalMs: Double
         @Binding var twoFingerSuppressionDurationMs: Double
         @Binding var forceClickCapSetting: Double
+        @Binding var hapticStrengthSetting: Double
 
         var body: some View {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Typing Tuning")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
-                    GridRow {
-                        Text("Tap/Hold (ms)")
-                        TextField(
-                            "200",
-                            value: $tapHoldDurationMs,
-                            formatter: ContentView.tapHoldDurationFormatter
-                        )
-                        .frame(width: 60)
-                        Slider(
-                            value: $tapHoldDurationMs,
-                            in: ContentView.tapHoldDurationRange,
-                            step: 10
-                        )
-                        .frame(minWidth: 120)
-                    }
-                    GridRow {
-                        Text("Drag Cancel")
-                        TextField(
-                            "1",
-                            value: $dragCancelDistanceSetting,
-                            formatter: ContentView.dragCancelDistanceFormatter
-                        )
-                        .frame(width: 60)
-                        Slider(
-                            value: $dragCancelDistanceSetting,
-                            in: ContentView.dragCancelDistanceRange,
-                            step: 1
-                        )
-                        .frame(minWidth: 120)
-                    }
-                    GridRow {
-                        Text("2-Finger Tap (ms)")
-                        TextField(
-                            "10",
-                            value: $twoFingerTapIntervalMs,
-                            formatter: ContentView.twoFingerTapIntervalFormatter
-                        )
-                        .frame(width: 60)
-                        Slider(
-                            value: $twoFingerTapIntervalMs,
-                            in: ContentView.twoFingerTapIntervalRange,
-                            step: 1
-                        )
-                        .frame(minWidth: 120)
-                    }
-                    GridRow {
-                        Text("2-Finger Suppress (ms)")
-                        TextField(
-                            "0",
-                            value: $twoFingerSuppressionDurationMs,
-                            formatter: ContentView.twoFingerSuppressionFormatter
-                        )
-                        .frame(width: 60)
-                        Slider(
-                            value: $twoFingerSuppressionDurationMs,
-                            in: ContentView.twoFingerSuppressionRange,
-                            step: 5
-                        )
-                        .frame(minWidth: 120)
-                    }
-                    GridRow {
-                        Text("Force Cap (g)")
-                        TextField(
-                            "0",
-                            value: $forceClickCapSetting,
-                            formatter: ContentView.forceClickCapFormatter
-                        )
-                        .frame(width: 60)
-                        Slider(
-                            value: $forceClickCapSetting,
-                            in: ContentView.forceClickCapRange,
-                            step: 5
-                        )
-                        .frame(minWidth: 120)
-                    }
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                GridRow {
+                    Text("Tap/Hold (ms)")
+                    TextField(
+                        "200",
+                        value: $tapHoldDurationMs,
+                        formatter: ContentView.tapHoldDurationFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $tapHoldDurationMs,
+                        in: ContentView.tapHoldDurationRange,
+                        step: 10
+                    )
+                    .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("Drag Cancel")
+                    TextField(
+                        "1",
+                        value: $dragCancelDistanceSetting,
+                        formatter: ContentView.dragCancelDistanceFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $dragCancelDistanceSetting,
+                        in: ContentView.dragCancelDistanceRange,
+                        step: 1
+                    )
+                    .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("2-Finger Tap (ms)")
+                    TextField(
+                        "10",
+                        value: $twoFingerTapIntervalMs,
+                        formatter: ContentView.twoFingerTapIntervalFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $twoFingerTapIntervalMs,
+                        in: ContentView.twoFingerTapIntervalRange,
+                        step: 5
+                    )
+                    .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("2-Finger Suppress (ms)")
+                    TextField(
+                        "0",
+                        value: $twoFingerSuppressionDurationMs,
+                        formatter: ContentView.twoFingerSuppressionFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $twoFingerSuppressionDurationMs,
+                        in: ContentView.twoFingerSuppressionRange,
+                        step: 5
+                    )
+                    .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("Force Cap (g)")
+                    TextField(
+                        "0",
+                        value: $forceClickCapSetting,
+                        formatter: ContentView.forceClickCapFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $forceClickCapSetting,
+                        in: ContentView.forceClickCapRange,
+                        step: 5
+                    )
+                    .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("Haptic Strength (%)")
+                    TextField(
+                        "70",
+                        value: $hapticStrengthSetting,
+                        formatter: ContentView.hapticStrengthFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $hapticStrengthSetting,
+                        in: ContentView.hapticStrengthRange,
+                        step: 10
+                    )
+                    .frame(minWidth: 120)
                 }
             }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.primary.opacity(0.05))
-            )
         }
     }
 
@@ -1850,6 +1890,7 @@ struct ContentView: View {
         viewModel.updateTwoFingerTapInterval(twoFingerTapIntervalMs / 1000.0)
         viewModel.updateTwoFingerSuppressionDuration(twoFingerSuppressionDurationMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragCancelDistanceSetting))
+        viewModel.updateHapticStrength(hapticStrengthSetting / 100.0)
         viewModel.setTouchSnapshotRecordingEnabled(visualsEnabled)
     }
 
