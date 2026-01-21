@@ -1910,21 +1910,25 @@ final class ContentViewModel: ObservableObject {
             switch modifierKey {
             case .shift:
                 if leftShiftTouchCount == 0 {
+                    playHapticIfNeeded(on: binding.side)
                     postKey(binding: binding, keyDown: true)
                 }
                 leftShiftTouchCount += 1
             case .control:
                 if controlTouchCount == 0 {
+                    playHapticIfNeeded(on: binding.side)
                     postKey(binding: binding, keyDown: true)
                 }
                 controlTouchCount += 1
             case .option:
                 if optionTouchCount == 0 {
+                    playHapticIfNeeded(on: binding.side)
                     postKey(binding: binding, keyDown: true)
                 }
                 optionTouchCount += 1
             case .command:
                 if commandTouchCount == 0 {
+                    playHapticIfNeeded(on: binding.side)
                     postKey(binding: binding, keyDown: true)
                 }
                 commandTouchCount += 1
