@@ -632,7 +632,6 @@ final class ContentViewModel: ObservableObject {
             var forceEntryTime: TimeInterval?
             var forceGuardTriggered: Bool
 
-            var hasPlayedDownHaptic: Bool
         }
         private struct PendingTouch {
             let binding: KeyBinding
@@ -1146,7 +1145,6 @@ final class ContentViewModel: ObservableObject {
                                 initialPressure: pending.initialPressure,
                                 forceEntryTime: pending.forceEntryTime,
                                 forceGuardTriggered: pending.forceGuardTriggered,
-                                hasPlayedDownHaptic: false
                             )
                             setActiveTouch(touchKey, active)
                             if let modifierKey {
@@ -1192,7 +1190,6 @@ final class ContentViewModel: ObservableObject {
                                     initialPressure: touch.pressure,
                                     forceEntryTime: nil,
                                     forceGuardTriggered: false,
-                                    hasPlayedDownHaptic: false
                                 )
                             )
                             if let modifierKey {
@@ -1379,13 +1376,7 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func setActiveTouch(_ touchKey: TouchKey, _ active: ActiveTouch) {
-            var next = active
-            if !next.hasPlayedDownHaptic,
-               initialContactPointIsInsideBinding(touchKey, binding: next.binding) {
-                playHapticIfNeeded(on: next.binding.side, touchKey: touchKey)
-            }
-            next.hasPlayedDownHaptic = true
-            touchStates[touchKey] = .active(next)
+            touchStates[touchKey] = .active(active)
         }
 
         private func setPendingTouch(_ touchKey: TouchKey, _ pending: PendingTouch) {
@@ -1764,12 +1755,10 @@ final class ContentViewModel: ObservableObject {
             case .none:
                 break
             case let .key(code, flags):
-                if dispatchInfo?.kind == .hold {
-                    playHapticIfNeeded(on: binding.side, touchKey: touchKey)
-                }
 #if DEBUG
                 onDebugBindingDetected(binding)
             #endif
+                playHapticIfNeeded(on: binding.side, touchKey: touchKey)
                 logKeyDispatch(
                     label: binding.label,
                     code: code,
