@@ -768,7 +768,6 @@ final class ContentViewModel: ObservableObject {
         private var hapticTasks: [TouchKey: (id: UUID, task: Task<Void, Never>)] = [:]
         private var tapMaxDuration: TimeInterval = 0.2
         private var holdMinDuration: TimeInterval = 0.2
-        private let modifierActivationDelay: TimeInterval = 0.05
         private var dragCancelDistance: CGFloat = 2.5
         private var twoFingerTapMaxInterval: TimeInterval = 0.08
         private var twoFingerSuppressionDuration: TimeInterval = 0
@@ -1131,37 +1130,35 @@ final class ContentViewModel: ObservableObject {
                             continue
                         }
 
-                        if now - pending.startTime >= modifierActivationDelay {
-                            if pending.binding.rect.contains(point) {
-                                let modifierKey = modifierKey(for: pending.binding)
-                                let isContinuousKey = isContinuousKey(pending.binding)
-                                let holdBinding = holdBinding(for: pending.binding)
-                                let active = ActiveTouch(
-                                    binding: pending.binding,
-                                    startTime: pending.startTime,
-                                    startPoint: pending.startPoint,
-                                    modifierKey: modifierKey,
-                                    isContinuousKey: isContinuousKey,
-                                    holdBinding: holdBinding,
-                                    didHold: false,
-                                    maxDistanceSquared: pending.maxDistanceSquared,
-                                    initialPressure: pending.initialPressure,
-                                    forceEntryTime: pending.forceEntryTime,
-                                    forceGuardTriggered: pending.forceGuardTriggered,
-                                    hasPlayedDownHaptic: false
-                                )
-                                setActiveTouch(touchKey, active)
-                                if let modifierKey {
-                                    handleModifierDown(modifierKey, binding: pending.binding)
-                                } else if isContinuousKey {
-                                    triggerBinding(pending.binding, touchKey: touchKey)
-                                    startRepeat(for: touchKey, binding: pending.binding)
-                                }
-                            } else if isDragDetectionEnabled {
-                                disqualifyTouch(touchKey, reason: .pendingLeftRect)
-                            } else {
-                                _ = removePendingTouch(for: touchKey)
+                        if pending.binding.rect.contains(point) {
+                            let modifierKey = modifierKey(for: pending.binding)
+                            let isContinuousKey = isContinuousKey(pending.binding)
+                            let holdBinding = holdBinding(for: pending.binding)
+                            let active = ActiveTouch(
+                                binding: pending.binding,
+                                startTime: pending.startTime,
+                                startPoint: pending.startPoint,
+                                modifierKey: modifierKey,
+                                isContinuousKey: isContinuousKey,
+                                holdBinding: holdBinding,
+                                didHold: false,
+                                maxDistanceSquared: pending.maxDistanceSquared,
+                                initialPressure: pending.initialPressure,
+                                forceEntryTime: pending.forceEntryTime,
+                                forceGuardTriggered: pending.forceGuardTriggered,
+                                hasPlayedDownHaptic: false
+                            )
+                            setActiveTouch(touchKey, active)
+                            if let modifierKey {
+                                handleModifierDown(modifierKey, binding: pending.binding)
+                            } else if isContinuousKey {
+                                triggerBinding(pending.binding, touchKey: touchKey)
+                                startRepeat(for: touchKey, binding: pending.binding)
                             }
+                        } else if isDragDetectionEnabled {
+                            disqualifyTouch(touchKey, reason: .pendingLeftRect)
+                        } else {
+                            _ = removePendingTouch(for: touchKey)
                         }
                     } else if let binding = bindingAtPoint {
                         let modifierKey = modifierKey(for: binding)
