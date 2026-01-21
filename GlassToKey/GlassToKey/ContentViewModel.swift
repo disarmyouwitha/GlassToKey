@@ -595,6 +595,7 @@ final class ContentViewModel: ObservableObject {
             case dragCancelled
             case pendingDragCancelled
             case leftContinuousRect
+            case leftKeyRect
             case pendingLeftRect
             case twoFingerSuppressed
             case typingDisabled
@@ -1086,6 +1087,13 @@ final class ContentViewModel: ObservableObject {
                            !active.didHold,
                            active.maxDistanceSquared > dragCancelDistanceSquared {
                             disqualifyTouch(touchKey, reason: .dragCancelled)
+                            continue
+                        }
+
+                        if !active.isContinuousKey,
+                           !active.binding.rect.contains(point),
+                           initialContactPointIsInsideBinding(touchKey, binding: active.binding) {
+                            disqualifyTouch(touchKey, reason: .leftKeyRect)
                             continue
                         }
 
