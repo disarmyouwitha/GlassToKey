@@ -1374,10 +1374,11 @@ final class ContentViewModel: ObservableObject {
 
         private func setActiveTouch(_ touchKey: TouchKey, _ active: ActiveTouch) {
             var next = active
-            if !next.hasPlayedDownHaptic {
+            if !next.hasPlayedDownHaptic,
+               shouldPlayDownHaptic(for: touchKey, binding: next.binding) {
                 playHapticIfNeeded(on: next.binding.side, touchKey: touchKey)
-                next.hasPlayedDownHaptic = true
             }
+            next.hasPlayedDownHaptic = true
             touchStates[touchKey] = .active(next)
         }
 
@@ -1868,6 +1869,13 @@ final class ContentViewModel: ObservableObject {
 
         private func isTouchDisqualified(_ touchKey: TouchKey) -> Bool {
             disqualifiedTouches.contains(touchKey)
+        }
+
+        private func shouldPlayDownHaptic(for touchKey: TouchKey, binding: KeyBinding) -> Bool {
+            guard let startPoint = touchInitialContactPoint[touchKey] else {
+                return true
+            }
+            return binding.rect.contains(startPoint)
         }
 
         private func startRepeat(for touchKey: TouchKey, binding: KeyBinding) {

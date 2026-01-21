@@ -1,5 +1,6 @@
 ## TODO
-- single-finge to 2 emitter
+- single-finger to 2 emitter
+- normalize to sensor grid?
 - trackpad battery level?
 - key for enable/disable mouse using CGEventTapCreate?? finger events, don't send keys.
 ###
