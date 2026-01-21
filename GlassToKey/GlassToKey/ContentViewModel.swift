@@ -1100,7 +1100,8 @@ final class ContentViewModel: ObservableObject {
                            !active.didHold,
                            let holdBinding = active.holdBinding,
                            now - active.startTime >= holdMinDuration,
-                           (!isDragDetectionEnabled || active.maxDistanceSquared <= dragCancelDistanceSquared) {
+                           (!isDragDetectionEnabled || active.maxDistanceSquared <= dragCancelDistanceSquared),
+                           initialContactPointIsInsideBinding(touchKey, binding: active.binding) {
                             let dispatchInfo = makeDispatchInfo(
                                 kind: .hold,
                                 startTime: active.startTime,
@@ -1375,7 +1376,7 @@ final class ContentViewModel: ObservableObject {
         private func setActiveTouch(_ touchKey: TouchKey, _ active: ActiveTouch) {
             var next = active
             if !next.hasPlayedDownHaptic,
-               shouldPlayDownHaptic(for: touchKey, binding: next.binding) {
+               initialContactPointIsInsideBinding(touchKey, binding: next.binding) {
                 playHapticIfNeeded(on: next.binding.side, touchKey: touchKey)
             }
             next.hasPlayedDownHaptic = true
@@ -1871,7 +1872,7 @@ final class ContentViewModel: ObservableObject {
             disqualifiedTouches.contains(touchKey)
         }
 
-        private func shouldPlayDownHaptic(for touchKey: TouchKey, binding: KeyBinding) -> Bool {
+        private func initialContactPointIsInsideBinding(_ touchKey: TouchKey, binding: KeyBinding) -> Bool {
             guard let startPoint = touchInitialContactPoint[touchKey] else {
                 return true
             }
