@@ -1,6 +1,7 @@
 ## TODO
+- single-finger to 2 emitter
+- normalize to sensor grid?
 - trackpad battery level?
-- two-finger-suppression branch, ignore all 2
 - key for enable/disable mouse using CGEventTapCreate?? finger events, don't send keys.
 ###
 - random quote above textbox

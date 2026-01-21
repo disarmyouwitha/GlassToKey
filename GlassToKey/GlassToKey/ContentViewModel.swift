@@ -7,6 +7,7 @@
 
 import Carbon
 import CoreGraphics
+import Foundation
 import OpenMultitouchSupport
 import QuartzCore
 import SwiftUI
@@ -594,6 +595,7 @@ final class ContentViewModel: ObservableObject {
             case dragCancelled
             case pendingDragCancelled
             case leftContinuousRect
+            case leftKeyRect
             case pendingLeftRect
             case twoFingerSuppressed
             case typingDisabled
@@ -629,8 +631,6 @@ final class ContentViewModel: ObservableObject {
             let initialPressure: Float
             var forceEntryTime: TimeInterval?
             var forceGuardTriggered: Bool
-
-            var hasPlayedDownHaptic: Bool
 
         }
         private struct PendingTouch {
@@ -764,9 +764,9 @@ final class ContentViewModel: ObservableObject {
         private var layerToggleTouchStarts: [TouchKey: Int] = [:]
         private var momentaryLayerTouches: [TouchKey: Int] = [:]
         private var touchInitialContactPoint: [TouchKey: CGPoint] = [:]
+        private var hapticTasks: [TouchKey: (id: UUID, task: Task<Void, Never>)] = [:]
         private var tapMaxDuration: TimeInterval = 0.2
         private var holdMinDuration: TimeInterval = 0.2
-        private let modifierActivationDelay: TimeInterval = 0.05
         private var dragCancelDistance: CGFloat = 2.5
         private var twoFingerTapMaxInterval: TimeInterval = 0.08
         private var twoFingerSuppressionDuration: TimeInterval = 0
@@ -1088,6 +1088,13 @@ final class ContentViewModel: ObservableObject {
                             continue
                         }
 
+                        if !active.isContinuousKey,
+                           !active.binding.rect.contains(point),
+                           initialContactPointIsInsideBinding(touchKey, binding: active.binding) {
+                            disqualifyTouch(touchKey, reason: .leftKeyRect)
+                            continue
+                        }
+
                         if active.isContinuousKey,
                            !active.binding.rect.contains(point) {
                             disqualifyTouch(touchKey, reason: .leftContinuousRect)
@@ -1099,7 +1106,8 @@ final class ContentViewModel: ObservableObject {
                            !active.didHold,
                            let holdBinding = active.holdBinding,
                            now - active.startTime >= holdMinDuration,
-                           (!isDragDetectionEnabled || active.maxDistanceSquared <= dragCancelDistanceSquared) {
+                           (!isDragDetectionEnabled || active.maxDistanceSquared <= dragCancelDistanceSquared),
+                           initialContactPointIsInsideBinding(touchKey, binding: active.binding) {
                             let dispatchInfo = makeDispatchInfo(
                                 kind: .hold,
                                 startTime: active.startTime,
@@ -1121,38 +1129,34 @@ final class ContentViewModel: ObservableObject {
                             continue
                         }
 
-                        if now - pending.startTime >= modifierActivationDelay {
-                            if pending.binding.rect.contains(point) {
-                                let modifierKey = modifierKey(for: pending.binding)
-                                let isContinuousKey = isContinuousKey(pending.binding)
-                                let holdBinding = holdBinding(for: pending.binding)
-                                let active = ActiveTouch(
-                                    binding: pending.binding,
-                                    startTime: pending.startTime,
-                                    startPoint: pending.startPoint,
-                                    modifierKey: modifierKey,
-                                    isContinuousKey: isContinuousKey,
-                                    holdBinding: holdBinding,
-                                    didHold: false,
-                                    maxDistanceSquared: pending.maxDistanceSquared,
-                                    initialPressure: pending.initialPressure,
-                                    forceEntryTime: pending.forceEntryTime,
-                                    forceGuardTriggered: pending.forceGuardTriggered
-                                    ,
-                                    hasPlayedDownHaptic: false
-                                )
-                                setActiveTouch(touchKey, active)
-                                if let modifierKey {
-                                    handleModifierDown(modifierKey, binding: pending.binding)
-                                } else if isContinuousKey {
-                                    triggerBinding(pending.binding, touchKey: touchKey)
-                                    startRepeat(for: touchKey, binding: pending.binding)
-                                }
-                            } else if isDragDetectionEnabled {
-                                disqualifyTouch(touchKey, reason: .pendingLeftRect)
-                            } else {
-                                _ = removePendingTouch(for: touchKey)
+                        if pending.binding.rect.contains(point) {
+                            let modifierKey = modifierKey(for: pending.binding)
+                            let isContinuousKey = isContinuousKey(pending.binding)
+                            let holdBinding = holdBinding(for: pending.binding)
+                            let active = ActiveTouch(
+                                binding: pending.binding,
+                                startTime: pending.startTime,
+                                startPoint: pending.startPoint,
+                                modifierKey: modifierKey,
+                                isContinuousKey: isContinuousKey,
+                                holdBinding: holdBinding,
+                                didHold: false,
+                                maxDistanceSquared: pending.maxDistanceSquared,
+                                initialPressure: pending.initialPressure,
+                                forceEntryTime: pending.forceEntryTime,
+                                forceGuardTriggered: pending.forceGuardTriggered,
+                            )
+                            setActiveTouch(touchKey, active)
+                            if let modifierKey {
+                                handleModifierDown(modifierKey, binding: pending.binding)
+                            } else if isContinuousKey {
+                                triggerBinding(pending.binding, touchKey: touchKey)
+                                startRepeat(for: touchKey, binding: pending.binding)
                             }
+                        } else if isDragDetectionEnabled {
+                            disqualifyTouch(touchKey, reason: .pendingLeftRect)
+                        } else {
+                            _ = removePendingTouch(for: touchKey)
                         }
                     } else if let binding = bindingAtPoint {
                         let modifierKey = modifierKey(for: binding)
@@ -1185,9 +1189,7 @@ final class ContentViewModel: ObservableObject {
                                     maxDistanceSquared: 0,
                                     initialPressure: touch.pressure,
                                     forceEntryTime: nil,
-                                    forceGuardTriggered: false
-                                    ,
-                                    hasPlayedDownHaptic: false
+                                    forceGuardTriggered: false,
                                 )
                             )
                             if let modifierKey {
@@ -1374,12 +1376,7 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func setActiveTouch(_ touchKey: TouchKey, _ active: ActiveTouch) {
-            var next = active
-            if !next.hasPlayedDownHaptic {
-                playHapticIfNeeded(on: next.binding.side)
-                next.hasPlayedDownHaptic = true
-            }
-            touchStates[touchKey] = .active(next)
+            touchStates[touchKey] = .active(active)
         }
 
         private func setPendingTouch(_ touchKey: TouchKey, _ pending: PendingTouch) {
@@ -1758,12 +1755,10 @@ final class ContentViewModel: ObservableObject {
             case .none:
                 break
             case let .key(code, flags):
-                if dispatchInfo?.kind == .hold {
-                    playHapticIfNeeded(on: binding.side)
-                }
 #if DEBUG
                 onDebugBindingDetected(binding)
-#endif
+            #endif
+                playHapticIfNeeded(on: binding.side, touchKey: touchKey)
                 logKeyDispatch(
                     label: binding.label,
                     code: code,
@@ -1800,7 +1795,7 @@ final class ContentViewModel: ObservableObject {
 
         private func sendKey(binding: KeyBinding, dispatchInfo: DispatchInfo? = nil) {
             guard case let .key(code, flags) = binding.action else { return }
-#if DEBUG
+            #if DEBUG
             onDebugBindingDetected(binding)
 #endif
             logKeyDispatch(
@@ -1814,8 +1809,9 @@ final class ContentViewModel: ObservableObject {
             sendKey(code: code, flags: flags, side: binding.side)
         }
 
-        private func playHapticIfNeeded(on side: TrackpadSide?) {
+        private func playHapticIfNeeded(on side: TrackpadSide?, touchKey: TouchKey? = nil) {
             guard hapticStrength > 0 else { return }
+            if let touchKey, disqualifiedTouches.contains(touchKey) { return }
             let deviceID: String?
             switch side {
             case .left:
@@ -1826,9 +1822,55 @@ final class ContentViewModel: ObservableObject {
                 deviceID = nil
             }
             let strength = hapticStrength
-            Task.detached(priority: .userInitiated) {
-                _ = OMSManager.shared.playHapticFeedback(strength: strength, deviceID: deviceID)
+            let requestID = UUID()
+            if let touchKey {
+                cancelHapticTask(for: touchKey)
             }
+            let storedTouchKey = touchKey
+            let task = Task.detached(priority: .userInitiated) { [weak self] in
+                if Task.isCancelled {
+                    return
+                }
+                await Task.yield()
+                if Task.isCancelled {
+                    return
+                }
+                if let touchKey = storedTouchKey,
+                   let self {
+                    if await self.isTouchDisqualified(touchKey) {
+                        return
+                    }
+                }
+                _ = OMSManager.shared.playHapticFeedback(strength: strength, deviceID: deviceID)
+                if let touchKey = storedTouchKey,
+                   let self {
+                    await self.hapticTaskDidComplete(touchKey: touchKey, id: requestID)
+                }
+            }
+            if let touchKey {
+                hapticTasks[touchKey] = (id: requestID, task: task)
+            }
+        }
+
+        private func cancelHapticTask(for touchKey: TouchKey) {
+            hapticTasks.removeValue(forKey: touchKey)?.task.cancel()
+        }
+
+        private func hapticTaskDidComplete(touchKey: TouchKey, id: UUID) {
+            if let entry = hapticTasks[touchKey], entry.id == id {
+                hapticTasks.removeValue(forKey: touchKey)
+            }
+        }
+
+        private func isTouchDisqualified(_ touchKey: TouchKey) -> Bool {
+            disqualifiedTouches.contains(touchKey)
+        }
+
+        private func initialContactPointIsInsideBinding(_ touchKey: TouchKey, binding: KeyBinding) -> Bool {
+            guard let startPoint = touchInitialContactPoint[touchKey] else {
+                return true
+            }
+            return binding.rect.contains(startPoint)
         }
 
         private func startRepeat(for touchKey: TouchKey, binding: KeyBinding) {
@@ -1981,6 +2023,10 @@ final class ContentViewModel: ObservableObject {
             }
             touchStates.removeAll()
             disqualifiedTouches.removeAll()
+            for entry in hapticTasks.values {
+                entry.task.cancel()
+            }
+            hapticTasks.removeAll()
             toggleTouchStarts.removeAll()
             layerToggleTouchStarts.removeAll()
             momentaryLayerTouches.removeAll()
@@ -1990,6 +2036,7 @@ final class ContentViewModel: ObservableObject {
 
         private func disqualifyTouch(_ touchKey: TouchKey, reason: DisqualifyReason) {
             touchInitialContactPoint.removeValue(forKey: touchKey)
+            cancelHapticTask(for: touchKey)
             disqualifiedTouches.insert(touchKey)
             if let state = popTouchState(for: touchKey),
                case let .active(active) = state {
