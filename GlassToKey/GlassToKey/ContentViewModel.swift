@@ -138,6 +138,13 @@ final class ContentViewModel: ObservableObject {
         let right: [OMSTouchData]
     }
 
+    enum IntentDisplay: String, Sendable {
+        case idle
+        case keyCandidate
+        case typing
+        case mouse
+    }
+
     private struct DeviceSelection: Sendable {
         var leftIndex: Int?
         var rightIndex: Int?
@@ -179,6 +186,10 @@ final class ContentViewModel: ObservableObject {
     @Published private(set) var contactFingerCountsBySide: [TrackpadSide: Int] = [
         .left: 0,
         .right: 0
+    ]
+    @Published private(set) var intentDisplayBySide: [TrackpadSide: IntentDisplay] = [
+        .left: .idle,
+        .right: .idle
     ]
     private let isDragDetectionEnabled = true
     @Published var availableDevices = [OMSDeviceInfo]()
@@ -225,6 +236,11 @@ final class ContentViewModel: ObservableObject {
                 weakSelf?.contactFingerCountsBySide = counts
             }
         }
+        let intentStateHandler: @Sendable ([TrackpadSide: IntentDisplay]) -> Void = { states in
+            Task { @MainActor in
+                weakSelf?.intentDisplayBySide = states
+            }
+        }
         processor = TouchProcessor(
             keyDispatcher: KeyEventDispatcher.shared,
             onTypingEnabledChanged: { isEnabled in
@@ -238,7 +254,8 @@ final class ContentViewModel: ObservableObject {
                 }
             },
             onDebugBindingDetected: debugBindingHandler,
-            onContactCountChanged: contactCountHandler
+            onContactCountChanged: contactCountHandler,
+            onIntentStateChanged: intentStateHandler
         )
         weakSelf = self
         loadDevices()
@@ -846,6 +863,7 @@ final class ContentViewModel: ObservableObject {
         private let onActiveLayerChanged: @Sendable (Int) -> Void
         private let onDebugBindingDetected: @Sendable (KeyBinding) -> Void
         private let onContactCountChanged: @Sendable ([TrackpadSide: Int]) -> Void
+        private let onIntentStateChanged: @Sendable ([TrackpadSide: IntentDisplay]) -> Void
         private let isDragDetectionEnabled = true
         private var isListening = false
         private var isTypingEnabled = true
@@ -893,9 +911,20 @@ final class ContentViewModel: ObservableObject {
         private var bindingsGeneration = 0
         private var bindingsGenerationBySide: [TrackpadSide: Int] = [:]
         private var hapticStrength: Double = 0
-        private var intentMode: IntentMode = .idle
-        private var intentTouches: [TouchKey: IntentTouchInfo] = [:]
-        private var lastContactCount = 0
+        private struct IntentState {
+            var mode: IntentMode = .idle
+            var touches: [TouchKey: IntentTouchInfo] = [:]
+            var lastContactCount = 0
+        }
+
+        private var intentStateBySide: [TrackpadSide: IntentState] = [
+            .left: IntentState(),
+            .right: IntentState()
+        ]
+        private var intentDisplayBySide: [TrackpadSide: IntentDisplay] = [
+            .left: .idle,
+            .right: .idle
+        ]
         private var intentConfig = IntentConfig()
         private var allowMouseTakeoverDuringTyping = false
 
@@ -915,13 +944,15 @@ final class ContentViewModel: ObservableObject {
             onTypingEnabledChanged: @Sendable @escaping (Bool) -> Void,
             onActiveLayerChanged: @Sendable @escaping (Int) -> Void,
             onDebugBindingDetected: @Sendable @escaping (KeyBinding) -> Void,
-            onContactCountChanged: @Sendable @escaping ([TrackpadSide: Int]) -> Void
+            onContactCountChanged: @Sendable @escaping ([TrackpadSide: Int]) -> Void,
+            onIntentStateChanged: @Sendable @escaping ([TrackpadSide: IntentDisplay]) -> Void
         ) {
             self.keyDispatcher = keyDispatcher
             self.onTypingEnabledChanged = onTypingEnabledChanged
             self.onActiveLayerChanged = onActiveLayerChanged
             self.onDebugBindingDetected = onDebugBindingDetected
             self.onContactCountChanged = onContactCountChanged
+            self.onIntentStateChanged = onIntentStateChanged
         }
 
         func setListening(_ isListening: Bool) {
@@ -1020,7 +1051,7 @@ final class ContentViewModel: ObservableObject {
                 return
             }
             let now = Self.now()
-            let intentAllowsTyping = updateIntent(for: frame, now: now)
+            let intentBySide = updateIntent(for: frame, now: now)
             processTouches(
                 frame.left,
                 layout: leftLayout,
@@ -1028,7 +1059,7 @@ final class ContentViewModel: ObservableObject {
                 labels: leftLabels,
                 isLeftSide: true,
                 now: now,
-                intentAllowsTyping: intentAllowsTyping
+                intentAllowsTyping: intentBySide[.left] ?? true
             )
             processTouches(
                 frame.right,
@@ -1037,7 +1068,7 @@ final class ContentViewModel: ObservableObject {
                 labels: rightLabels,
                 isLeftSide: false,
                 now: now,
-                intentAllowsTyping: intentAllowsTyping
+                intentAllowsTyping: intentBySide[.right] ?? true
             )
             notifyContactCounts()
         }
@@ -1318,7 +1349,8 @@ final class ContentViewModel: ObservableObject {
                         } else if shouldCommitTypingOnRelease(
                             touchKey: touchKey,
                             binding: pending.binding,
-                            point: point
+                            point: point,
+                            side: side
                         ) {
                             maybeSendPendingContinuousTap(pending, at: point, now: now)
                         }
@@ -1345,7 +1377,8 @@ final class ContentViewModel: ObservableObject {
                             if intentAllowsTyping || shouldCommitTypingOnRelease(
                                 touchKey: touchKey,
                                 binding: active.binding,
-                                point: point
+                                point: point,
+                                side: side
                             ) {
                                 let dispatchInfo = makeDispatchInfo(
                                     kind: .tap,
@@ -1371,7 +1404,8 @@ final class ContentViewModel: ObservableObject {
                         } else if shouldCommitTypingOnRelease(
                             touchKey: touchKey,
                             binding: pending.binding,
-                            point: point
+                            point: point,
+                            side: side
                         ) {
                             maybeSendPendingContinuousTap(pending, at: point, now: now)
                         }
@@ -1665,15 +1699,15 @@ final class ContentViewModel: ObservableObject {
             }
         }
 
-        private func updateIntent(for frame: TouchFrame, now: TimeInterval) -> Bool {
+        private func updateIntent(for frame: TouchFrame, now: TimeInterval) -> [TrackpadSide: Bool] {
             guard trackpadSize.width > 0,
                   trackpadSize.height > 0,
                   let leftLayout,
                   let rightLayout else {
-                intentMode = .idle
-                intentTouches.removeAll()
-                lastContactCount = 0
-                return isTypingEnabled
+                intentStateBySide[.left] = IntentState()
+                intentStateBySide[.right] = IntentState()
+                updateIntentDisplayIfNeeded()
+                return [.left: isTypingEnabled, .right: isTypingEnabled]
             }
 
             let leftBindings = bindings(
@@ -1693,7 +1727,34 @@ final class ContentViewModel: ObservableObject {
             let moveThreshold = intentConfig.moveThresholdMm * unitsPerMm
             let moveThresholdSquared = moveThreshold * moveThreshold
             let velocityThreshold = intentConfig.velocityThresholdMmPerSec * unitsPerMm
+            let leftAllowsTyping = updateIntent(
+                for: .left,
+                touches: frame.left,
+                bindings: leftBindings,
+                now: now,
+                moveThresholdSquared: moveThresholdSquared,
+                velocityThreshold: velocityThreshold
+            )
+            let rightAllowsTyping = updateIntent(
+                for: .right,
+                touches: frame.right,
+                bindings: rightBindings,
+                now: now,
+                moveThresholdSquared: moveThresholdSquared,
+                velocityThreshold: velocityThreshold
+            )
+            return [.left: leftAllowsTyping, .right: rightAllowsTyping]
+        }
 
+        private func updateIntent(
+            for side: TrackpadSide,
+            touches: [OMSTouchData],
+            bindings: BindingIndex,
+            now: TimeInterval,
+            moveThresholdSquared: CGFloat,
+            velocityThreshold: CGFloat
+        ) -> Bool {
+            var state = intentStateBySide[side] ?? IntentState()
             var contactCount = 0
             var onKeyCount = 0
             var offKeyCount = 0
@@ -1703,10 +1764,10 @@ final class ContentViewModel: ObservableObject {
             var sumY: CGFloat = 0
             var firstOnKeyTouchKey: TouchKey?
             var currentKeys = Set<TouchKey>()
-            currentKeys.reserveCapacity(frame.left.count + frame.right.count)
+            currentKeys.reserveCapacity(touches.count)
 
-            func updateMetrics(for touch: OMSTouchData, bindings: BindingIndex) {
-                guard Self.isIntentContactState(touch.state) else { return }
+            for touch in touches {
+                guard Self.isIntentContactState(touch.state) else { continue }
                 let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
                 currentKeys.insert(touchKey)
                 contactCount += 1
@@ -1727,7 +1788,7 @@ final class ContentViewModel: ObservableObject {
                     offKeyCount += 1
                 }
 
-                if var info = intentTouches[touchKey] {
+                if var info = state.touches[touchKey] {
                     let distanceSq = distanceSquared(from: info.startPoint, to: point)
                     info.maxDistanceSquared = max(info.maxDistanceSquared, distanceSq)
                     maxDistanceSquared = max(maxDistanceSquared, info.maxDistanceSquared)
@@ -1736,9 +1797,9 @@ final class ContentViewModel: ObservableObject {
                     maxVelocity = max(maxVelocity, velocity)
                     info.lastPoint = point
                     info.lastTime = now
-                    intentTouches[touchKey] = info
+                    state.touches[touchKey] = info
                 } else {
-                    intentTouches[touchKey] = IntentTouchInfo(
+                    state.touches[touchKey] = IntentTouchInfo(
                         startPoint: point,
                         lastPoint: point,
                         lastTime: now,
@@ -1747,27 +1808,20 @@ final class ContentViewModel: ObservableObject {
                 }
             }
 
-            for touch in frame.left {
-                updateMetrics(for: touch, bindings: leftBindings)
-            }
-            for touch in frame.right {
-                updateMetrics(for: touch, bindings: rightBindings)
-            }
-
-            if intentTouches.count != currentKeys.count {
-                for key in intentTouches.keys where !currentKeys.contains(key) {
-                    intentTouches.removeValue(forKey: key)
+            if state.touches.count != currentKeys.count {
+                for key in state.touches.keys where !currentKeys.contains(key) {
+                    state.touches.removeValue(forKey: key)
                 }
             }
 
             let centroid: CGPoint? = contactCount > 0
                 ? CGPoint(x: sumX / CGFloat(contactCount), y: sumY / CGFloat(contactCount))
                 : nil
-            let secondFingerAppeared = contactCount > 1 && contactCount > lastContactCount
+            let secondFingerAppeared = contactCount > 1 && contactCount > state.lastContactCount
             let anyOnKey = onKeyCount > 0
             let anyOffKey = offKeyCount > 0
             var centroidMoved = false
-            if case let .keyCandidate(_, _, startCentroid) = intentMode,
+            if case let .keyCandidate(_, _, startCentroid) = state.mode,
                let centroid {
                 centroidMoved = distanceSquared(from: startCentroid, to: centroid) > moveThresholdSquared
             }
@@ -1778,52 +1832,85 @@ final class ContentViewModel: ObservableObject {
                 || (secondFingerAppeared && anyOffKey)
                 || centroidMoved
 
-            lastContactCount = contactCount
+            state.lastContactCount = contactCount
 
             guard contactCount > 0 else {
-                intentMode = .idle
-                intentTouches.removeAll()
+                state.mode = .idle
+                state.touches.removeAll()
+                intentStateBySide[side] = state
+                updateIntentDisplayIfNeeded()
                 return true
             }
 
-            switch intentMode {
+            let allowTyping: Bool
+            switch state.mode {
             case .idle:
                 if anyOnKey && !mouseSignal, let touchKey = firstOnKeyTouchKey, let centroid {
-                    intentMode = .keyCandidate(start: now, touchKey: touchKey, centroid: centroid)
-                    return false
+                    state.mode = .keyCandidate(start: now, touchKey: touchKey, centroid: centroid)
+                    allowTyping = false
+                } else {
+                    state.mode = .mouseCandidate(start: now)
+                    suppressKeyProcessing(for: currentKeys)
+                    allowTyping = false
                 }
-                intentMode = .mouseCandidate(start: now)
-                suppressKeyProcessing(for: currentKeys)
-                return false
             case let .keyCandidate(start, _, _):
                 if mouseSignal {
-                    intentMode = .mouseCandidate(start: now)
-                    return false
+                    state.mode = .mouseCandidate(start: now)
+                    allowTyping = false
+                } else if now - start >= intentConfig.keyBufferSeconds {
+                    state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
+                    allowTyping = true
+                } else {
+                    allowTyping = false
                 }
-                if now - start >= intentConfig.keyBufferSeconds {
-                    intentMode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
-                    return true
-                }
-                return false
             case let .typingCommitted(untilAllUp):
                 if untilAllUp {
-                    return true
-                }
-                if mouseSignal {
-                    intentMode = .mouseActive
+                    allowTyping = true
+                } else if mouseSignal {
+                    state.mode = .mouseActive
                     suppressKeyProcessing(for: currentKeys)
-                    return false
+                    allowTyping = false
+                } else {
+                    allowTyping = true
                 }
-                return true
             case let .mouseCandidate(start):
                 if mouseSignal || now - start >= intentConfig.keyBufferSeconds {
-                    intentMode = .mouseActive
+                    state.mode = .mouseActive
                     suppressKeyProcessing(for: currentKeys)
-                    return false
+                    allowTyping = false
+                } else {
+                    allowTyping = false
                 }
-                return false
             case .mouseActive:
-                return false
+                allowTyping = false
+            }
+
+            intentStateBySide[side] = state
+            updateIntentDisplayIfNeeded()
+            return allowTyping
+        }
+
+        private func updateIntentDisplayIfNeeded() {
+            let nextLeft = intentDisplay(for: intentStateBySide[.left]?.mode ?? .idle)
+            let nextRight = intentDisplay(for: intentStateBySide[.right]?.mode ?? .idle)
+            if nextLeft == intentDisplayBySide[.left], nextRight == intentDisplayBySide[.right] {
+                return
+            }
+            intentDisplayBySide[.left] = nextLeft
+            intentDisplayBySide[.right] = nextRight
+            onIntentStateChanged(intentDisplayBySide)
+        }
+
+        private func intentDisplay(for mode: IntentMode) -> IntentDisplay {
+            switch mode {
+            case .idle:
+                return .idle
+            case .keyCandidate:
+                return .keyCandidate
+            case .typingCommitted:
+                return .typing
+            case .mouseCandidate, .mouseActive:
+                return .mouse
             }
         }
 
@@ -1845,18 +1932,23 @@ final class ContentViewModel: ObservableObject {
         private func shouldCommitTypingOnRelease(
             touchKey: TouchKey,
             binding: KeyBinding,
-            point: CGPoint
+            point: CGPoint,
+            side: TrackpadSide
         ) -> Bool {
-            guard case .keyCandidate = intentMode else { return false }
+            guard var state = intentStateBySide[side],
+                  case .keyCandidate = state.mode else {
+                return false
+            }
             let moveThreshold = intentConfig.moveThresholdMm * mmUnitsPerMillimeter()
             let moveThresholdSquared = moveThreshold * moveThreshold
-            let maxDistanceSquared = intentTouches[touchKey]?.maxDistanceSquared ?? 0
+            let maxDistanceSquared = state.touches[touchKey]?.maxDistanceSquared ?? 0
             guard maxDistanceSquared <= moveThresholdSquared else { return false }
             guard binding.rect.contains(point),
                   initialContactPointIsInsideBinding(touchKey, binding: binding) else {
                 return false
             }
-            intentMode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
+            state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
+            intentStateBySide[side] = state
             return true
         }
 
@@ -2327,6 +2419,9 @@ final class ContentViewModel: ObservableObject {
             momentaryLayerTouches.removeAll()
             touchInitialContactPoint.removeAll()
             updateActiveLayer()
+            intentStateBySide[.left] = IntentState()
+            intentStateBySide[.right] = IntentState()
+            updateIntentDisplayIfNeeded()
         }
 
         private func disqualifyTouch(_ touchKey: TouchKey, reason: DisqualifyReason) {

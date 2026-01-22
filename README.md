@@ -26,6 +26,10 @@ Clicking Edit will allow you to click any Column/Button and set the Action/Hold 
 - Tap/Hold (ms): Time in miliseconds until a tap becomds a hold
 - Drag Cancel (pt): How far you need to move before top becomes a drag
 - Force Cap (g): Pressure (in grams) beyond the initial touch that disqualifies the touch before it can type, preventing accidental strong presses.
+- Intent Buffer (ms): Window to decide typing vs mouse for ambiguous touches.
+- Intent Move (mm): Movement threshold before a touch is treated as mouse intent.
+- Intent Velocity (mm/s): Speed threshold before a touch is treated as mouse intent.
+- Mouse Takeover: Allow mouse intent to interrupt typing before all fingers are lifted.
 
 ## Diagnostics (Debug Builds)
 - Logs include key dispatches and disqualification reasons (drag cancelled, typing disabled, etc.)

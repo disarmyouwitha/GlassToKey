@@ -1,8 +1,8 @@
 ## TODO
-- single-finger to 2 emitter
-- normalize to sensor grid?
+- nsspellchecker & AX replace (Text prediction&replacement)
+- normalize % to px??
 - trackpad battery level?
-- key for enable/disable mouse using CGEventTapCreate?? finger events, don't send keys.
+- key for enable/disable mouse click CGEventTapCreate?? finger tap, don't send keys.
 ###
 - random quote above textbox
 - any vestigial code? legacyColumnSettings, etc..
@@ -22,3 +22,4 @@
 - "Auto" set column x,y based on finger splay "4 finger touch" snapshot
 - logic like phone that keeps a queue and triesto help correct out mistakes based on dictionary?
 - Keyboard toggle/ keyboard only button. also, mouse only/keyboard only toggle button - how would you implement this?
+ 

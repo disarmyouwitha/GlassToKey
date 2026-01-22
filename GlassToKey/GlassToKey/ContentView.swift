@@ -402,8 +402,63 @@ struct ContentView: View {
                     .font(.caption2)
                     .foregroundStyle(.primary)
             }
+            Divider()
+                .frame(height: 12)
+            intentIndicatorView
         }
         .padding(.horizontal, 4)
+    }
+
+    private var intentIndicatorView: some View {
+        let leftIntent = viewModel.intentDisplayBySide[.left] ?? .idle
+        let rightIntent = viewModel.intentDisplayBySide[.right] ?? .idle
+        return HStack(spacing: 8) {
+            intentBadge(side: "L", intent: leftIntent)
+            intentBadge(side: "R", intent: rightIntent)
+        }
+    }
+
+    private func intentBadge(side: String, intent: ContentViewModel.IntentDisplay) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(intentColor(intent))
+                .frame(width: 6, height: 6)
+            Text("\(side) \(intentLabel(intent))")
+                .font(.caption2)
+                .foregroundStyle(.primary)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(
+            Capsule()
+                .fill(Color.primary.opacity(0.06))
+        )
+    }
+
+    private func intentLabel(_ intent: ContentViewModel.IntentDisplay) -> String {
+        switch intent {
+        case .idle:
+            return "idle"
+        case .keyCandidate:
+            return "cand"
+        case .typing:
+            return "type"
+        case .mouse:
+            return "mouse"
+        }
+    }
+
+    private func intentColor(_ intent: ContentViewModel.IntentDisplay) -> Color {
+        switch intent {
+        case .idle:
+            return .gray
+        case .keyCandidate:
+            return .orange
+        case .typing:
+            return .green
+        case .mouse:
+            return .blue
+        }
     }
 
     private var contentRow: some View {
