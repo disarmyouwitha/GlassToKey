@@ -1943,6 +1943,9 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func intentDisplay(for mode: IntentMode) -> IntentDisplay {
+            if isTypingGraceActive() {
+                return .typing
+            }
             switch mode {
             case .idle:
                 return .idle
@@ -1953,6 +1956,16 @@ final class ContentViewModel: ObservableObject {
             case .mouseCandidate, .mouseActive:
                 return .mouse
             }
+        }
+
+        @inline(__always)
+        private func isTypingGraceActive(now: TimeInterval? = nil) -> Bool {
+            let currentNow = now ?? Self.now()
+            if let deadline = typingGraceDeadline, currentNow < deadline {
+                return true
+            }
+            typingGraceDeadline = nil
+            return false
         }
 
         private func suppressKeyProcessing(for touchKeys: Set<TouchKey>) {
@@ -2466,6 +2479,7 @@ final class ContentViewModel: ObservableObject {
         private func extendTypingGrace(for side: TrackpadSide?, now: TimeInterval) {
             guard intentConfig.keyBufferSeconds > 0 else { return }
             typingGraceDeadline = now + intentConfig.keyBufferSeconds
+            updateIntentDisplayIfNeeded()
         }
 
         private func updateActiveLayer() {
