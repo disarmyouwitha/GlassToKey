@@ -176,7 +176,6 @@ final class ContentViewModel: ObservableObject {
     @Published var isListening: Bool = false
     @Published var isTypingEnabled: Bool = true
     @Published private(set) var activeLayer: Int = 0
-    private let isDragDetectionEnabled = true
     @Published var availableDevices = [OMSDeviceInfo]()
     @Published var leftDevice: OMSDeviceInfo?
     @Published var rightDevice: OMSDeviceInfo?
@@ -858,7 +857,7 @@ final class ContentViewModel: ObservableObject {
         private let onActiveLayerChanged: @Sendable (Int) -> Void
         private let onDebugBindingDetected: @Sendable (KeyBinding) -> Void
         private let onGlidePathDetected: @Sendable (GlidePath) -> Void
-        private let isDragDetectionEnabled = true
+        private var dragDetectionEnabled = true
         private var isListening = false
         private var isTypingEnabled = true
         private var activeLayer: Int = 0
@@ -1013,6 +1012,12 @@ final class ContentViewModel: ObservableObject {
 
         func updateGlideEnabled(_ enabled: Bool) {
             glideEnabled = enabled
+            dragDetectionEnabled = !enabled
+            if enabled {
+                setTypingEnabled(false)
+            } else {
+                setTypingEnabled(true)
+            }
             if !enabled {
                 glideTrails.removeAll()
             }
@@ -1214,7 +1219,7 @@ final class ContentViewModel: ObservableObject {
                         active.maxDistanceSquared = max(active.maxDistanceSquared, distanceSquared)
                         setActiveTouch(touchKey, active)
 
-                        if isDragDetectionEnabled,
+                        if dragDetectionEnabled,
                            active.modifierKey == nil,
                            !active.didHold,
                            active.maxDistanceSquared > dragCancelDistanceSquared {
@@ -1240,7 +1245,7 @@ final class ContentViewModel: ObservableObject {
                            !active.didHold,
                            let holdBinding = active.holdBinding,
                            now - active.startTime >= holdMinDuration,
-                           (!isDragDetectionEnabled || active.maxDistanceSquared <= dragCancelDistanceSquared),
+                           (!dragDetectionEnabled || active.maxDistanceSquared <= dragCancelDistanceSquared),
                            initialContactPointIsInsideBinding(touchKey, binding: active.binding) {
                             let dispatchInfo = makeDispatchInfo(
                                 kind: .hold,
@@ -1257,7 +1262,7 @@ final class ContentViewModel: ObservableObject {
                         pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
                         setPendingTouch(touchKey, pending)
 
-                        if isDragDetectionEnabled,
+                        if dragDetectionEnabled,
                            pending.maxDistanceSquared > dragCancelDistanceSquared {
                             disqualifyTouch(touchKey, reason: .pendingDragCancelled)
                             continue
@@ -1287,7 +1292,7 @@ final class ContentViewModel: ObservableObject {
                                 triggerBinding(pending.binding, touchKey: touchKey)
                                 startRepeat(for: touchKey, binding: pending.binding)
                             }
-                        } else if isDragDetectionEnabled {
+                        } else if dragDetectionEnabled {
                             disqualifyTouch(touchKey, reason: .pendingLeftRect)
                         } else {
                             _ = removePendingTouch(for: touchKey)
@@ -1296,7 +1301,7 @@ final class ContentViewModel: ObservableObject {
                         let modifierKey = modifierKey(for: binding)
                         let isContinuousKey = isContinuousKey(binding)
                         let holdBinding = holdBinding(for: binding)
-                        if isDragDetectionEnabled, (modifierKey != nil || isContinuousKey) {
+                        if dragDetectionEnabled, (modifierKey != nil || isContinuousKey) {
                             setPendingTouch(
                                 touchKey,
                                 PendingTouch(
@@ -1363,7 +1368,7 @@ final class ContentViewModel: ObservableObject {
                         } else if !guardTriggered,
                                   !active.didHold,
                                   now - active.startTime <= tapMaxDuration,
-                                  (!isDragDetectionEnabled
+                                  (!dragDetectionEnabled
                                    || releaseDistanceSquared <= dragCancelDistanceSquared) {
                             let dispatchInfo = makeDispatchInfo(
                                 kind: .tap,
@@ -1830,12 +1835,14 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func toggleTypingMode() {
-            let updated = !isTypingEnabled
-            if updated != isTypingEnabled {
-                isTypingEnabled = updated
-                onTypingEnabledChanged(updated)
-            }
-            if !isTypingEnabled {
+            setTypingEnabled(!isTypingEnabled)
+        }
+
+        private func setTypingEnabled(_ enabled: Bool) {
+            guard enabled != isTypingEnabled else { return }
+            isTypingEnabled = enabled
+            onTypingEnabledChanged(enabled)
+            if !enabled {
                 releaseHeldKeys()
             }
         }
@@ -1896,7 +1903,7 @@ final class ContentViewModel: ObservableObject {
             guard isContinuousKey(pending.binding),
                   now - pending.startTime <= tapMaxDuration,
                   pending.binding.rect.contains(point),
-                  (!isDragDetectionEnabled
+                  (!dragDetectionEnabled
                    || releaseDistanceSquared <= dragCancelDistance * dragCancelDistance),
                   !pending.forceGuardTriggered else {
                 return
@@ -2288,7 +2295,20 @@ final class ContentViewModel: ObservableObject {
         private func finalizeGlideTrail(for touchKey: TouchKey) {
             guard let trail = glideTrails.removeValue(forKey: touchKey) else { return }
             guard glideEnabled, trail.isMeaningful else { return }
-            onGlidePathDetected(GlidePath(bindings: trail.bindings))
+            let path = GlidePath(bindings: trail.bindings)
+            onGlidePathDetected(path)
+            dispatchGlidePath(path)
+        }
+
+        private func dispatchGlidePath(_ path: GlidePath) {
+            let keyBindings = path.bindings.compactMap { binding -> (code: CGKeyCode, flags: CGEventFlags)? in
+                guard case let .key(code, flags) = binding.action else { return nil }
+                return (code, flags)
+            }
+            guard !keyBindings.isEmpty else { return }
+            for entry in keyBindings {
+                sendKey(code: entry.code, flags: entry.flags, side: nil)
+            }
         }
 
         private func logKeyDispatch(
