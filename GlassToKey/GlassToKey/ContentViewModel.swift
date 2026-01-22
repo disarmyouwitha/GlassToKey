@@ -1900,7 +1900,10 @@ final class ContentViewModel: ObservableObject {
                     allowTyping = false
                 }
             case let .typingCommitted(untilAllUp):
-                if untilAllUp {
+                if graceActive || hasKeyboardAnchor {
+                    state.mode = .typingCommitted(untilAllUp: untilAllUp)
+                    allowTyping = true
+                } else if untilAllUp {
                     allowTyping = true
                 } else if mouseSignal {
                     state.mode = .mouseActive
@@ -1924,7 +1927,12 @@ final class ContentViewModel: ObservableObject {
                     allowTyping = false
                 }
             case .mouseActive:
-                allowTyping = false
+                if graceActive || hasKeyboardAnchor {
+                    state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
+                    allowTyping = true
+                } else {
+                    allowTyping = false
+                }
             }
 
             intentState = state
@@ -1969,6 +1977,9 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func suppressKeyProcessing(for touchKeys: Set<TouchKey>) {
+            if isTypingGraceActive() {
+                return
+            }
             for touchKey in touchKeys {
                 if momentaryLayerTouches[touchKey] != nil {
                     continue
