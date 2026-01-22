@@ -75,6 +75,13 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
     @AppStorage(GlassToKeyDefaultsKeys.forceClickCap) private var forceClickCapSetting: Double = GlassToKeySettings.forceClickCap
     @AppStorage(GlassToKeyDefaultsKeys.hapticStrength) private var hapticStrengthSetting: Double = GlassToKeySettings.hapticStrengthPercent
+    @AppStorage(GlassToKeyDefaultsKeys.intentBufferMs) private var intentBufferMsSetting: Double = GlassToKeySettings.intentBufferMs
+    @AppStorage(GlassToKeyDefaultsKeys.intentMoveThresholdMm)
+    private var intentMoveThresholdMmSetting: Double = GlassToKeySettings.intentMoveThresholdMm
+    @AppStorage(GlassToKeyDefaultsKeys.intentVelocityThresholdMmPerSec)
+    private var intentVelocityThresholdMmPerSecSetting: Double = GlassToKeySettings.intentVelocityThresholdMmPerSec
+    @AppStorage(GlassToKeyDefaultsKeys.allowMouseTakeoverDuringTyping)
+    private var allowMouseTakeoverDuringTyping = GlassToKeySettings.allowMouseTakeoverDuringTyping
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -88,6 +95,9 @@ struct ContentView: View {
     fileprivate static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
     fileprivate static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
     fileprivate static let hapticStrengthRange: ClosedRange<Double> = 0.0...100.0
+    fileprivate static let intentBufferRange: ClosedRange<Double> = 10.0...120.0
+    fileprivate static let intentMoveThresholdRange: ClosedRange<Double> = 0.5...10.0
+    fileprivate static let intentVelocityThresholdRange: ClosedRange<Double> = 10.0...200.0
     private static let keyCornerRadius: CGFloat = 6.0
     fileprivate static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -150,6 +160,33 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 0
         formatter.minimum = NSNumber(value: 0)
         formatter.maximum = NSNumber(value: 100)
+        return formatter
+    }()
+    fileprivate static let intentBufferFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.minimum = NSNumber(value: ContentView.intentBufferRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.intentBufferRange.upperBound)
+        return formatter
+    }()
+    fileprivate static let intentMoveThresholdFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 1
+        formatter.maximumFractionDigits = 2
+        formatter.minimum = NSNumber(value: ContentView.intentMoveThresholdRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.intentMoveThresholdRange.upperBound)
+        return formatter
+    }()
+    fileprivate static let intentVelocityThresholdFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.minimum = NSNumber(value: ContentView.intentVelocityThresholdRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.intentVelocityThresholdRange.upperBound)
         return formatter
     }()
     private static let legacyKeyScaleKey = "GlassToKey.keyScale"
@@ -307,6 +344,18 @@ struct ContentView: View {
             .onChange(of: hapticStrengthSetting) { newValue in
                 viewModel.updateHapticStrength(newValue / 100.0)
             }
+            .onChange(of: intentBufferMsSetting) { newValue in
+                viewModel.updateIntentKeyBufferMs(newValue)
+            }
+            .onChange(of: intentMoveThresholdMmSetting) { newValue in
+                viewModel.updateIntentMoveThresholdMm(newValue)
+            }
+            .onChange(of: intentVelocityThresholdMmPerSecSetting) { newValue in
+                viewModel.updateIntentVelocityThresholdMmPerSec(newValue)
+            }
+            .onChange(of: allowMouseTakeoverDuringTyping) { newValue in
+                viewModel.updateAllowMouseTakeover(newValue)
+            }
             .onChange(of: storedAutoResyncMissingTrackpads) { newValue in
                 viewModel.setAutoResyncEnabled(newValue)
             }
@@ -400,6 +449,10 @@ struct ContentView: View {
             dragCancelDistanceSetting: $dragCancelDistanceSetting,
             forceClickCapSetting: $forceClickCapSetting,
             hapticStrengthSetting: $hapticStrengthSetting,
+            intentBufferMsSetting: $intentBufferMsSetting,
+            intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
+            intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
+            allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
             onRefreshDevices: {
                 viewModel.loadDevices(preserveSelection: true)
             },
@@ -541,6 +594,10 @@ struct ContentView: View {
         @Binding var dragCancelDistanceSetting: Double
         @Binding var forceClickCapSetting: Double
         @Binding var hapticStrengthSetting: Double
+        @Binding var intentBufferMsSetting: Double
+        @Binding var intentMoveThresholdMmSetting: Double
+        @Binding var intentVelocityThresholdMmPerSecSetting: Double
+        @Binding var allowMouseTakeoverDuringTyping: Bool
         @State private var typingTuningExpanded = true
         let onRefreshDevices: () -> Void
         let onAutoResyncChange: (Bool) -> Void
@@ -576,7 +633,11 @@ struct ContentView: View {
                             tapHoldDurationMs: $tapHoldDurationMs,
                             dragCancelDistanceSetting: $dragCancelDistanceSetting,
                             forceClickCapSetting: $forceClickCapSetting,
-                            hapticStrengthSetting: $hapticStrengthSetting
+                            hapticStrengthSetting: $hapticStrengthSetting,
+                            intentBufferMsSetting: $intentBufferMsSetting,
+                            intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
+                            intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
+                            allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping
                         )
                         .padding(.top, 8)
                     } label: {
@@ -1072,6 +1133,10 @@ struct ContentView: View {
         @Binding var dragCancelDistanceSetting: Double
         @Binding var forceClickCapSetting: Double
         @Binding var hapticStrengthSetting: Double
+        @Binding var intentBufferMsSetting: Double
+        @Binding var intentMoveThresholdMmSetting: Double
+        @Binding var intentVelocityThresholdMmPerSecSetting: Double
+        @Binding var allowMouseTakeoverDuringTyping: Bool
 
         var body: some View {
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
@@ -1134,6 +1199,58 @@ struct ContentView: View {
                         step: 10
                     )
                     .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("Intent Buffer (ms)")
+                    TextField(
+                        "40",
+                        value: $intentBufferMsSetting,
+                        formatter: ContentView.intentBufferFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $intentBufferMsSetting,
+                        in: ContentView.intentBufferRange,
+                        step: 5
+                    )
+                    .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("Intent Move (mm)")
+                    TextField(
+                        "3.0",
+                        value: $intentMoveThresholdMmSetting,
+                        formatter: ContentView.intentMoveThresholdFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $intentMoveThresholdMmSetting,
+                        in: ContentView.intentMoveThresholdRange,
+                        step: 0.1
+                    )
+                    .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("Intent Velocity (mm/s)")
+                    TextField(
+                        "50",
+                        value: $intentVelocityThresholdMmPerSecSetting,
+                        formatter: ContentView.intentVelocityThresholdFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $intentVelocityThresholdMmPerSecSetting,
+                        in: ContentView.intentVelocityThresholdRange,
+                        step: 5
+                    )
+                    .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("Mouse Takeover")
+                    Toggle("", isOn: $allowMouseTakeoverDuringTyping)
+                        .toggleStyle(SwitchToggleStyle())
+                        .labelsHidden()
+                    Spacer()
                 }
             }
         }
@@ -1845,7 +1962,12 @@ struct ContentView: View {
         }
         viewModel.updateHoldThreshold(tapHoldDurationMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragCancelDistanceSetting))
+        viewModel.updateForceClickCap(forceClickCapSetting)
         viewModel.updateHapticStrength(hapticStrengthSetting / 100.0)
+        viewModel.updateIntentKeyBufferMs(intentBufferMsSetting)
+        viewModel.updateIntentMoveThresholdMm(intentMoveThresholdMmSetting)
+        viewModel.updateIntentVelocityThresholdMmPerSec(intentVelocityThresholdMmPerSecSetting)
+        viewModel.updateAllowMouseTakeover(allowMouseTakeoverDuringTyping)
         viewModel.setTouchSnapshotRecordingEnabled(visualsEnabled)
     }
 

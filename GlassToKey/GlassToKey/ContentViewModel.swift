@@ -598,6 +598,30 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func updateIntentKeyBufferMs(_ milliseconds: Double) {
+        Task { [processor] in
+            await processor.updateIntentKeyBuffer(milliseconds)
+        }
+    }
+
+    func updateIntentMoveThresholdMm(_ millimeters: Double) {
+        Task { [processor] in
+            await processor.updateIntentMoveThreshold(millimeters)
+        }
+    }
+
+    func updateIntentVelocityThresholdMmPerSec(_ millimetersPerSecond: Double) {
+        Task { [processor] in
+            await processor.updateIntentVelocityThreshold(millimetersPerSecond)
+        }
+    }
+
+    func updateAllowMouseTakeover(_ enabled: Bool) {
+        Task { [processor] in
+            await processor.updateAllowMouseTakeover(enabled)
+        }
+    }
+
     func updateForceClickCap(_ grams: Double) {
         Task { [processor] in
             await processor.updateForceClickCap(grams)
@@ -872,8 +896,8 @@ final class ContentViewModel: ObservableObject {
         private var intentMode: IntentMode = .idle
         private var intentTouches: [TouchKey: IntentTouchInfo] = [:]
         private var lastContactCount = 0
-        private let intentConfig = IntentConfig()
-        private let allowMouseTakeoverDuringTyping = false
+        private var intentConfig = IntentConfig()
+        private var allowMouseTakeoverDuringTyping = false
 
 #if DEBUG
         private let signposter = OSSignposter(
@@ -958,6 +982,23 @@ final class ContentViewModel: ObservableObject {
 
         func updateDragCancelDistance(_ distance: CGFloat) {
             dragCancelDistance = max(0, distance)
+        }
+
+        func updateIntentKeyBuffer(_ milliseconds: Double) {
+            let clampedMs = max(0, milliseconds)
+            intentConfig.keyBufferSeconds = clampedMs / 1000.0
+        }
+
+        func updateIntentMoveThreshold(_ millimeters: Double) {
+            intentConfig.moveThresholdMm = max(0, CGFloat(millimeters))
+        }
+
+        func updateIntentVelocityThreshold(_ millimetersPerSecond: Double) {
+            intentConfig.velocityThresholdMmPerSec = max(0, CGFloat(millimetersPerSecond))
+        }
+
+        func updateAllowMouseTakeover(_ enabled: Bool) {
+            allowMouseTakeoverDuringTyping = enabled
         }
 
         func updateForceClickCap(_ grams: Double) {
@@ -1615,6 +1656,15 @@ final class ContentViewModel: ObservableObject {
             }
         }
 
+        private static func isIntentContactState(_ state: OMSState) -> Bool {
+            switch state {
+            case .starting, .making, .touching, .breaking, .leaving:
+                return true
+            default:
+                return false
+            }
+        }
+
         private func updateIntent(for frame: TouchFrame, now: TimeInterval) -> Bool {
             guard trackpadSize.width > 0,
                   trackpadSize.height > 0,
@@ -1656,7 +1706,7 @@ final class ContentViewModel: ObservableObject {
             currentKeys.reserveCapacity(frame.left.count + frame.right.count)
 
             func updateMetrics(for touch: OMSTouchData, bindings: BindingIndex) {
-                guard Self.isContactState(touch.state) else { return }
+                guard Self.isIntentContactState(touch.state) else { return }
                 let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
                 currentKeys.insert(touchKey)
                 contactCount += 1
@@ -1681,7 +1731,7 @@ final class ContentViewModel: ObservableObject {
                     let distanceSq = distanceSquared(from: info.startPoint, to: point)
                     info.maxDistanceSquared = max(info.maxDistanceSquared, distanceSq)
                     maxDistanceSquared = max(maxDistanceSquared, info.maxDistanceSquared)
-                    let dt = max(0.0001, now - info.lastTime)
+                    let dt = max(1.0 / 240.0, now - info.lastTime)
                     let velocity = sqrt(distanceSquared(from: info.lastPoint, to: point)) / dt
                     maxVelocity = max(maxVelocity, velocity)
                     info.lastPoint = point
@@ -1721,11 +1771,12 @@ final class ContentViewModel: ObservableObject {
                let centroid {
                 centroidMoved = distanceSquared(from: startCentroid, to: centroid) > moveThresholdSquared
             }
+            let velocitySignal = maxVelocity > velocityThreshold
+                && maxDistanceSquared > (moveThresholdSquared * 0.25)
             let mouseSignal = maxDistanceSquared > moveThresholdSquared
-                || maxVelocity > velocityThreshold
+                || velocitySignal
                 || (secondFingerAppeared && anyOffKey)
                 || centroidMoved
-                || !anyOnKey
 
             lastContactCount = contactCount
 
@@ -1747,7 +1798,6 @@ final class ContentViewModel: ObservableObject {
             case let .keyCandidate(start, _, _):
                 if mouseSignal {
                     intentMode = .mouseCandidate(start: now)
-                    suppressKeyProcessing(for: currentKeys)
                     return false
                 }
                 if now - start >= intentConfig.keyBufferSeconds {

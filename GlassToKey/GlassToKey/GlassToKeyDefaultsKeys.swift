@@ -11,6 +11,10 @@ enum GlassToKeyDefaultsKeys {
     static let dragCancelDistance = "GlassToKey.dragCancelDistance"
     static let forceClickCap = "GlassToKey.forceClickCap"
     static let hapticStrength = "GlassToKey.hapticStrength"
+    static let intentBufferMs = "GlassToKey.intentBufferMs"
+    static let intentMoveThresholdMm = "GlassToKey.intentMoveThresholdMm"
+    static let intentVelocityThresholdMmPerSec = "GlassToKey.intentVelocityThresholdMmPerSec"
+    static let allowMouseTakeoverDuringTyping = "GlassToKey.allowMouseTakeoverDuringTyping"
     static let layoutPreset = "GlassToKey.layoutPreset"
     static let autoResyncMissingTrackpads = "GlassToKey.autoResyncMissingTrackpads"
 }

@@ -6,6 +6,10 @@ enum GlassToKeySettings {
     static let dragCancelDistanceMm: Double = 15.0
     static let forceClickCap: Double = 0.0
     static let hapticStrengthPercent: Double = 70.0
+    static let intentBufferMs: Double = 40.0
+    static let intentMoveThresholdMm: Double = 3.0
+    static let intentVelocityThresholdMmPerSec: Double = 50.0
+    static let allowMouseTakeoverDuringTyping: Bool = false
 
     static func persistedDouble(
         forKey key: String,
@@ -186,11 +190,33 @@ final class GlassToKeyController: ObservableObject {
             defaults: defaults,
             fallback: GlassToKeySettings.hapticStrengthPercent
         )
+        let intentBufferMs = GlassToKeySettings.persistedDouble(
+            forKey: GlassToKeyDefaultsKeys.intentBufferMs,
+            defaults: defaults,
+            fallback: GlassToKeySettings.intentBufferMs
+        )
+        let intentMoveThresholdMm = GlassToKeySettings.persistedDouble(
+            forKey: GlassToKeyDefaultsKeys.intentMoveThresholdMm,
+            defaults: defaults,
+            fallback: GlassToKeySettings.intentMoveThresholdMm
+        )
+        let intentVelocityThresholdMmPerSec = GlassToKeySettings.persistedDouble(
+            forKey: GlassToKeyDefaultsKeys.intentVelocityThresholdMmPerSec,
+            defaults: defaults,
+            fallback: GlassToKeySettings.intentVelocityThresholdMmPerSec
+        )
+        let allowMouseTakeoverDuringTyping = defaults.object(
+            forKey: GlassToKeyDefaultsKeys.allowMouseTakeoverDuringTyping
+        ) as? Bool ?? GlassToKeySettings.allowMouseTakeoverDuringTyping
 
         viewModel.updateHoldThreshold(tapHoldMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragDistance))
         viewModel.updateForceClickCap(forceCap)
         viewModel.updateHapticStrength(hapticStrengthPercent / 100.0)
+        viewModel.updateIntentKeyBufferMs(intentBufferMs)
+        viewModel.updateIntentMoveThresholdMm(intentMoveThresholdMm)
+        viewModel.updateIntentVelocityThresholdMmPerSec(intentVelocityThresholdMmPerSec)
+        viewModel.updateAllowMouseTakeover(allowMouseTakeoverDuringTyping)
     }
 
     private func legacyColumnSettings(
