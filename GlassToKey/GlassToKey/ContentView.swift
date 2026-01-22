@@ -354,21 +354,22 @@ struct ContentView: View {
     }
 
     private var headerView: some View {
-        HeaderControlsView(
-            editModeEnabled: $editModeEnabled,
-            visualsEnabled: $visualsEnabled,
-            glideEnabled: $glideEnabled,
-            layerToggleBinding: layerToggleBinding,
-            isListening: viewModel.isListening,
-            onStart: {
-                viewModel.start()
-            },
-            onStop: {
-                viewModel.stop()
-                visualsEnabled = false
-            },
-            lastGlideLabels: viewModel.lastGlideLabels
-        )
+            HeaderControlsView(
+                editModeEnabled: $editModeEnabled,
+                visualsEnabled: $visualsEnabled,
+                glideEnabled: $glideEnabled,
+                layerToggleBinding: layerToggleBinding,
+                isListening: viewModel.isListening,
+                onStart: {
+                    viewModel.start()
+                },
+                onStop: {
+                    viewModel.stop()
+                    visualsEnabled = false
+                },
+                lastGlideLabels: viewModel.lastGlideLabels,
+                lastGlideShapeSummary: viewModel.lastGlideShapeSummary
+            )
     }
 
     private var contentRow: some View {
@@ -401,11 +402,11 @@ struct ContentView: View {
     }
 
     private var rightSidebarView: some View {
-        RightSidebarView(
-            viewModel: viewModel,
-            autoResyncEnabled: $storedAutoResyncMissingTrackpads,
-            layoutSelection: layoutSelectionBinding,
-            layoutOption: layoutOption,
+            RightSidebarView(
+                viewModel: viewModel,
+                autoResyncEnabled: $storedAutoResyncMissingTrackpads,
+                layoutSelection: layoutSelectionBinding,
+                layoutOption: layoutOption,
             columnSelection: columnInspectorSelection,
             buttonSelection: buttonInspectorSelection,
             keySelection: keyInspectorSelection,
@@ -415,7 +416,7 @@ struct ContentView: View {
             twoFingerTapIntervalMs: $twoFingerTapIntervalMs,
             twoFingerSuppressionDurationMs: $twoFingerSuppressionDurationMs,
             forceClickCapSetting: $forceClickCapSetting,
-            hapticStrengthSetting: $hapticStrengthSetting,
+                hapticStrengthSetting: $hapticStrengthSetting,
             onRefreshDevices: {
                 viewModel.loadDevices(preserveSelection: true)
             },
@@ -453,6 +454,7 @@ struct ContentView: View {
         let onStart: () -> Void
         let onStop: () -> Void
         let lastGlideLabels: [String]?
+        let lastGlideShapeSummary: String?
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -494,12 +496,20 @@ struct ContentView: View {
                 Text("Glide path: \(glideSummary)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text("Glide shape: \(glideShapeSummary)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
 
         private var glideSummary: String {
             guard let labels = lastGlideLabels, !labels.isEmpty else { return "—" }
             return labels.joined(separator: " → ")
+        }
+
+        private var glideShapeSummary: String {
+            guard let summary = lastGlideShapeSummary, !summary.isEmpty else { return "—" }
+            return summary
         }
     }
 
@@ -1108,7 +1118,6 @@ struct ContentView: View {
         @Binding var twoFingerSuppressionDurationMs: Double
         @Binding var forceClickCapSetting: Double
         @Binding var hapticStrengthSetting: Double
-
         var body: some View {
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
                 GridRow {
@@ -1206,8 +1215,8 @@ struct ContentView: View {
     }
 
 
-    private struct TrackpadDeckView: View {
-        @ObservedObject var viewModel: ContentViewModel
+        private struct TrackpadDeckView: View {
+            @ObservedObject var viewModel: ContentViewModel
         let trackpadSize: CGSize
         let leftLayout: ContentViewModel.Layout
         let rightLayout: ContentViewModel.Layout
@@ -1268,7 +1277,9 @@ struct ContentView: View {
                         selectedRightButton: selectedButton(for: rightButtons),
                         leftTouches: visualsEnabled ? displayLeftTouches : [],
                         rightTouches: visualsEnabled ? displayRightTouches : [],
-                        visualsEnabled: visualsEnabled
+                        visualsEnabled: visualsEnabled,
+                        leftGlidePath: glideOverlayPath(side: .left),
+                        rightGlidePath: glideOverlayPath(side: .right)
                     )
                     if visualsEnabled && !editModeEnabled {
                         if let hit = lastHitLeft {
@@ -1362,6 +1373,15 @@ struct ContentView: View {
 
         private func customButtons(for side: TrackpadSide) -> [CustomButton] {
             customButtons.filter { $0.side == side && $0.layer == viewModel.activeLayer }
+        }
+
+        private func glideOverlayPath(side: TrackpadSide) -> [CGPoint]? {
+            guard visualsEnabled else { return nil }
+            guard let overlay = viewModel.lastGlideOverlay,
+                  overlay.side == side else {
+                return nil
+            }
+            return overlay.normalizedPoints
         }
 
         private func shouldUpdateDisplay(
@@ -1579,6 +1599,8 @@ struct ContentView: View {
         let leftTouches: [OMSTouchData]
         let rightTouches: [OMSTouchData]
         let visualsEnabled: Bool
+        let leftGlidePath: [CGPoint]?
+        let rightGlidePath: [CGPoint]?
 
         var body: some View {
             Canvas { context, _ in
@@ -1611,7 +1633,8 @@ struct ContentView: View {
                     selectedButton: selectedLeftButton,
                     touches: leftTouches,
                     trackpadSize: trackpadSize,
-                    visualsEnabled: visualsEnabled
+                    visualsEnabled: visualsEnabled,
+                    glidePath: leftGlidePath
                 )
                 ContentView.drawTrackpadContents(
                     context: &context,
@@ -1624,7 +1647,8 @@ struct ContentView: View {
                     selectedButton: selectedRightButton,
                     touches: rightTouches,
                     trackpadSize: trackpadSize,
-                    visualsEnabled: visualsEnabled
+                    visualsEnabled: visualsEnabled,
+                    glidePath: rightGlidePath
                 )
             }
             .frame(width: (trackpadSize.width * 2) + spacing, height: trackpadSize.height)
@@ -2416,7 +2440,8 @@ struct ContentView: View {
         selectedButton: CustomButton?,
         touches: [OMSTouchData],
         trackpadSize: CGSize,
-        visualsEnabled: Bool
+        visualsEnabled: Bool,
+        glidePath: [CGPoint]?
     ) {
         withTranslatedContext(context: &context, origin: origin) { innerContext in
             drawSensorGrid(
@@ -2454,6 +2479,13 @@ struct ContentView: View {
                     trackpadSize: trackpadSize
                 )
             }
+            if let glidePath {
+                drawGlidePath(
+                    context: &innerContext,
+                    normalizedPoints: glidePath,
+                    trackpadSize: trackpadSize
+                )
+            }
         }
     }
 
@@ -2478,6 +2510,50 @@ struct ContentView: View {
             let path = makeEllipse(touch: touch, size: trackpadSize)
             context.fill(path, with: .color(.primary.opacity(Double(touch.total))))
         }
+    }
+
+    private static func drawGlidePath(
+        context: inout GraphicsContext,
+        normalizedPoints: [CGPoint],
+        trackpadSize: CGSize
+    ) {
+        guard normalizedPoints.count > 1 else { return }
+        var glidePath = Path()
+        let firstPoint = trackpadPoint(from: normalizedPoints[0], trackpadSize: trackpadSize)
+        glidePath.move(to: firstPoint)
+        for rawPoint in normalizedPoints.dropFirst() {
+            let nextPoint = trackpadPoint(from: rawPoint, trackpadSize: trackpadSize)
+            glidePath.addLine(to: nextPoint)
+        }
+        let strokeColor = Color.accentColor.opacity(0.85)
+        context.stroke(glidePath, with: .color(strokeColor), lineWidth: 3)
+
+        let circleRadius: CGFloat = 4
+        let head = Path(ellipseIn: CGRect(
+            x: firstPoint.x - circleRadius,
+            y: firstPoint.y - circleRadius,
+            width: circleRadius * 2,
+            height: circleRadius * 2
+        ))
+        context.fill(head, with: .color(Color.accentColor.opacity(0.4)))
+
+        let lastPoint = trackpadPoint(from: normalizedPoints.last!, trackpadSize: trackpadSize)
+        let tail = Path(ellipseIn: CGRect(
+            x: lastPoint.x - circleRadius,
+            y: lastPoint.y - circleRadius,
+            width: circleRadius * 2,
+            height: circleRadius * 2
+        ))
+        context.fill(tail, with: .color(Color.accentColor))
+    }
+
+    private static func trackpadPoint(from normalized: CGPoint, trackpadSize: CGSize) -> CGPoint {
+        let clampedX = min(max(normalized.x, 0), 1)
+        let clampedY = min(max(normalized.y, 0), 1)
+        return CGPoint(
+            x: clampedX * trackpadSize.width,
+            y: clampedY * trackpadSize.height
+        )
     }
 
     private static func withTranslatedContext(

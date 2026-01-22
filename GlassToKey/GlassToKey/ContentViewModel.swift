@@ -188,14 +188,16 @@ final class ContentViewModel: ObservableObject {
         let timestamp: TimeInterval
     }
 
+    struct GlideOverlay: Equatable {
+        let side: TrackpadSide
+        let normalizedPoints: [CGPoint]
+    }
+
     @Published private(set) var debugLastHitLeft: DebugHit?
     @Published private(set) var debugLastHitRight: DebugHit?
-    @Published private(set) var lastGlideLabels: [String]? {
-        didSet {
-            guard let labels = lastGlideLabels, !labels.isEmpty else { return }
-            glideLogger.debug("lastGlideLabels: \(labels.joined(separator: " → "))")
-        }
-    }
+    @Published private(set) var lastGlideLabels: [String]?
+    @Published private(set) var lastGlideShapeSummary: String?
+    @Published private(set) var lastGlideOverlay: GlideOverlay?
 
     private var requestedLeftDeviceID: String?
     private var requestedRightDeviceID: String?
@@ -238,7 +240,7 @@ final class ContentViewModel: ObservableObject {
             onDebugBindingDetected: debugBindingHandler,
             onGlidePathDetected: { path in
                 Task { @MainActor in
-                    weakSelf?.lastGlideLabels = path.labels
+                    weakSelf?.recordGlidePath(path)
                 }
             }
         )
@@ -267,6 +269,26 @@ final class ContentViewModel: ObservableObject {
         case .right:
             debugLastHitRight = hit
         }
+    }
+
+    private func recordGlidePath(_ path: TouchProcessor.GlidePath) {
+        lastGlideLabels = path.labels
+        lastGlideShapeSummary = path.shape?.summary
+        if let first = path.bindings.first, !path.points.isEmpty {
+            lastGlideOverlay = GlideOverlay(side: first.side, normalizedPoints: path.points)
+        } else {
+            lastGlideOverlay = nil
+        }
+        logGlidePath(path)
+    }
+
+    private func logGlidePath(_ path: TouchProcessor.GlidePath) {
+        guard !path.labels.isEmpty else { return }
+        var components = ["lastGlideLabels: \(path.labels.joined(separator: " → "))"]
+        if let summary = path.shape?.summary {
+            components.append("shape: \(summary)")
+        }
+        glideLogger.debug("\(components.joined(separator: " | "))")
     }
 
     func onAppear() {
@@ -623,6 +645,9 @@ final class ContentViewModel: ObservableObject {
     }
 
     func updateGlideEnabled(_ enabled: Bool) {
+        if !enabled {
+            lastGlideOverlay = nil
+        }
         Task { [processor] in
             await processor.updateGlideEnabled(enabled)
         }
@@ -723,31 +748,147 @@ final class ContentViewModel: ObservableObject {
         }
 
         struct GlidePath {
+            struct Shape: Equatable {
+                let boundingBox: CGRect
+                let pathLength: CGFloat
+                let netVector: CGVector
+                let straightDistance: CGFloat
+
+                var density: CGFloat {
+                    guard pathLength > 0 else { return 0 }
+                    return straightDistance / pathLength
+                }
+
+                var summary: String {
+                    let length = Shape.format(pathLength)
+                    let straight = Shape.format(straightDistance)
+                    let dx = Shape.format(netVector.dx)
+                    let dy = Shape.format(netVector.dy)
+                    let width = Shape.format(boundingBox.width)
+                    let height = Shape.format(boundingBox.height)
+                    return "len=\(length) straight=\(straight) net=(\(dx),\(dy)) box=(\(width)x\(height))"
+                }
+
+                static func from(points: [CGPoint]) -> Shape? {
+                    guard points.count > 1 else { return nil }
+                    var minX = points[0].x
+                    var maxX = points[0].x
+                    var minY = points[0].y
+                    var maxY = points[0].y
+                    var totalLength: CGFloat = 0
+                    var previousPoint = points[0]
+                    for currentPoint in points.dropFirst() {
+                        minX = min(minX, currentPoint.x)
+                        maxX = max(maxX, currentPoint.x)
+                        minY = min(minY, currentPoint.y)
+                        maxY = max(maxY, currentPoint.y)
+                        totalLength += distance(from: previousPoint, to: currentPoint)
+                        previousPoint = currentPoint
+                    }
+                    let firstPoint = points.first!
+                    let lastPoint = points.last!
+                    let vector = CGVector(dx: lastPoint.x - firstPoint.x, dy: lastPoint.y - firstPoint.y)
+                    let straight = distance(from: firstPoint, to: lastPoint)
+                    let boundingBox = CGRect(
+                        x: minX,
+                        y: minY,
+                        width: maxX - minX,
+                        height: maxY - minY
+                    )
+                    return Shape(
+                        boundingBox: boundingBox,
+                        pathLength: totalLength,
+                        netVector: vector,
+                        straightDistance: straight
+                    )
+                }
+
+                private static func distance(from start: CGPoint, to end: CGPoint) -> CGFloat {
+                    let dx = end.x - start.x
+                    let dy = end.y - start.y
+                    return sqrt(dx * dx + dy * dy)
+                }
+
+                private static func format(_ value: CGFloat) -> String {
+                    String(format: "%.2f", value)
+                }
+            }
+
             let bindings: [KeyBinding]
+            let points: [CGPoint]
 
             var labels: [String] {
                 bindings.map { $0.label }
+            }
+
+            var shape: Shape? {
+                Shape.from(points: points)
             }
         }
 
         private struct GlideTrail {
             private(set) var bindings: [KeyBinding] = []
+            private(set) var points: [CGPoint] = []
 
-            mutating func visit(_ binding: KeyBinding) {
+            mutating func visit(_ binding: KeyBinding, at normalizedPoint: CGPoint) {
                 guard let last = bindings.last else {
                     bindings.append(binding)
+                    points.append(normalizedPoint)
                     return
                 }
                 guard last.rect != binding.rect || last.label != binding.label else {
                     return
                 }
                 bindings.append(binding)
+                points.append(normalizedPoint)
             }
 
             var isMeaningful: Bool {
-                bindings.count > 1
+                bindings.count > 1 && points.count > 1
             }
         }
+
+        private static let glideSpecialTokens: [String: String] = [
+            "space": " ",
+            "spc": " ",
+            "comma": ",",
+            "period": ".",
+            "dot": ".",
+            "dash": "-",
+            "hyphen": "-",
+            "minus": "-",
+            "apostrophe": "'",
+            "quote": "\"",
+            "quotation": "\"",
+            "semicolon": ";",
+            "colon": ":",
+            "exclamation": "!",
+            "bang": "!",
+            "question": "?",
+            "at": "@",
+            "hash": "#",
+            "pound": "#",
+            "percent": "%",
+            "ampersand": "&",
+            "star": "*",
+            "asterisk": "*",
+            "plus": "+",
+            "equals": "=",
+            "underscore": "_",
+            "tilde": "~",
+            "slash": "/",
+            "backslash": "\\",
+            "pipe": "|",
+            "newline": "\n",
+            "enter": "\n",
+            "return": "\n"
+        ]
+        private static let glideIgnoredLabels: Set<String> = [
+            "shift", "control", "ctrl", "option", "alt",
+            "command", "cmd", "caps lock", "capslock", "fn", "function",
+            "tab", "escape", "esc"
+        ]
+        private static let glideAlphanumericSet = CharacterSet.alphanumerics
 
         private struct BindingGrid {
             private let rows: Int
@@ -768,7 +909,7 @@ final class ContentViewModel: ObservableObject {
                         rowBuckets.append([])
                     }
                     filledBuckets.append(rowBuckets)
-                }
+                 }
                 self.buckets = filledBuckets
             }
 
@@ -906,7 +1047,6 @@ final class ContentViewModel: ObservableObject {
         private var bindingsGeneration = 0
         private var bindingsGenerationBySide: [TrackpadSide: Int] = [:]
         private var hapticStrength: Double = 0
-
 #if DEBUG
         private let signposter = OSSignposter(
             subsystem: "com.kyome.GlassToKey",
@@ -1124,7 +1264,7 @@ final class ContentViewModel: ObservableObject {
                 if glideEnabled {
                     let normalizedPoint = normalizedPoint(for: point, canvasSize: canvasSize)
                     let normalizedBinding = bindingIndex.bindingAtNormalizedPoint(normalizedPoint)
-                    updateGlideTrail(touchKey: touchKey, binding: normalizedBinding)
+                    updateGlideTrail(touchKey: touchKey, binding: normalizedBinding, normalizedPoint: normalizedPoint)
                 }
                 if shouldSuppressTouch(
                     touchKey: touchKey,
@@ -2286,17 +2426,17 @@ final class ContentViewModel: ObservableObject {
             #endif
         }
 
-        private func updateGlideTrail(touchKey: TouchKey, binding: KeyBinding?) {
+        private func updateGlideTrail(touchKey: TouchKey, binding: KeyBinding?, normalizedPoint: CGPoint) {
             guard glideEnabled, let binding else { return }
             var trail = glideTrails[touchKey] ?? GlideTrail()
-            trail.visit(binding)
+            trail.visit(binding, at: normalizedPoint)
             glideTrails[touchKey] = trail
         }
 
         private func finalizeGlideTrail(for touchKey: TouchKey) {
             guard let trail = glideTrails.removeValue(forKey: touchKey) else { return }
             guard glideEnabled, trail.isMeaningful else { return }
-            let path = GlidePath(bindings: trail.bindings)
+            let path = GlidePath(bindings: trail.bindings, points: trail.points)
             onGlidePathDetected(path)
             dispatchGlidePath(path)
         }
@@ -2324,27 +2464,41 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func glideCandidateText(from path: GlidePath) -> String? {
-            var scalars: [Unicode.Scalar] = []
+            var tokens: [String] = []
+            tokens.reserveCapacity(path.bindings.count)
             for binding in path.bindings {
                 guard case .key = binding.action else { continue }
-                let label = binding.label.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard label.count == 1,
-                      let scalar = label.unicodeScalars.first else {
-                    continue
+                if let token = normalizedGlideToken(for: binding),
+                   !token.isEmpty {
+                    tokens.append(token)
                 }
-                guard CharacterSet.alphanumerics.contains(scalar) else { continue }
-                scalars.append(scalar)
             }
-            guard !scalars.isEmpty else { return nil }
-            let string = String(scalars.map { Character($0) }).lowercased()
-            return string
+            guard !tokens.isEmpty else { return nil }
+            let combined = tokens.joined()
+            let trimmed = combined.trimmingCharacters(in: .whitespaces)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        private func normalizedGlideToken(for binding: KeyBinding) -> String? {
+            let label = binding.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !label.isEmpty else { return nil }
+            let lower = label.lowercased()
+            if let mapped = Self.glideSpecialTokens[lower] {
+                return mapped
+            }
+            guard !Self.glideIgnoredLabels.contains(lower) else { return nil }
+            let scalars = label.unicodeScalars
+            guard !scalars.isEmpty,
+                  scalars.allSatisfy({ Self.glideAlphanumericSet.contains($0) }) else {
+                return nil
+            }
+            return lower
         }
 
         private func correctedGlideText(for candidate: String) -> String {
             guard !candidate.isEmpty else { return candidate }
             let checker = NSSpellChecker.shared
-            let language = checker.language()
-            let resolvedLanguage = language.isEmpty ? "en_US" : language
+            let resolvedLanguage = "en_US"
             let nsCandidate = candidate as NSString
             let range = NSRange(location: 0, length: nsCandidate.length)
             guard range.length > 0,
