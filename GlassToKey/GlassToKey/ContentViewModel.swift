@@ -743,6 +743,7 @@ final class ContentViewModel: ObservableObject {
             let initialPressure: Float
             var forceEntryTime: TimeInterval?
             var forceGuardTriggered: Bool
+            var modifierEngaged: Bool
 
         }
         private struct PendingTouch {
@@ -1267,8 +1268,9 @@ final class ContentViewModel: ObservableObject {
                             continue
                         }
 
+                        let allowPriority = allowsPriorityTyping(for: side, binding: pending.binding)
                         if pending.binding.rect.contains(point),
-                           intentAllowsTyping {
+                           (intentAllowsTyping || allowPriority) {
                             let modifierKey = modifierKey(for: pending.binding)
                             let isContinuousKey = isContinuousKey(pending.binding)
                             let holdBinding = holdBinding(for: pending.binding)
@@ -1284,10 +1286,14 @@ final class ContentViewModel: ObservableObject {
                                 initialPressure: pending.initialPressure,
                                 forceEntryTime: pending.forceEntryTime,
                                 forceGuardTriggered: pending.forceGuardTriggered,
+                                modifierEngaged: false
                             )
                             setActiveTouch(touchKey, active)
                             if let modifierKey {
                                 handleModifierDown(modifierKey, binding: pending.binding)
+                                var updated = active
+                                updated.modifierEngaged = true
+                                setActiveTouch(touchKey, updated)
                             } else if isContinuousKey {
                                 triggerBinding(pending.binding, touchKey: touchKey)
                                 startRepeat(for: touchKey, binding: pending.binding)
@@ -1315,9 +1321,7 @@ final class ContentViewModel: ObservableObject {
                                 )
                             )
                         } else {
-                            setActiveTouch(
-                                touchKey,
-                                ActiveTouch(
+                            let active = ActiveTouch(
                                     binding: binding,
                                     startTime: now,
                                     startPoint: point,
@@ -1329,11 +1333,17 @@ final class ContentViewModel: ObservableObject {
                                     initialPressure: touch.pressure,
                                     forceEntryTime: nil,
                                     forceGuardTriggered: false,
+                                    modifierEngaged: false
                                 )
-                            )
-                            if intentAllowsTyping, let modifierKey {
+                            setActiveTouch(touchKey, active)
+                            let allowPriority = allowsPriorityTyping(for: side, binding: binding)
+                            let allowNow = intentAllowsTyping || allowPriority
+                            if allowNow, let modifierKey {
                                 handleModifierDown(modifierKey, binding: binding)
-                            } else if intentAllowsTyping, isContinuousKey {
+                                var updated = active
+                                updated.modifierEngaged = true
+                                setActiveTouch(touchKey, updated)
+                            } else if allowNow, isContinuousKey {
                                 triggerBinding(binding, touchKey: touchKey)
                                 startRepeat(for: touchKey, binding: binding)
                             }
@@ -1365,9 +1375,9 @@ final class ContentViewModel: ObservableObject {
                         )
                         active.maxDistanceSquared = max(active.maxDistanceSquared, releaseDistanceSquared)
                         let guardTriggered = active.forceGuardTriggered
-                        if let modifierKey = active.modifierKey, intentAllowsTyping {
+                        if let modifierKey = active.modifierKey, active.modifierEngaged {
                             handleModifierUp(modifierKey, binding: active.binding)
-                        } else if active.isContinuousKey, intentAllowsTyping {
+                        } else if active.isContinuousKey {
                             stopRepeat(for: touchKey)
                         } else if !guardTriggered,
                                   !active.didHold,
@@ -1416,9 +1426,9 @@ final class ContentViewModel: ObservableObject {
                     if var active = removeActiveTouch(for: touchKey) {
                         let distanceSquared = distanceSquared(from: active.startPoint, to: point)
                         active.maxDistanceSquared = max(active.maxDistanceSquared, distanceSquared)
-                        if let modifierKey = active.modifierKey, intentAllowsTyping {
+                        if let modifierKey = active.modifierKey, active.modifierEngaged {
                             handleModifierUp(modifierKey, binding: active.binding)
-                        } else if active.isContinuousKey, intentAllowsTyping {
+                        } else if active.isContinuousKey {
                             stopRepeat(for: touchKey)
                         }
                         endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
@@ -2073,6 +2083,14 @@ final class ContentViewModel: ObservableObject {
                 || code == CGKeyCode(kVK_DownArrow)
         }
 
+        private func allowsPriorityTyping(for side: TrackpadSide, binding: KeyBinding) -> Bool {
+            guard let state = intentStateBySide[side],
+                  case .keyCandidate = state.mode else {
+                return false
+            }
+            return modifierKey(for: binding) != nil || isContinuousKey(binding)
+        }
+
         private func holdBinding(for binding: KeyBinding) -> KeyBinding? {
             if let holdAction = binding.holdAction {
                 return makeBinding(
@@ -2430,7 +2448,7 @@ final class ContentViewModel: ObservableObject {
             disqualifiedTouches.insert(touchKey)
             if let state = popTouchState(for: touchKey),
                case let .active(active) = state {
-                if let modifierKey = active.modifierKey {
+                if let modifierKey = active.modifierKey, active.modifierEngaged {
                     handleModifierUp(modifierKey, binding: active.binding)
                 } else if active.isContinuousKey {
                     stopRepeat(for: touchKey)
