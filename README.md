@@ -25,11 +25,10 @@ Clicking Edit will allow you to click any Column/Button and set the Action/Hold 
 ## Typing Tuning
 - Tap/Hold (ms): Time in miliseconds until a tap becomds a hold
 - Drag Cancel (pt): How far you need to move before top becomes a drag
-- 2-Finger Tap (ms): Time in miliseconds of 2-finger tap detection. [0 = no detection; quickest rollovers]
 - Force Cap (g): Pressure (in grams) beyond the initial touch that disqualifies the touch before it can type, preventing accidental strong presses.
 
 ## Diagnostics (Debug Builds)
-- Logs include key dispatches and disqualification reasons (drag cancelled, two-finger suppression, typing disabled, etc.)
+- Logs include key dispatches and disqualification reasons (drag cancelled, typing disabled, etc.)
 - Performance profiling uses `OSSignposter` intervals around touch processing.
 
 ---

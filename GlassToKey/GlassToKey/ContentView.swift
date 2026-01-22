@@ -72,8 +72,6 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.keyMappings) private var storedKeyMappingsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.autoResyncMissingTrackpads) private var storedAutoResyncMissingTrackpads = false
     @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = GlassToKeySettings.tapHoldDurationMs
-    @AppStorage(GlassToKeyDefaultsKeys.twoFingerTapInterval) private var twoFingerTapIntervalMs: Double = GlassToKeySettings.twoFingerTapIntervalMs
-    @AppStorage(GlassToKeyDefaultsKeys.twoFingerSuppressionDuration) private var twoFingerSuppressionDurationMs: Double = GlassToKeySettings.twoFingerSuppressionMs
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
     @AppStorage(GlassToKeyDefaultsKeys.forceClickCap) private var forceClickCapSetting: Double = GlassToKeySettings.forceClickCap
     @AppStorage(GlassToKeyDefaultsKeys.hapticStrength) private var hapticStrengthSetting: Double = GlassToKeySettings.hapticStrengthPercent
@@ -88,9 +86,7 @@ struct ContentView: View {
     fileprivate static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
     fileprivate static let dragCancelDistanceRange: ClosedRange<Double> = 1.0...30.0
     fileprivate static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
-    fileprivate static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...50.0
     fileprivate static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
-    fileprivate static let twoFingerSuppressionRange: ClosedRange<Double> = 0.0...100.0
     fileprivate static let hapticStrengthRange: ClosedRange<Double> = 0.0...100.0
     private static let keyCornerRadius: CGFloat = 6.0
     fileprivate static let columnScaleFormatter: NumberFormatter = {
@@ -127,24 +123,6 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 0
         formatter.minimum = NSNumber(value: ContentView.tapHoldDurationRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.tapHoldDurationRange.upperBound)
-        return formatter
-    }()
-    fileprivate static let twoFingerTapIntervalFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 0
-        formatter.minimum = NSNumber(value: ContentView.twoFingerTapIntervalRange.lowerBound)
-        formatter.maximum = NSNumber(value: ContentView.twoFingerTapIntervalRange.upperBound)
-        return formatter
-    }()
-    fileprivate static let twoFingerSuppressionFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 0
-        formatter.minimum = NSNumber(value: ContentView.twoFingerSuppressionRange.lowerBound)
-        formatter.maximum = NSNumber(value: ContentView.twoFingerSuppressionRange.upperBound)
         return formatter
     }()
     fileprivate static let dragCancelDistanceFormatter: NumberFormatter = {
@@ -320,12 +298,6 @@ struct ContentView: View {
             .onChange(of: tapHoldDurationMs) { newValue in
                 viewModel.updateHoldThreshold(newValue / 1000.0)
             }
-            .onChange(of: twoFingerTapIntervalMs) { newValue in
-                viewModel.updateTwoFingerTapInterval(newValue / 1000.0)
-            }
-            .onChange(of: twoFingerSuppressionDurationMs) { newValue in
-                viewModel.updateTwoFingerSuppressionDuration(newValue / 1000.0)
-            }
             .onChange(of: dragCancelDistanceSetting) { newValue in
                 viewModel.updateDragCancelDistance(CGFloat(newValue))
             }
@@ -344,6 +316,7 @@ struct ContentView: View {
     private var mainLayout: some View {
         VStack(spacing: 16) {
             headerView
+            contactCountView
             contentRow
         }
     }
@@ -362,6 +335,26 @@ struct ContentView: View {
                 visualsEnabled = false
             }
         )
+    }
+
+    private var contactCountView: some View {
+        HStack(spacing: 12) {
+            Text("Contacting fingers:")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Spacer()
+            let leftCount = viewModel.contactFingerCountsBySide[.left] ?? 0
+            let rightCount = viewModel.contactFingerCountsBySide[.right] ?? 0
+            HStack(spacing: 8) {
+                Text("L \(leftCount)")
+                    .font(.caption2)
+                    .foregroundStyle(.primary)
+                Text("R \(rightCount)")
+                    .font(.caption2)
+                    .foregroundStyle(.primary)
+            }
+        }
+        .padding(.horizontal, 4)
     }
 
     private var contentRow: some View {
@@ -405,8 +398,6 @@ struct ContentView: View {
             editModeEnabled: editModeEnabled,
             tapHoldDurationMs: $tapHoldDurationMs,
             dragCancelDistanceSetting: $dragCancelDistanceSetting,
-            twoFingerTapIntervalMs: $twoFingerTapIntervalMs,
-            twoFingerSuppressionDurationMs: $twoFingerSuppressionDurationMs,
             forceClickCapSetting: $forceClickCapSetting,
             hapticStrengthSetting: $hapticStrengthSetting,
             onRefreshDevices: {
@@ -548,8 +539,6 @@ struct ContentView: View {
         let editModeEnabled: Bool
         @Binding var tapHoldDurationMs: Double
         @Binding var dragCancelDistanceSetting: Double
-        @Binding var twoFingerTapIntervalMs: Double
-        @Binding var twoFingerSuppressionDurationMs: Double
         @Binding var forceClickCapSetting: Double
         @Binding var hapticStrengthSetting: Double
         @State private var typingTuningExpanded = true
@@ -586,8 +575,6 @@ struct ContentView: View {
                         TypingTuningSectionView(
                             tapHoldDurationMs: $tapHoldDurationMs,
                             dragCancelDistanceSetting: $dragCancelDistanceSetting,
-                            twoFingerTapIntervalMs: $twoFingerTapIntervalMs,
-                            twoFingerSuppressionDurationMs: $twoFingerSuppressionDurationMs,
                             forceClickCapSetting: $forceClickCapSetting,
                             hapticStrengthSetting: $hapticStrengthSetting
                         )
@@ -1083,8 +1070,6 @@ struct ContentView: View {
     private struct TypingTuningSectionView: View {
         @Binding var tapHoldDurationMs: Double
         @Binding var dragCancelDistanceSetting: Double
-        @Binding var twoFingerTapIntervalMs: Double
-        @Binding var twoFingerSuppressionDurationMs: Double
         @Binding var forceClickCapSetting: Double
         @Binding var hapticStrengthSetting: Double
 
@@ -1117,36 +1102,6 @@ struct ContentView: View {
                         value: $dragCancelDistanceSetting,
                         in: ContentView.dragCancelDistanceRange,
                         step: 1
-                    )
-                    .frame(minWidth: 120)
-                }
-                GridRow {
-                    Text("2-Finger Tap (ms)")
-                    TextField(
-                        "10",
-                        value: $twoFingerTapIntervalMs,
-                        formatter: ContentView.twoFingerTapIntervalFormatter
-                    )
-                    .frame(width: 60)
-                    Slider(
-                        value: $twoFingerTapIntervalMs,
-                        in: ContentView.twoFingerTapIntervalRange,
-                        step: 5
-                    )
-                    .frame(minWidth: 120)
-                }
-                GridRow {
-                    Text("2-Finger Suppress (ms)")
-                    TextField(
-                        "0",
-                        value: $twoFingerSuppressionDurationMs,
-                        formatter: ContentView.twoFingerSuppressionFormatter
-                    )
-                    .frame(width: 60)
-                    Slider(
-                        value: $twoFingerSuppressionDurationMs,
-                        in: ContentView.twoFingerSuppressionRange,
-                        step: 5
                     )
                     .frame(minWidth: 120)
                 }
@@ -1887,8 +1842,6 @@ struct ContentView: View {
         viewModel.selectRightDevice(rightDevice)
         }
         viewModel.updateHoldThreshold(tapHoldDurationMs / 1000.0)
-        viewModel.updateTwoFingerTapInterval(twoFingerTapIntervalMs / 1000.0)
-        viewModel.updateTwoFingerSuppressionDuration(twoFingerSuppressionDurationMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragCancelDistanceSetting))
         viewModel.updateHapticStrength(hapticStrengthSetting / 100.0)
         viewModel.setTouchSnapshotRecordingEnabled(visualsEnabled)

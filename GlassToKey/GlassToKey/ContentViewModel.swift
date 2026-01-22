@@ -176,6 +176,10 @@ final class ContentViewModel: ObservableObject {
     @Published var isListening: Bool = false
     @Published var isTypingEnabled: Bool = true
     @Published private(set) var activeLayer: Int = 0
+    @Published private(set) var contactFingerCountsBySide: [TrackpadSide: Int] = [
+        .left: 0,
+        .right: 0
+    ]
     private let isDragDetectionEnabled = true
     @Published var availableDevices = [OMSDeviceInfo]()
     @Published var leftDevice: OMSDeviceInfo?
@@ -216,6 +220,11 @@ final class ContentViewModel: ObservableObject {
                 weakSelf?.recordDebugHit(binding)
             }
         }
+        let contactCountHandler: @Sendable ([TrackpadSide: Int]) -> Void = { counts in
+            Task { @MainActor in
+                weakSelf?.contactFingerCountsBySide = counts
+            }
+        }
         processor = TouchProcessor(
             keyDispatcher: KeyEventDispatcher.shared,
             onTypingEnabledChanged: { isEnabled in
@@ -228,7 +237,8 @@ final class ContentViewModel: ObservableObject {
                     weakSelf?.activeLayer = layer
                 }
             },
-            onDebugBindingDetected: debugBindingHandler
+            onDebugBindingDetected: debugBindingHandler,
+            onContactCountChanged: contactCountHandler
         )
         weakSelf = self
         loadDevices()
@@ -586,18 +596,6 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    func updateTwoFingerTapInterval(_ seconds: TimeInterval) {
-        Task { [processor] in
-            await processor.updateTwoFingerTapInterval(seconds)
-        }
-    }
-
-    func updateTwoFingerSuppressionDuration(_ seconds: TimeInterval) {
-        Task { [processor] in
-            await processor.updateTwoFingerSuppressionDuration(seconds)
-        }
-    }
-
     func updateForceClickCap(_ grams: Double) {
         Task { [processor] in
             await processor.updateForceClickCap(grams)
@@ -647,7 +645,6 @@ final class ContentViewModel: ObservableObject {
             case leftContinuousRect
             case leftKeyRect
             case pendingLeftRect
-            case twoFingerSuppressed
             case typingDisabled
             case forceCapExceeded
         }
@@ -697,11 +694,6 @@ final class ContentViewModel: ObservableObject {
         private enum TouchState {
             case pending(PendingTouch)
             case active(ActiveTouch)
-        }
-
-        private struct TwoFingerTapCandidate {
-            let touchKey: TouchKey
-            let startTime: TimeInterval
         }
 
         private struct BindingGrid {
@@ -805,6 +797,7 @@ final class ContentViewModel: ObservableObject {
         private let onTypingEnabledChanged: @Sendable (Bool) -> Void
         private let onActiveLayerChanged: @Sendable (Int) -> Void
         private let onDebugBindingDetected: @Sendable (KeyBinding) -> Void
+        private let onContactCountChanged: @Sendable ([TrackpadSide: Int]) -> Void
         private let isDragDetectionEnabled = true
         private var isListening = false
         private var isTypingEnabled = true
@@ -833,11 +826,11 @@ final class ContentViewModel: ObservableObject {
         private var tapMaxDuration: TimeInterval = 0.2
         private var holdMinDuration: TimeInterval = 0.2
         private var dragCancelDistance: CGFloat = 2.5
-        private var twoFingerTapMaxInterval: TimeInterval = 0.08
-        private var twoFingerSuppressionDuration: TimeInterval = 0
-        private var twoFingerSuppressionExpiryByDevice: [Int: TimeInterval] = [:]
         private var forceClickCap: Float = 0
-        private var twoFingerTapCandidatesByDevice: [Int: TwoFingerTapCandidate] = [:]
+        private var contactFingerCountsBySide: [TrackpadSide: Int] = [
+            .left: 0,
+            .right: 0
+        ]
         private let repeatInitialDelay: UInt64 = 350_000_000
         private let repeatInterval: UInt64 = 50_000_000
         private let spaceRepeatMultiplier: UInt64 = 2
@@ -867,12 +860,14 @@ final class ContentViewModel: ObservableObject {
             keyDispatcher: KeyEventDispatcher,
             onTypingEnabledChanged: @Sendable @escaping (Bool) -> Void,
             onActiveLayerChanged: @Sendable @escaping (Int) -> Void,
-            onDebugBindingDetected: @Sendable @escaping (KeyBinding) -> Void
+            onDebugBindingDetected: @Sendable @escaping (KeyBinding) -> Void,
+            onContactCountChanged: @Sendable @escaping ([TrackpadSide: Int]) -> Void
         ) {
             self.keyDispatcher = keyDispatcher
             self.onTypingEnabledChanged = onTypingEnabledChanged
             self.onActiveLayerChanged = onActiveLayerChanged
             self.onDebugBindingDetected = onDebugBindingDetected
+            self.onContactCountChanged = onContactCountChanged
         }
 
         func setListening(_ isListening: Bool) {
@@ -933,18 +928,6 @@ final class ContentViewModel: ObservableObject {
             dragCancelDistance = max(0, distance)
         }
 
-        func updateTwoFingerTapInterval(_ seconds: TimeInterval) {
-            twoFingerTapMaxInterval = max(0, seconds)
-        }
-
-        func updateTwoFingerSuppressionDuration(_ seconds: TimeInterval) {
-            let clamped = max(0, seconds)
-            twoFingerSuppressionDuration = clamped
-            if clamped == 0 {
-                twoFingerSuppressionExpiryByDevice.removeAll()
-            }
-        }
-
         func updateForceClickCap(_ grams: Double) {
             forceClickCap = Float(max(0, grams))
         }
@@ -977,10 +960,14 @@ final class ContentViewModel: ObservableObject {
                 labels: rightLabels,
                 isLeftSide: false
             )
+            notifyContactCounts()
         }
 
         func resetState() {
             releaseHeldKeys()
+            contactFingerCountsBySide[.left] = 0
+            contactFingerCountsBySide[.right] = 0
+            notifyContactCounts()
         }
 
         private func rebuildCustomButtonsIndex() {
@@ -1023,42 +1010,16 @@ final class ContentViewModel: ObservableObject {
                 labels: labels,
                 canvasSize: canvasSize
             )
-            if isTypingEnabled, twoFingerTapMaxInterval > 0, !touches.isEmpty {
-                var touchKeysInFrame = Set<TouchKey>()
-                touchKeysInFrame.reserveCapacity(touches.count)
-                for touch in touches {
-                    touchKeysInFrame.insert(TouchKey(deviceIndex: touch.deviceIndex, id: touch.id))
-                }
-                let suppressed = collectTwoFingerTapSuppression(
-                    in: touches,
-                    now: now,
-                    activeTouchKeys: touchKeysInFrame
-                )
-                if !suppressed.isEmpty {
-                    let devices = Set(suppressed.map { $0.deviceIndex })
-                    for deviceIndex in devices {
-                        extendTwoFingerSuppression(for: deviceIndex, until: now)
-                    }
-                    for touchKey in suppressed {
-                        cancelTwoFingerTapTouch(touchKey)
-                    }
-                }
+            let contactCount = touches.reduce(0) { current, touch in
+                current + (Self.isContactState(touch.state) ? 1 : 0)
             }
-
+            contactFingerCountsBySide[side] = contactCount
             for touch in touches {
                 let point = CGPoint(
                     x: CGFloat(touch.position.x) * canvasSize.width,
                     y: CGFloat(1.0 - touch.position.y) * canvasSize.height
                 )
                 let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
-                if shouldSuppressTouch(
-                    touchKey: touchKey,
-                    state: touch.state,
-                    now: now
-                ) {
-                    disqualifyTouch(touchKey, reason: .twoFingerSuppressed)
-                    continue
-                }
                 if touchInitialContactPoint[touchKey] == nil,
                    Self.isContactState(touch.state) {
                     touchInitialContactPoint[touchKey] = point
@@ -1266,10 +1227,6 @@ final class ContentViewModel: ObservableObject {
                         }
                     }
                 case .breaking, .leaving:
-                    if let candidate = twoFingerTapCandidatesByDevice[touch.deviceIndex],
-                       candidate.touchKey == touchKey {
-                        twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
-                    }
                     let releaseStartPoint = touchInitialContactPoint.removeValue(forKey: touchKey)
                     if var pending = removePendingTouch(for: touchKey) {
                         let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
@@ -1309,10 +1266,6 @@ final class ContentViewModel: ObservableObject {
                         }
                     }
                 case .notTouching:
-                    if let candidate = twoFingerTapCandidatesByDevice[touch.deviceIndex],
-                       candidate.touchKey == touchKey {
-                        twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
-                    }
                     touchInitialContactPoint.removeValue(forKey: touchKey)
                     if var pending = removePendingTouch(for: touchKey) {
                         let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
@@ -1336,69 +1289,6 @@ final class ContentViewModel: ObservableObject {
                     break
                 }
             }
-        }
-
-        private func collectTwoFingerTapSuppression(
-            in touches: [OMSTouchData],
-            now: TimeInterval,
-            activeTouchKeys: Set<TouchKey>
-        ) -> [TouchKey] {
-            var suppressed: [TouchKey] = []
-            suppressed.reserveCapacity(2)
-            for touch in touches {
-                guard Self.isContactState(touch.state) else { continue }
-                let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
-                guard !disqualifiedTouches.contains(touchKey) else { continue }
-                guard touchInitialContactPoint[touchKey] == nil else { continue }
-                if let candidate = twoFingerTapCandidatesByDevice[touch.deviceIndex] {
-                    if !activeTouchKeys.contains(candidate.touchKey) {
-                        twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
-                    } else if now - candidate.startTime <= twoFingerTapMaxInterval {
-                        suppressed.append(candidate.touchKey)
-                        suppressed.append(touchKey)
-                        twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
-                        continue
-                    }
-                }
-                twoFingerTapCandidatesByDevice[touch.deviceIndex] = TwoFingerTapCandidate(
-                    touchKey: touchKey,
-                    startTime: now
-                )
-            }
-            return suppressed
-        }
-
-        private func extendTwoFingerSuppression(for deviceIndex: Int, until now: TimeInterval) {
-            guard twoFingerSuppressionDuration > 0 else { return }
-            let candidateExpiry = now + twoFingerSuppressionDuration
-            if candidateExpiry > (twoFingerSuppressionExpiryByDevice[deviceIndex] ?? 0) {
-                twoFingerSuppressionExpiryByDevice[deviceIndex] = candidateExpiry
-            }
-        }
-
-        private func shouldSuppressTouch(
-            touchKey: TouchKey,
-            state: OMSState,
-            now: TimeInterval
-        ) -> Bool {
-            guard isSuppressionActive(for: touchKey.deviceIndex, at: now),
-                  Self.isContactState(state),
-                  !disqualifiedTouches.contains(touchKey) else {
-                return false
-            }
-            return true
-        }
-
-        private func isSuppressionActive(for deviceIndex: Int, at now: TimeInterval) -> Bool {
-            guard twoFingerSuppressionDuration > 0,
-                  let expiry = twoFingerSuppressionExpiryByDevice[deviceIndex] else {
-                return false
-            }
-            if now >= expiry {
-                twoFingerSuppressionExpiryByDevice.removeValue(forKey: deviceIndex)
-                return false
-            }
-            return true
         }
 
         private func handleForceGuard(
@@ -1468,15 +1358,6 @@ final class ContentViewModel: ObservableObject {
 
         private func popTouchState(for touchKey: TouchKey) -> TouchState? {
             touchStates.removeValue(forKey: touchKey)
-        }
-
-        private func cancelTwoFingerTapTouch(_ touchKey: TouchKey) {
-            disqualifyTouch(touchKey, reason: .twoFingerSuppressed)
-            toggleTouchStarts.removeValue(forKey: touchKey)
-            layerToggleTouchStarts.removeValue(forKey: touchKey)
-            if momentaryLayerTouches.removeValue(forKey: touchKey) != nil {
-                updateActiveLayer()
-            }
         }
 
         private func makeBindings(
@@ -2196,6 +2077,10 @@ final class ContentViewModel: ObservableObject {
             #if DEBUG
             keyLogger.debug("disqualify deviceIndex=\(touchKey.deviceIndex) id=\(touchKey.id) reason=\(reason.rawValue)")
             #endif
+        }
+
+        private func notifyContactCounts() {
+            onContactCountChanged(contactFingerCountsBySide)
         }
 
         private func logKeyDispatch(
