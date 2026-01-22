@@ -410,20 +410,16 @@ struct ContentView: View {
     }
 
     private var intentIndicatorView: some View {
-        let leftIntent = viewModel.intentDisplayBySide[.left] ?? .idle
-        let rightIntent = viewModel.intentDisplayBySide[.right] ?? .idle
-        return HStack(spacing: 8) {
-            intentBadge(side: "L", intent: leftIntent)
-            intentBadge(side: "R", intent: rightIntent)
-        }
+        let intent = viewModel.intentDisplayBySide[.left] ?? .idle
+        return intentBadge(intent: intent)
     }
 
-    private func intentBadge(side: String, intent: ContentViewModel.IntentDisplay) -> some View {
+    private func intentBadge(intent: ContentViewModel.IntentDisplay) -> some View {
         HStack(spacing: 4) {
             Circle()
                 .fill(intentColor(intent))
                 .frame(width: 6, height: 6)
-            Text("\(side) \(intentLabel(intent))")
+            Text("Global \(intentLabel(intent))")
                 .font(.caption2)
                 .foregroundStyle(.primary)
         }
@@ -1241,7 +1237,7 @@ struct ContentView: View {
                     .frame(minWidth: 120)
                 }
                 GridRow {
-                    Text("Intent Buffer (ms)")
+                    Text("Typing Grace (ms)")
                     TextField(
                         "40",
                         value: $intentBufferMsSetting,
