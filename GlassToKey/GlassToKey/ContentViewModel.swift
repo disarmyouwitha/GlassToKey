@@ -5,6 +5,7 @@
 //  Created by Takuto Nakamura on 2024/03/02.
 //
 
+import AppKit
 import Carbon
 import CoreGraphics
 import Foundation
@@ -2301,6 +2302,12 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func dispatchGlidePath(_ path: GlidePath) {
+            if let candidate = glideCandidateText(from: path) {
+                let prediction = correctedGlideText(for: candidate)
+                playHapticIfNeeded(on: path.bindings.first?.side)
+                sendGlideText(prediction)
+                return
+            }
             let keyBindings = path.bindings.compactMap { binding -> (code: CGKeyCode, flags: CGEventFlags)? in
                 guard case let .key(code, flags) = binding.action else { return nil }
                 return (code, flags)
@@ -2309,6 +2316,49 @@ final class ContentViewModel: ObservableObject {
             for entry in keyBindings {
                 sendKey(code: entry.code, flags: entry.flags, side: nil)
             }
+        }
+
+        private func sendGlideText(_ text: String) {
+            guard !text.isEmpty else { return }
+            keyDispatcher.postUnicodeText(text, flags: currentModifierFlags())
+        }
+
+        private func glideCandidateText(from path: GlidePath) -> String? {
+            var scalars: [Unicode.Scalar] = []
+            for binding in path.bindings {
+                guard case .key = binding.action else { continue }
+                let label = binding.label.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard label.count == 1,
+                      let scalar = label.unicodeScalars.first else {
+                    continue
+                }
+                guard CharacterSet.alphanumerics.contains(scalar) else { continue }
+                scalars.append(scalar)
+            }
+            guard !scalars.isEmpty else { return nil }
+            let string = String(scalars.map { Character($0) }).lowercased()
+            return string
+        }
+
+        private func correctedGlideText(for candidate: String) -> String {
+            guard !candidate.isEmpty else { return candidate }
+            let checker = NSSpellChecker.shared
+            let language = checker.language()
+            let resolvedLanguage = language.isEmpty ? "en_US" : language
+            let nsCandidate = candidate as NSString
+            let range = NSRange(location: 0, length: nsCandidate.length)
+            guard range.length > 0,
+                  let correction = checker.correction(
+                      forWordRange: range,
+                      in: candidate,
+                      language: resolvedLanguage,
+                      inSpellDocumentWithTag: 0
+                  ) else {
+                return candidate
+            }
+            let trimmed = correction.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return candidate }
+            return trimmed
         }
 
         private func logKeyDispatch(

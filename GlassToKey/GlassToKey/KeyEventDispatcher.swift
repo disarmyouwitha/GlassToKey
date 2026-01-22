@@ -18,11 +18,16 @@ final class KeyEventDispatcher: @unchecked Sendable {
     func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool, token: RepeatToken? = nil) {
         dispatcher.postKey(code: code, flags: flags, keyDown: keyDown, token: token)
     }
+
+    func postUnicodeText(_ text: String, flags: CGEventFlags = []) {
+        dispatcher.postUnicodeText(text, flags: flags)
+    }
 }
 
 private protocol KeyDispatching: Sendable {
     func postKeyStroke(code: CGKeyCode, flags: CGEventFlags, token: RepeatToken?)
     func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool, token: RepeatToken?)
+    func postUnicodeText(_ text: String, flags: CGEventFlags)
 }
 
 private final class CGEventKeyDispatcher: @unchecked Sendable, KeyDispatching {
@@ -89,6 +94,41 @@ private final class CGEventKeyDispatcher: @unchecked Sendable, KeyDispatching {
                 }
                 event.flags = flags
                 event.post(tap: .cghidEventTap)
+            }
+        }
+    }
+
+    func postUnicodeText(_ text: String, flags: CGEventFlags = []) {
+        guard !text.isEmpty else { return }
+        queue.async { [self] in
+            autoreleasepool {
+                guard let source = eventSource ?? CGEventSource(stateID: .hidSystemState) else {
+                    return
+                }
+                eventSource = source
+                var characters = Array(text.utf16)
+                guard !characters.isEmpty else { return }
+                guard let keyDown = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: 0,
+                    keyDown: true
+                ),
+                let keyUp = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: 0,
+                    keyDown: false
+                ) else {
+                    return
+                }
+                keyDown.flags = flags
+                keyUp.flags = flags
+                characters.withUnsafeMutableBufferPointer { buffer in
+                    guard let baseAddress = buffer.baseAddress else { return }
+                    keyDown.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: baseAddress)
+                    keyUp.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: baseAddress)
+                }
+                keyDown.post(tap: .cghidEventTap)
+                keyUp.post(tap: .cghidEventTap)
             }
         }
     }
