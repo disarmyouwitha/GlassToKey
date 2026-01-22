@@ -80,8 +80,8 @@ final class GlassToKeyController: ObservableObject {
                 columnSettings: columnSettings
             )
         } else {
-            leftLayout = ContentViewModel.Layout(keyRects: [])
-            rightLayout = ContentViewModel.Layout(keyRects: [])
+            leftLayout = ContentViewModel.Layout(keyRects: [], trackpadSize: trackpadSize)
+            rightLayout = ContentViewModel.Layout(keyRects: [], trackpadSize: trackpadSize)
         }
 
         viewModel.configureLayouts(

@@ -1663,7 +1663,7 @@ struct ContentView: View {
         guard columns > 0,
               rows > 0,
               columnAnchorsMM.count == columns else {
-            return ContentViewModel.Layout(keyRects: [])
+            return ContentViewModel.Layout(keyRects: [], trackpadSize: size)
         }
         let scaleX = size.width / trackpadWidth
         let scaleY = size.height / trackpadHeight
@@ -1722,11 +1722,11 @@ struct ContentView: View {
                 CGSize(width: -offset.width, height: offset.height)
             }
             applyColumnOffsets(keyRects: &adjusted, columnOffsets: mirroredOffsets)
-            return ContentViewModel.Layout(keyRects: adjusted)
+            return ContentViewModel.Layout(keyRects: adjusted, trackpadSize: size)
         }
 
         applyColumnOffsets(keyRects: &keyRects, columnOffsets: columnOffsets)
-        return ContentViewModel.Layout(keyRects: keyRects)
+        return ContentViewModel.Layout(keyRects: keyRects, trackpadSize: size)
     }
 
     private static func scaledColumnAnchorsMM(
@@ -1825,8 +1825,8 @@ struct ContentView: View {
         guard layoutColumns > 0,
               layoutRows > 0,
               layoutColumnAnchors.count == layoutColumns else {
-            leftLayout = ContentViewModel.Layout(keyRects: [])
-            rightLayout = ContentViewModel.Layout(keyRects: [])
+            leftLayout = ContentViewModel.Layout(keyRects: [], trackpadSize: trackpadSize)
+            rightLayout = ContentViewModel.Layout(keyRects: [], trackpadSize: trackpadSize)
             viewModel.configureLayouts(
                 leftLayout: leftLayout,
                 rightLayout: rightLayout,

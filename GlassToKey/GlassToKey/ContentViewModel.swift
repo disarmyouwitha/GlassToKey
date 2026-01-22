@@ -64,6 +64,7 @@ final class ContentViewModel: ObservableObject {
 
     struct KeyBinding: Sendable {
         let rect: CGRect
+        let normalizedRect: NormalizedRect
         let label: String
         let action: KeyBindingAction
         let position: GridKeyPosition?
@@ -73,6 +74,55 @@ final class ContentViewModel: ObservableObject {
 
     struct Layout {
         let keyRects: [[CGRect]]
+        let normalizedKeyRects: [[NormalizedRect]]
+
+        init(keyRects: [[CGRect]], trackpadSize: CGSize) {
+            self.keyRects = keyRects
+            self.normalizedKeyRects = Layout.normalize(keyRects, trackpadSize: trackpadSize)
+        }
+
+        init(keyRects: [[CGRect]]) {
+            self.init(keyRects: keyRects, trackpadSize: .zero)
+        }
+
+        private static func normalize(
+            _ keyRects: [[CGRect]],
+            trackpadSize: CGSize
+        ) -> [[NormalizedRect]] {
+            guard !keyRects.isEmpty else { return [] }
+            return keyRects.map { row in
+                row.map { rect in
+                    let x = Layout.normalize(axis: rect.minX, size: trackpadSize.width)
+                    let y = Layout.normalize(axis: rect.minY, size: trackpadSize.height)
+                    let width = Layout.normalizeLength(length: rect.width, size: trackpadSize.width)
+                    let height = Layout.normalizeLength(length: rect.height, size: trackpadSize.height)
+                    return NormalizedRect(
+                        x: x,
+                        y: y,
+                        width: width,
+                        height: height
+                    ).clamped(minWidth: 0, minHeight: 0)
+                }
+            }
+        }
+
+        private static func normalize(axis coordinate: CGFloat, size: CGFloat) -> CGFloat {
+            guard size > 0 else { return 0 }
+            return min(max(coordinate / size, 0), 1)
+        }
+
+        private static func normalizeLength(length: CGFloat, size: CGFloat) -> CGFloat {
+            guard size > 0 else { return 0 }
+            return min(max(length / size, 0), 1)
+        }
+
+        func normalizedRect(for position: GridKeyPosition) -> NormalizedRect? {
+            guard normalizedKeyRects.indices.contains(position.row),
+                  normalizedKeyRects[position.row].indices.contains(position.column) else {
+                return nil
+            }
+            return normalizedKeyRects[position.row][position.column]
+        }
     }
 
     struct TouchSnapshot: Sendable {
@@ -703,6 +753,21 @@ final class ContentViewModel: ObservableObject {
                 return nil
             }
 
+            func binding(atNormalizedPoint point: CGPoint) -> KeyBinding? {
+                let clampedPoint = CGPoint(
+                    x: min(max(point.x, 0), 1),
+                    y: min(max(point.y, 0), 1)
+                )
+                let row = bucketIndex(for: clampedPoint.y, count: rows)
+                let col = bucketIndex(for: clampedPoint.x, count: cols)
+                for binding in buckets[row][col] {
+                    if binding.normalizedRect.contains(clampedPoint) {
+                        return binding
+                    }
+                }
+                return nil
+            }
+
             private func bucketRange(for rect: CGRect) -> (rowRange: ClosedRange<Int>, colRange: ClosedRange<Int>) {
                 let minX = normalize(rect.minX, axisSize: canvasSize.width)
                 let maxX = normalize(rect.maxX, axisSize: canvasSize.width)
@@ -900,14 +965,14 @@ final class ContentViewModel: ObservableObject {
             }
             processTouches(
                 frame.left,
-                keyRects: leftLayout.keyRects,
+                layout: leftLayout,
                 canvasSize: trackpadSize,
                 labels: leftLabels,
                 isLeftSide: true
             )
             processTouches(
                 frame.right,
-                keyRects: rightLayout.keyRects,
+                layout: rightLayout,
                 canvasSize: trackpadSize,
                 labels: rightLabels,
                 isLeftSide: false
@@ -936,7 +1001,7 @@ final class ContentViewModel: ObservableObject {
 
         private func processTouches(
             _ touches: [OMSTouchData],
-            keyRects: [[CGRect]],
+            layout: Layout,
             canvasSize: CGSize,
             labels: [[String]],
             isLeftSide: Bool
@@ -954,7 +1019,7 @@ final class ContentViewModel: ObservableObject {
             let side: TrackpadSide = isLeftSide ? .left : .right
             let bindings = bindings(
                 for: side,
-                keyRects: keyRects,
+                layout: layout,
                 labels: labels,
                 canvasSize: canvasSize
             )
@@ -1415,12 +1480,13 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func makeBindings(
-            keyRects: [[CGRect]],
+            layout: Layout,
             labels: [[String]],
             customButtons: [CustomButton],
             canvasSize: CGSize,
             side: TrackpadSide
         ) -> BindingIndex {
+            let keyRects = layout.keyRects
             let keyRows = max(1, keyRects.count)
             let keyCols = max(1, keyRects.first?.count ?? 1)
             var keyGrid = BindingGrid(canvasSize: canvasSize, rows: keyRows, cols: keyCols)
@@ -1430,6 +1496,7 @@ final class ContentViewModel: ObservableObject {
                 cols: max(4, keyCols)
             )
 
+            let fallbackNormalized = NormalizedRect(x: 0, y: 0, width: 0, height: 0)
             for row in 0..<keyRects.count {
                 let rowRects = keyRects[row]
                 for col in 0..<rowRects.count {
@@ -1438,7 +1505,13 @@ final class ContentViewModel: ObservableObject {
                           col < labels[row].count else { continue }
                     let label = labels[row][col]
                     let position = GridKeyPosition(side: side, row: row, column: col)
-                    guard let binding = bindingForLabel(label, rect: rect, position: position) else {
+                    let normalizedRect = layout.normalizedRect(for: position) ?? fallbackNormalized
+                    guard let binding = bindingForLabel(
+                        label,
+                        rect: rect,
+                        normalizedRect: normalizedRect,
+                        position: position
+                    ) else {
                         continue
                     }
                     keyGrid.insert(binding)
@@ -1465,6 +1538,7 @@ final class ContentViewModel: ObservableObject {
                 }
                 let binding = KeyBinding(
                     rect: rect,
+                    normalizedRect: button.rect,
                     label: button.action.label,
                     action: action,
                     position: nil,
@@ -1480,9 +1554,20 @@ final class ContentViewModel: ObservableObject {
             )
         }
 
-        private func bindingForLabel(_ label: String, rect: CGRect, position: GridKeyPosition) -> KeyBinding? {
+        private func bindingForLabel(
+            _ label: String,
+            rect: CGRect,
+            normalizedRect: NormalizedRect,
+            position: GridKeyPosition
+        ) -> KeyBinding? {
             guard let action = keyAction(for: position, label: label) else { return nil }
-            return makeBinding(for: action, rect: rect, position: position, side: position.side)
+            return makeBinding(
+                for: action,
+                rect: rect,
+                normalizedRect: normalizedRect,
+                position: position,
+                side: position.side
+            )
         }
 
         private func keyAction(for position: GridKeyPosition, label: String) -> KeyAction? {
@@ -1510,6 +1595,7 @@ final class ContentViewModel: ObservableObject {
         private func makeBinding(
             for action: KeyAction,
             rect: CGRect,
+            normalizedRect: NormalizedRect,
             position: GridKeyPosition?,
             side: TrackpadSide,
             holdAction: KeyAction? = nil
@@ -1519,6 +1605,7 @@ final class ContentViewModel: ObservableObject {
                 let flags = CGEventFlags(rawValue: action.flags)
                 return KeyBinding(
                     rect: rect,
+                    normalizedRect: normalizedRect,
                     label: action.label,
                     action: .key(code: CGKeyCode(action.keyCode), flags: flags),
                     position: position,
@@ -1528,6 +1615,7 @@ final class ContentViewModel: ObservableObject {
             case .typingToggle:
                 return KeyBinding(
                     rect: rect,
+                    normalizedRect: normalizedRect,
                     label: action.label,
                     action: .typingToggle,
                     position: position,
@@ -1537,6 +1625,7 @@ final class ContentViewModel: ObservableObject {
             case .layerMomentary:
                 return KeyBinding(
                     rect: rect,
+                    normalizedRect: normalizedRect,
                     label: action.label,
                     action: .layerMomentary(action.layer ?? 1),
                     position: position,
@@ -1546,6 +1635,7 @@ final class ContentViewModel: ObservableObject {
             case .layerToggle:
                 return KeyBinding(
                     rect: rect,
+                    normalizedRect: normalizedRect,
                     label: action.label,
                     action: .layerToggle(action.layer ?? 1),
                     position: position,
@@ -1555,6 +1645,7 @@ final class ContentViewModel: ObservableObject {
             case .none:
                 return KeyBinding(
                     rect: rect,
+                    normalizedRect: normalizedRect,
                     label: action.label,
                     action: .none,
                     position: position,
@@ -1701,6 +1792,7 @@ final class ContentViewModel: ObservableObject {
                 return makeBinding(
                     for: holdAction,
                     rect: binding.rect,
+                    normalizedRect: binding.normalizedRect,
                     position: binding.position,
                     side: binding.side,
                     holdAction: binding.holdAction
@@ -1710,6 +1802,7 @@ final class ContentViewModel: ObservableObject {
             return makeBinding(
                 for: action,
                 rect: binding.rect,
+                normalizedRect: binding.normalizedRect,
                 position: binding.position,
                 side: binding.side
             )
@@ -1973,6 +2066,7 @@ final class ContentViewModel: ObservableObject {
             if leftShiftTouchCount > 0 {
                 let shiftBinding = KeyBinding(
                     rect: .zero,
+                    normalizedRect: NormalizedRect(x: 0, y: 0, width: 0, height: 0),
                     label: "Shift",
                     action: .key(code: CGKeyCode(kVK_Shift), flags: []),
                     position: nil,
@@ -1985,6 +2079,7 @@ final class ContentViewModel: ObservableObject {
             if controlTouchCount > 0 {
                 let controlBinding = KeyBinding(
                     rect: .zero,
+                    normalizedRect: NormalizedRect(x: 0, y: 0, width: 0, height: 0),
                     label: "Ctrl",
                     action: .key(code: CGKeyCode(kVK_Control), flags: []),
                     position: nil,
@@ -1997,6 +2092,7 @@ final class ContentViewModel: ObservableObject {
             if optionTouchCount > 0 {
                 let optionBinding = KeyBinding(
                     rect: .zero,
+                    normalizedRect: NormalizedRect(x: 0, y: 0, width: 0, height: 0),
                     label: "Option",
                     action: .key(code: CGKeyCode(kVK_Option), flags: []),
                     position: nil,
@@ -2009,6 +2105,7 @@ final class ContentViewModel: ObservableObject {
             if commandTouchCount > 0 {
                 let commandBinding = KeyBinding(
                     rect: .zero,
+                    normalizedRect: NormalizedRect(x: 0, y: 0, width: 0, height: 0),
                     label: "Cmd",
                     action: .key(code: CGKeyCode(kVK_Command), flags: []),
                     position: nil,
@@ -2154,7 +2251,7 @@ final class ContentViewModel: ObservableObject {
 
         private func bindings(
             for side: TrackpadSide,
-            keyRects: [[CGRect]],
+            layout: Layout,
             labels: [[String]],
             canvasSize: CGSize
         ) -> BindingIndex {
@@ -2165,7 +2262,7 @@ final class ContentViewModel: ObservableObject {
             let currentGeneration = bindingsGenerationBySide[side] ?? -1
             if currentGeneration != bindingsGeneration || bindingsCache[side] == nil {
                 bindingsCache[side] = makeBindings(
-                    keyRects: keyRects,
+                    layout: layout,
                     labels: labels,
                     customButtons: customButtons(for: activeLayer, side: side),
                     canvasSize: canvasSize,
@@ -2224,6 +2321,12 @@ struct NormalizedRect: Codable, Hashable {
             width: width,
             height: height
         )
+    }
+
+    func contains(_ point: CGPoint) -> Bool {
+        let maxX = x + width
+        let maxY = y + height
+        return point.x >= x && point.x <= maxX && point.y >= y && point.y <= maxY
     }
 }
 
