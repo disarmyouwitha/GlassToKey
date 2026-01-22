@@ -87,7 +87,8 @@ final class GlassToKeyController: ObservableObject {
             rightLayout: rightLayout,
             leftLabels: layout.leftLabels,
             rightLabels: layout.rightLabels,
-            trackpadSize: trackpadSize
+            trackpadSize: trackpadSize,
+            trackpadWidthMm: ContentView.trackpadWidthMM
         )
 
         let customButtons = loadCustomButtons()

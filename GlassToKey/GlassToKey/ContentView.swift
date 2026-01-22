@@ -1787,7 +1787,8 @@ struct ContentView: View {
                 rightLayout: rightLayout,
                 leftLabels: leftGridLabels,
                 rightLabels: rightGridLabels,
-                trackpadSize: trackpadSize
+                trackpadSize: trackpadSize,
+                trackpadWidthMm: Self.trackpadWidthMM
             )
             return
         }
@@ -1819,7 +1820,8 @@ struct ContentView: View {
             rightLayout: rightLayout,
             leftLabels: leftGridLabels,
             rightLabels: rightGridLabels,
-            trackpadSize: trackpadSize
+            trackpadSize: trackpadSize,
+            trackpadWidthMm: Self.trackpadWidthMM
         )
     }
 
