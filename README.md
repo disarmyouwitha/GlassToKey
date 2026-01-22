@@ -24,7 +24,7 @@ Clicking Edit will allow you to click any Column/Button and set the Action/Hold 
 
 ## Typing Tuning
 - Tap/Hold (ms): Time in miliseconds until a tap becomds a hold
-- Drag Cancel (pt): How far you need to move before top becomes a drag
+- Drag Cancel (mm): How far you need to move before top becomes a drag
 - Force Cap (g): Pressure (in grams) beyond the initial touch that disqualifies the touch before it can type, preventing accidental strong presses.
 - Intent Buffer (ms): Window to decide typing vs mouse for ambiguous touches.
 - Intent Move (mm): Movement threshold before a touch is treated as mouse intent.

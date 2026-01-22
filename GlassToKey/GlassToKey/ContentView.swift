@@ -1211,21 +1211,6 @@ struct ContentView: View {
                     .frame(minWidth: 120)
                 }
                 GridRow {
-                    Text("Drag Cancel")
-                    TextField(
-                        "1",
-                        value: $dragCancelDistanceSetting,
-                        formatter: ContentView.dragCancelDistanceFormatter
-                    )
-                    .frame(width: 60)
-                    Slider(
-                        value: $dragCancelDistanceSetting,
-                        in: ContentView.dragCancelDistanceRange,
-                        step: 1
-                    )
-                    .frame(minWidth: 120)
-                }
-                GridRow {
                     Text("Force Cap (g)")
                     TextField(
                         "0",
@@ -1241,17 +1226,17 @@ struct ContentView: View {
                     .frame(minWidth: 120)
                 }
                 GridRow {
-                    Text("Haptic Strength (%)")
+                    Text("Drag Cancel (mm)")
                     TextField(
-                        "70",
-                        value: $hapticStrengthSetting,
-                        formatter: ContentView.hapticStrengthFormatter
+                        "1",
+                        value: $dragCancelDistanceSetting,
+                        formatter: ContentView.dragCancelDistanceFormatter
                     )
                     .frame(width: 60)
                     Slider(
-                        value: $hapticStrengthSetting,
-                        in: ContentView.hapticStrengthRange,
-                        step: 10
+                        value: $dragCancelDistanceSetting,
+                        in: ContentView.dragCancelDistanceRange,
+                        step: 1
                     )
                     .frame(minWidth: 120)
                 }
@@ -1297,6 +1282,21 @@ struct ContentView: View {
                         value: $intentVelocityThresholdMmPerSecSetting,
                         in: ContentView.intentVelocityThresholdRange,
                         step: 5
+                    )
+                    .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("Haptic Strength (%)")
+                    TextField(
+                        "70",
+                        value: $hapticStrengthSetting,
+                        formatter: ContentView.hapticStrengthFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $hapticStrengthSetting,
+                        in: ContentView.hapticStrengthRange,
+                        step: 10
                     )
                     .frame(minWidth: 120)
                 }
