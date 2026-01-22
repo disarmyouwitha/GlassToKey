@@ -917,16 +917,14 @@ final class ContentViewModel: ObservableObject {
             var lastContactCount = 0
         }
 
-        private var intentStateBySide: [TrackpadSide: IntentState] = [
-            .left: IntentState(),
-            .right: IntentState()
-        ]
+        private var intentState = IntentState()
         private var intentDisplayBySide: [TrackpadSide: IntentDisplay] = [
             .left: .idle,
             .right: .idle
         ]
         private var intentConfig = IntentConfig()
         private var allowMouseTakeoverDuringTyping = false
+        private var typingGraceDeadline: TimeInterval?
 
 #if DEBUG
         private let signposter = OSSignposter(
@@ -1051,7 +1049,7 @@ final class ContentViewModel: ObservableObject {
                 return
             }
             let now = Self.now()
-            let intentBySide = updateIntent(for: frame, now: now)
+            let allowTypingGlobal = updateIntent(for: frame, now: now)
             processTouches(
                 frame.left,
                 layout: leftLayout,
@@ -1059,7 +1057,7 @@ final class ContentViewModel: ObservableObject {
                 labels: leftLabels,
                 isLeftSide: true,
                 now: now,
-                intentAllowsTyping: intentBySide[.left] ?? true
+                intentAllowsTyping: allowTypingGlobal
             )
             processTouches(
                 frame.right,
@@ -1068,7 +1066,7 @@ final class ContentViewModel: ObservableObject {
                 labels: rightLabels,
                 isLeftSide: false,
                 now: now,
-                intentAllowsTyping: intentBySide[.right] ?? true
+                intentAllowsTyping: allowTypingGlobal
             )
             notifyContactCounts()
         }
@@ -1267,7 +1265,7 @@ final class ContentViewModel: ObservableObject {
                             continue
                         }
 
-                        let allowPriority = allowsPriorityTyping(for: side, binding: pending.binding)
+                        let allowPriority = allowsPriorityTyping(for: pending.binding)
                         if pending.binding.rect.contains(point),
                            (intentAllowsTyping || allowPriority) {
                             let modifierKey = modifierKey(for: pending.binding)
@@ -1335,7 +1333,7 @@ final class ContentViewModel: ObservableObject {
                                     modifierEngaged: false
                                 )
                             setActiveTouch(touchKey, active)
-                            let allowPriority = allowsPriorityTyping(for: side, binding: binding)
+                            let allowPriority = allowsPriorityTyping(for: binding)
                             let allowNow = intentAllowsTyping || allowPriority
                             if allowNow, let modifierKey {
                                 handleModifierDown(modifierKey, binding: binding)
@@ -1708,15 +1706,14 @@ final class ContentViewModel: ObservableObject {
             }
         }
 
-        private func updateIntent(for frame: TouchFrame, now: TimeInterval) -> [TrackpadSide: Bool] {
+        private func updateIntent(for frame: TouchFrame, now: TimeInterval) -> Bool {
             guard trackpadSize.width > 0,
                   trackpadSize.height > 0,
                   let leftLayout,
                   let rightLayout else {
-                intentStateBySide[.left] = IntentState()
-                intentStateBySide[.right] = IntentState()
+                intentState = IntentState()
                 updateIntentDisplayIfNeeded()
-                return [.left: isTypingEnabled, .right: isTypingEnabled]
+                return isTypingEnabled
             }
 
             let leftBindings = bindings(
@@ -1736,34 +1733,36 @@ final class ContentViewModel: ObservableObject {
             let moveThreshold = intentConfig.moveThresholdMm * unitsPerMm
             let moveThresholdSquared = moveThreshold * moveThreshold
             let velocityThreshold = intentConfig.velocityThresholdMmPerSec * unitsPerMm
-            let leftAllowsTyping = updateIntent(
-                for: .left,
-                touches: frame.left,
-                bindings: leftBindings,
+
+            return updateIntentGlobal(
+                leftTouches: frame.left,
+                rightTouches: frame.right,
+                leftBindings: leftBindings,
+                rightBindings: rightBindings,
                 now: now,
                 moveThresholdSquared: moveThresholdSquared,
                 velocityThreshold: velocityThreshold
             )
-            let rightAllowsTyping = updateIntent(
-                for: .right,
-                touches: frame.right,
-                bindings: rightBindings,
-                now: now,
-                moveThresholdSquared: moveThresholdSquared,
-                velocityThreshold: velocityThreshold
-            )
-            return [.left: leftAllowsTyping, .right: rightAllowsTyping]
         }
 
-        private func updateIntent(
-            for side: TrackpadSide,
-            touches: [OMSTouchData],
-            bindings: BindingIndex,
+        private func updateIntentGlobal(
+            leftTouches: [OMSTouchData],
+            rightTouches: [OMSTouchData],
+            leftBindings: BindingIndex,
+            rightBindings: BindingIndex,
             now: TimeInterval,
             moveThresholdSquared: CGFloat,
             velocityThreshold: CGFloat
         ) -> Bool {
-            var state = intentStateBySide[side] ?? IntentState()
+            var state = intentState
+            let graceActive: Bool
+            if let deadline = typingGraceDeadline, now < deadline {
+                graceActive = true
+            } else {
+                typingGraceDeadline = nil
+                graceActive = false
+            }
+
             var contactCount = 0
             var onKeyCount = 0
             var offKeyCount = 0
@@ -1773,15 +1772,15 @@ final class ContentViewModel: ObservableObject {
             var sumY: CGFloat = 0
             var firstOnKeyTouchKey: TouchKey?
             var currentKeys = Set<TouchKey>()
-            currentKeys.reserveCapacity(touches.count)
+            currentKeys.reserveCapacity(leftTouches.count + rightTouches.count)
             var hasKeyboardAnchor = false
 
-            for touch in touches {
-                guard Self.isIntentContactState(touch.state) else { continue }
+            func process(_ touch: OMSTouchData, side: TrackpadSide, bindings: BindingIndex) {
+                guard Self.isIntentContactState(touch.state) else { return }
                 let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
                 if momentaryLayerTouches[touchKey] != nil {
                     hasKeyboardAnchor = true
-                    continue
+                    return
                 }
                 currentKeys.insert(touchKey)
                 contactCount += 1
@@ -1826,6 +1825,13 @@ final class ContentViewModel: ObservableObject {
                 }
             }
 
+            for touch in leftTouches {
+                process(touch, side: .left, bindings: leftBindings)
+            }
+            for touch in rightTouches {
+                process(touch, side: .right, bindings: rightBindings)
+            }
+
             if state.touches.count != currentKeys.count {
                 for key in state.touches.keys where !currentKeys.contains(key) {
                     state.touches.removeValue(forKey: key)
@@ -1855,7 +1861,7 @@ final class ContentViewModel: ObservableObject {
             guard contactCount > 0 else {
                 state.mode = .idle
                 state.touches.removeAll()
-                intentStateBySide[side] = state
+                intentState = state
                 updateIntentDisplayIfNeeded()
                 return true
             }
@@ -1863,9 +1869,9 @@ final class ContentViewModel: ObservableObject {
             let allowTyping: Bool
             switch state.mode {
             case .idle:
-                if hasKeyboardAnchor {
+                if graceActive || hasKeyboardAnchor {
                     state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
-                    intentStateBySide[side] = state
+                    intentState = state
                     updateIntentDisplayIfNeeded()
                     return true
                 }
@@ -1878,9 +1884,9 @@ final class ContentViewModel: ObservableObject {
                     allowTyping = false
                 }
             case let .keyCandidate(start, _, _):
-                if hasKeyboardAnchor {
+                if graceActive || hasKeyboardAnchor {
                     state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
-                    intentStateBySide[side] = state
+                    intentState = state
                     updateIntentDisplayIfNeeded()
                     return true
                 }
@@ -1904,9 +1910,9 @@ final class ContentViewModel: ObservableObject {
                     allowTyping = true
                 }
             case let .mouseCandidate(start):
-                if hasKeyboardAnchor {
+                if graceActive || hasKeyboardAnchor {
                     state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
-                    intentStateBySide[side] = state
+                    intentState = state
                     updateIntentDisplayIfNeeded()
                     return true
                 }
@@ -1921,19 +1927,18 @@ final class ContentViewModel: ObservableObject {
                 allowTyping = false
             }
 
-            intentStateBySide[side] = state
+            intentState = state
             updateIntentDisplayIfNeeded()
             return allowTyping
         }
 
         private func updateIntentDisplayIfNeeded() {
-            let nextLeft = intentDisplay(for: intentStateBySide[.left]?.mode ?? .idle)
-            let nextRight = intentDisplay(for: intentStateBySide[.right]?.mode ?? .idle)
-            if nextLeft == intentDisplayBySide[.left], nextRight == intentDisplayBySide[.right] {
+            let next = intentDisplay(for: intentState.mode)
+            if next == intentDisplayBySide[.left], next == intentDisplayBySide[.right] {
                 return
             }
-            intentDisplayBySide[.left] = nextLeft
-            intentDisplayBySide[.right] = nextRight
+            intentDisplayBySide[.left] = next
+            intentDisplayBySide[.right] = next
             onIntentStateChanged(intentDisplayBySide)
         }
 
@@ -1965,10 +1970,10 @@ final class ContentViewModel: ObservableObject {
             touchKey: TouchKey,
             binding: KeyBinding,
             point: CGPoint,
-            side: TrackpadSide
+            side _: TrackpadSide
         ) -> Bool {
-            guard var state = intentStateBySide[side],
-                  case .keyCandidate = state.mode else {
+            var state = intentState
+            guard case .keyCandidate = state.mode else {
                 return false
             }
             let moveThreshold = intentConfig.moveThresholdMm * mmUnitsPerMillimeter()
@@ -1980,7 +1985,7 @@ final class ContentViewModel: ObservableObject {
                 return false
             }
             state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
-            intentStateBySide[side] = state
+            intentState = state
             return true
         }
 
@@ -2105,12 +2110,19 @@ final class ContentViewModel: ObservableObject {
                 || code == CGKeyCode(kVK_DownArrow)
         }
 
-        private func allowsPriorityTyping(for side: TrackpadSide, binding: KeyBinding) -> Bool {
-            guard let state = intentStateBySide[side],
-                  case .keyCandidate = state.mode else {
+        private func allowsPriorityTyping(for binding: KeyBinding) -> Bool {
+            let state = intentState
+            let isModifier = modifierKey(for: binding) != nil
+            let isContinuous = isContinuousKey(binding)
+            guard isModifier || isContinuous else { return false }
+            switch state.mode {
+            case .keyCandidate, .mouseCandidate, .typingCommitted:
+                return true
+            case .mouseActive:
+                return isModifier
+            case .idle:
                 return false
             }
-            return modifierKey(for: binding) != nil || isContinuousKey(binding)
         }
 
         private func holdBinding(for binding: KeyBinding) -> KeyBinding? {
@@ -2176,7 +2188,8 @@ final class ContentViewModel: ObservableObject {
             case let .key(code, flags):
 #if DEBUG
                 onDebugBindingDetected(binding)
-            #endif
+#endif
+                extendTypingGrace(for: binding.side, now: Self.now())
                 playHapticIfNeeded(on: binding.side, touchKey: touchKey)
                 logKeyDispatch(
                     label: binding.label,
@@ -2413,9 +2426,9 @@ final class ContentViewModel: ObservableObject {
             layerToggleTouchStarts.removeAll()
             momentaryLayerTouches.removeAll()
             touchInitialContactPoint.removeAll()
+            typingGraceDeadline = nil
             updateActiveLayer()
-            intentStateBySide[.left] = IntentState()
-            intentStateBySide[.right] = IntentState()
+            intentState = IntentState()
             updateIntentDisplayIfNeeded()
         }
 
@@ -2448,6 +2461,11 @@ final class ContentViewModel: ObservableObject {
                 persistentLayer = clamped
             }
             updateActiveLayer()
+        }
+
+        private func extendTypingGrace(for side: TrackpadSide?, now: TimeInterval) {
+            guard intentConfig.keyBufferSeconds > 0 else { return }
+            typingGraceDeadline = now + intentConfig.keyBufferSeconds
         }
 
         private func updateActiveLayer() {
