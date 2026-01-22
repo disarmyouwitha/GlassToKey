@@ -49,6 +49,7 @@ struct ContentView: View {
     @State private var testText = ""
     @State private var visualsEnabled = true
     @State private var editModeEnabled = false
+    @State private var glideEnabled = true
     @State private var columnSettings: [ColumnLayoutSettings]
     @State private var leftLayout: ContentViewModel.Layout
     @State private var rightLayout: ContentViewModel.Layout
@@ -266,6 +267,7 @@ struct ContentView: View {
             .onAppear {
                 applySavedSettings()
                 viewModel.setAutoResyncEnabled(storedAutoResyncMissingTrackpads)
+                viewModel.updateGlideEnabled(glideEnabled)
             }
             .onDisappear {
                 persistConfig()
@@ -335,6 +337,9 @@ struct ContentView: View {
             .onChange(of: hapticStrengthSetting) { newValue in
                 viewModel.updateHapticStrength(newValue / 100.0)
             }
+            .onChange(of: glideEnabled) { enabled in
+                viewModel.updateGlideEnabled(enabled)
+            }
             .onChange(of: storedAutoResyncMissingTrackpads) { newValue in
                 viewModel.setAutoResyncEnabled(newValue)
             }
@@ -352,6 +357,7 @@ struct ContentView: View {
         HeaderControlsView(
             editModeEnabled: $editModeEnabled,
             visualsEnabled: $visualsEnabled,
+            glideEnabled: $glideEnabled,
             layerToggleBinding: layerToggleBinding,
             isListening: viewModel.isListening,
             onStart: {
@@ -360,7 +366,8 @@ struct ContentView: View {
             onStop: {
                 viewModel.stop()
                 visualsEnabled = false
-            }
+            },
+            lastGlideLabels: viewModel.lastGlideLabels
         )
     }
 
@@ -440,45 +447,59 @@ struct ContentView: View {
     private struct HeaderControlsView: View {
         @Binding var editModeEnabled: Bool
         @Binding var visualsEnabled: Bool
+        @Binding var glideEnabled: Bool
         let layerToggleBinding: Binding<Bool>
         let isListening: Bool
         let onStart: () -> Void
         let onStop: () -> Void
+        let lastGlideLabels: [String]?
 
         var body: some View {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("GlassToKey Studio")
-                        .font(.title2)
-                        .bold()
-                    Text("Arrange, tune, and test")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Toggle("Edit", isOn: $editModeEnabled)
-                    .toggleStyle(SwitchToggleStyle())
-                Toggle("Visuals", isOn: $visualsEnabled)
-                    .toggleStyle(SwitchToggleStyle())
-                HStack(spacing: 6) {
-                    Text("Layer 0")
-                    Toggle("", isOn: layerToggleBinding)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("GlassToKey Studio")
+                            .font(.title2)
+                            .bold()
+                        Text("Arrange, tune, and test")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("Edit", isOn: $editModeEnabled)
                         .toggleStyle(SwitchToggleStyle())
-                        .labelsHidden()
-                    Text("Layer 1")
-                }
-                if isListening {
-                    Button("Stop") {
-                        onStop()
+                    Toggle("Visuals", isOn: $visualsEnabled)
+                        .toggleStyle(SwitchToggleStyle())
+                    Toggle("Glide", isOn: $glideEnabled)
+                        .toggleStyle(SwitchToggleStyle())
+                    HStack(spacing: 6) {
+                        Text("Layer 0")
+                        Toggle("", isOn: layerToggleBinding)
+                            .toggleStyle(SwitchToggleStyle())
+                            .labelsHidden()
+                        Text("Layer 1")
                     }
-                    .buttonStyle(.borderedProminent)
-                } else {
-                    Button("Start") {
-                        onStart()
+                    if isListening {
+                        Button("Stop") {
+                            onStop()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    } else {
+                        Button("Start") {
+                            onStart()
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.borderedProminent)
                 }
+                Text("Glide path: \(glideSummary)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
+        }
+
+        private var glideSummary: String {
+            guard let labels = lastGlideLabels, !labels.isEmpty else { return "—" }
+            return labels.joined(separator: " → ")
         }
     }
 

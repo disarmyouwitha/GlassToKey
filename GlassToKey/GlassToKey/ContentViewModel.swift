@@ -190,6 +190,12 @@ final class ContentViewModel: ObservableObject {
 
     @Published private(set) var debugLastHitLeft: DebugHit?
     @Published private(set) var debugLastHitRight: DebugHit?
+    @Published private(set) var lastGlideLabels: [String]? {
+        didSet {
+            guard let labels = lastGlideLabels, !labels.isEmpty else { return }
+            glideLogger.debug("lastGlideLabels: \(labels.joined(separator: " → "))")
+        }
+    }
 
     private var requestedLeftDeviceID: String?
     private var requestedRightDeviceID: String?
@@ -203,6 +209,7 @@ final class ContentViewModel: ObservableObject {
     private let manager = OMSManager.shared
     private var task: Task<Void, Never>?
     private let processor: TouchProcessor
+    private let glideLogger = Logger(subsystem: "com.kyome.GlassToKey", category: "GlidePath")
 
     init() {
         let holder = ContinuationHolder()
@@ -228,7 +235,12 @@ final class ContentViewModel: ObservableObject {
                     weakSelf?.activeLayer = layer
                 }
             },
-            onDebugBindingDetected: debugBindingHandler
+            onDebugBindingDetected: debugBindingHandler,
+            onGlidePathDetected: { path in
+                Task { @MainActor in
+                    weakSelf?.lastGlideLabels = path.labels
+                }
+            }
         )
         weakSelf = self
         loadDevices()
@@ -610,6 +622,12 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func updateGlideEnabled(_ enabled: Bool) {
+        Task { [processor] in
+            await processor.updateGlideEnabled(enabled)
+        }
+    }
+
     func clearTouchState() {
         Task { [processor] in
             await processor.resetState()
@@ -702,6 +720,33 @@ final class ContentViewModel: ObservableObject {
         private struct TwoFingerTapCandidate {
             let touchKey: TouchKey
             let startTime: TimeInterval
+        }
+
+        struct GlidePath {
+            let bindings: [KeyBinding]
+
+            var labels: [String] {
+                bindings.map { $0.label }
+            }
+        }
+
+        private struct GlideTrail {
+            private(set) var bindings: [KeyBinding] = []
+
+            mutating func visit(_ binding: KeyBinding) {
+                guard let last = bindings.last else {
+                    bindings.append(binding)
+                    return
+                }
+                guard last.rect != binding.rect || last.label != binding.label else {
+                    return
+                }
+                bindings.append(binding)
+            }
+
+            var isMeaningful: Bool {
+                bindings.count > 1
+            }
         }
 
         private struct BindingGrid {
@@ -799,12 +844,20 @@ final class ContentViewModel: ObservableObject {
         private struct BindingIndex {
             let keyGrid: BindingGrid
             let customGrid: BindingGrid
+
+            func bindingAtNormalizedPoint(_ point: CGPoint) -> KeyBinding? {
+                if let binding = keyGrid.binding(atNormalizedPoint: point) {
+                    return binding
+                }
+                return customGrid.binding(atNormalizedPoint: point)
+            }
         }
 
         private let keyDispatcher: KeyEventDispatcher
         private let onTypingEnabledChanged: @Sendable (Bool) -> Void
         private let onActiveLayerChanged: @Sendable (Int) -> Void
         private let onDebugBindingDetected: @Sendable (KeyBinding) -> Void
+        private let onGlidePathDetected: @Sendable (GlidePath) -> Void
         private let isDragDetectionEnabled = true
         private var isListening = false
         private var isTypingEnabled = true
@@ -838,6 +891,8 @@ final class ContentViewModel: ObservableObject {
         private var twoFingerSuppressionExpiryByDevice: [Int: TimeInterval] = [:]
         private var forceClickCap: Float = 0
         private var twoFingerTapCandidatesByDevice: [Int: TwoFingerTapCandidate] = [:]
+        private var glideTrails: [TouchKey: GlideTrail] = [:]
+        private var glideEnabled = true
         private let repeatInitialDelay: UInt64 = 350_000_000
         private let repeatInterval: UInt64 = 50_000_000
         private let spaceRepeatMultiplier: UInt64 = 2
@@ -867,12 +922,14 @@ final class ContentViewModel: ObservableObject {
             keyDispatcher: KeyEventDispatcher,
             onTypingEnabledChanged: @Sendable @escaping (Bool) -> Void,
             onActiveLayerChanged: @Sendable @escaping (Int) -> Void,
-            onDebugBindingDetected: @Sendable @escaping (KeyBinding) -> Void
+            onDebugBindingDetected: @Sendable @escaping (KeyBinding) -> Void,
+            onGlidePathDetected: @Sendable @escaping (GlidePath) -> Void
         ) {
             self.keyDispatcher = keyDispatcher
             self.onTypingEnabledChanged = onTypingEnabledChanged
             self.onActiveLayerChanged = onActiveLayerChanged
             self.onDebugBindingDetected = onDebugBindingDetected
+            self.onGlidePathDetected = onGlidePathDetected
         }
 
         func setListening(_ isListening: Bool) {
@@ -954,6 +1011,13 @@ final class ContentViewModel: ObservableObject {
             hapticStrength = clamped
         }
 
+        func updateGlideEnabled(_ enabled: Bool) {
+            glideEnabled = enabled
+            if !enabled {
+                glideTrails.removeAll()
+            }
+        }
+
         func processTouchFrame(_ frame: TouchFrame) {
             guard isListening,
                   let leftLayout,
@@ -1017,7 +1081,7 @@ final class ContentViewModel: ObservableObject {
             let now = Self.now()
             let dragCancelDistanceSquared = dragCancelDistance * dragCancelDistance
             let side: TrackpadSide = isLeftSide ? .left : .right
-            let bindings = bindings(
+            let bindingIndex = bindings(
                 for: side,
                 layout: layout,
                 labels: labels,
@@ -1051,6 +1115,11 @@ final class ContentViewModel: ObservableObject {
                     y: CGFloat(1.0 - touch.position.y) * canvasSize.height
                 )
                 let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
+                if glideEnabled {
+                    let normalizedPoint = normalizedPoint(for: point, canvasSize: canvasSize)
+                    let normalizedBinding = bindingIndex.bindingAtNormalizedPoint(normalizedPoint)
+                    updateGlideTrail(touchKey: touchKey, binding: normalizedBinding)
+                }
                 if shouldSuppressTouch(
                     touchKey: touchKey,
                     state: touch.state,
@@ -1064,7 +1133,7 @@ final class ContentViewModel: ObservableObject {
                     touchInitialContactPoint[touchKey] = point
                 }
                 handleForceGuard(touchKey: touchKey, pressure: touch.pressure, now: now)
-                let bindingAtPoint = binding(at: point, index: bindings)
+                let bindingAtPoint = binding(at: point, index: bindingIndex)
 
                 if disqualifiedTouches.contains(touchKey) {
                     switch touch.state {
@@ -1266,6 +1335,7 @@ final class ContentViewModel: ObservableObject {
                         }
                     }
                 case .breaking, .leaving:
+                    defer { finalizeGlideTrail(for: touchKey) }
                     if let candidate = twoFingerTapCandidatesByDevice[touch.deviceIndex],
                        candidate.touchKey == touchKey {
                         twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
@@ -1309,6 +1379,7 @@ final class ContentViewModel: ObservableObject {
                         }
                     }
                 case .notTouching:
+                    defer { finalizeGlideTrail(for: touchKey) }
                     if let candidate = twoFingerTapCandidatesByDevice[touch.deviceIndex],
                        candidate.touchKey == touchKey {
                         twoFingerTapCandidatesByDevice.removeValue(forKey: touch.deviceIndex)
@@ -1660,6 +1731,14 @@ final class ContentViewModel: ObservableObject {
                 return binding
             }
             return index.customGrid.binding(at: point)
+        }
+
+        private func normalizedPoint(for canvasPoint: CGPoint, canvasSize: CGSize) -> CGPoint {
+            guard canvasSize.width > 0, canvasSize.height > 0 else { return .zero }
+            return CGPoint(
+                x: canvasPoint.x / canvasSize.width,
+                y: canvasPoint.y / canvasSize.height
+            )
         }
 
         private static func isContactState(_ state: OMSState) -> Bool {
@@ -2136,6 +2215,7 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func disqualifyTouch(_ touchKey: TouchKey, reason: DisqualifyReason) {
+            finalizeGlideTrail(for: touchKey)
             touchInitialContactPoint.removeValue(forKey: touchKey)
             cancelHapticTask(for: touchKey)
             disqualifiedTouches.insert(touchKey)
@@ -2196,6 +2276,19 @@ final class ContentViewModel: ObservableObject {
             #if DEBUG
             keyLogger.debug("disqualify deviceIndex=\(touchKey.deviceIndex) id=\(touchKey.id) reason=\(reason.rawValue)")
             #endif
+        }
+
+        private func updateGlideTrail(touchKey: TouchKey, binding: KeyBinding?) {
+            guard glideEnabled, let binding else { return }
+            var trail = glideTrails[touchKey] ?? GlideTrail()
+            trail.visit(binding)
+            glideTrails[touchKey] = trail
+        }
+
+        private func finalizeGlideTrail(for touchKey: TouchKey) {
+            guard let trail = glideTrails.removeValue(forKey: touchKey) else { return }
+            guard glideEnabled, trail.isMeaningful else { return }
+            onGlidePathDetected(GlidePath(bindings: trail.bindings))
         }
 
         private func logKeyDispatch(
