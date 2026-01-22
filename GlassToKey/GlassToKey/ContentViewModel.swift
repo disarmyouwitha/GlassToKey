@@ -889,7 +889,6 @@ final class ContentViewModel: ObservableObject {
         private var layerToggleTouchStarts: [TouchKey: Int] = [:]
         private var momentaryLayerTouches: [TouchKey: Int] = [:]
         private var touchInitialContactPoint: [TouchKey: CGPoint] = [:]
-        private var hapticTasks: [TouchKey: (id: UUID, task: Task<Void, Never>)] = [:]
         private var tapMaxDuration: TimeInterval = 0.2
         private var holdMinDuration: TimeInterval = 0.2
         private var dragCancelDistance: CGFloat = 2.5
@@ -1775,10 +1774,15 @@ final class ContentViewModel: ObservableObject {
             var firstOnKeyTouchKey: TouchKey?
             var currentKeys = Set<TouchKey>()
             currentKeys.reserveCapacity(touches.count)
+            var hasKeyboardAnchor = false
 
             for touch in touches {
                 guard Self.isIntentContactState(touch.state) else { continue }
                 let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
+                if momentaryLayerTouches[touchKey] != nil {
+                    hasKeyboardAnchor = true
+                    continue
+                }
                 currentKeys.insert(touchKey)
                 contactCount += 1
                 let point = CGPoint(
@@ -1793,6 +1797,10 @@ final class ContentViewModel: ObservableObject {
                     onKeyCount += 1
                     if firstOnKeyTouchKey == nil {
                         firstOnKeyTouchKey = touchKey
+                    }
+                    if let binding,
+                       modifierKey(for: binding) != nil || isContinuousKey(binding) {
+                        hasKeyboardAnchor = true
                     }
                 } else {
                     offKeyCount += 1
@@ -1855,6 +1863,12 @@ final class ContentViewModel: ObservableObject {
             let allowTyping: Bool
             switch state.mode {
             case .idle:
+                if hasKeyboardAnchor {
+                    state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
+                    intentStateBySide[side] = state
+                    updateIntentDisplayIfNeeded()
+                    return true
+                }
                 if anyOnKey && !mouseSignal, let touchKey = firstOnKeyTouchKey, let centroid {
                     state.mode = .keyCandidate(start: now, touchKey: touchKey, centroid: centroid)
                     allowTyping = false
@@ -1864,6 +1878,12 @@ final class ContentViewModel: ObservableObject {
                     allowTyping = false
                 }
             case let .keyCandidate(start, _, _):
+                if hasKeyboardAnchor {
+                    state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
+                    intentStateBySide[side] = state
+                    updateIntentDisplayIfNeeded()
+                    return true
+                }
                 if mouseSignal {
                     state.mode = .mouseCandidate(start: now)
                     allowTyping = false
@@ -1884,6 +1904,12 @@ final class ContentViewModel: ObservableObject {
                     allowTyping = true
                 }
             case let .mouseCandidate(start):
+                if hasKeyboardAnchor {
+                    state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
+                    intentStateBySide[side] = state
+                    updateIntentDisplayIfNeeded()
+                    return true
+                }
                 if mouseSignal || now - start >= intentConfig.keyBufferSeconds {
                     state.mode = .mouseActive
                     suppressKeyProcessing(for: currentKeys)
@@ -1925,17 +1951,13 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func suppressKeyProcessing(for touchKeys: Set<TouchKey>) {
-            var removedMomentary = false
             for touchKey in touchKeys {
-                disqualifyTouch(touchKey, reason: .intentMouse)
-                if momentaryLayerTouches.removeValue(forKey: touchKey) != nil {
-                    removedMomentary = true
+                if momentaryLayerTouches[touchKey] != nil {
+                    continue
                 }
+                disqualifyTouch(touchKey, reason: .intentMouse)
                 toggleTouchStarts.removeValue(forKey: touchKey)
                 layerToggleTouchStarts.removeValue(forKey: touchKey)
-            }
-            if removedMomentary {
-                updateActiveLayer()
             }
         }
 
@@ -2219,48 +2241,7 @@ final class ContentViewModel: ObservableObject {
                 deviceID = nil
             }
             let strength = hapticStrength
-            let requestID = UUID()
-            if let touchKey {
-                cancelHapticTask(for: touchKey)
-            }
-            let storedTouchKey = touchKey
-            let task = Task.detached(priority: .userInitiated) { [weak self] in
-                if Task.isCancelled {
-                    return
-                }
-                await Task.yield()
-                if Task.isCancelled {
-                    return
-                }
-                if let touchKey = storedTouchKey,
-                   let self {
-                    if await self.isTouchDisqualified(touchKey) {
-                        return
-                    }
-                }
-                _ = OMSManager.shared.playHapticFeedback(strength: strength, deviceID: deviceID)
-                if let touchKey = storedTouchKey,
-                   let self {
-                    await self.hapticTaskDidComplete(touchKey: touchKey, id: requestID)
-                }
-            }
-            if let touchKey {
-                hapticTasks[touchKey] = (id: requestID, task: task)
-            }
-        }
-
-        private func cancelHapticTask(for touchKey: TouchKey) {
-            hapticTasks.removeValue(forKey: touchKey)?.task.cancel()
-        }
-
-        private func hapticTaskDidComplete(touchKey: TouchKey, id: UUID) {
-            if let entry = hapticTasks[touchKey], entry.id == id {
-                hapticTasks.removeValue(forKey: touchKey)
-            }
-        }
-
-        private func isTouchDisqualified(_ touchKey: TouchKey) -> Bool {
-            disqualifiedTouches.contains(touchKey)
+            _ = OMSManager.shared.playHapticFeedback(strength: strength, deviceID: deviceID)
         }
 
         private func initialContactPointIsInsideBinding(_ touchKey: TouchKey, binding: KeyBinding) -> Bool {
@@ -2428,10 +2409,6 @@ final class ContentViewModel: ObservableObject {
             }
             touchStates.removeAll()
             disqualifiedTouches.removeAll()
-            for entry in hapticTasks.values {
-                entry.task.cancel()
-            }
-            hapticTasks.removeAll()
             toggleTouchStarts.removeAll()
             layerToggleTouchStarts.removeAll()
             momentaryLayerTouches.removeAll()
@@ -2444,7 +2421,6 @@ final class ContentViewModel: ObservableObject {
 
         private func disqualifyTouch(_ touchKey: TouchKey, reason: DisqualifyReason) {
             touchInitialContactPoint.removeValue(forKey: touchKey)
-            cancelHapticTask(for: touchKey)
             disqualifiedTouches.insert(touchKey)
             if let state = popTouchState(for: touchKey),
                case let .active(active) = state {
