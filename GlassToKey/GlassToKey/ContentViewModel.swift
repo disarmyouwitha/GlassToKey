@@ -1885,8 +1885,7 @@ final class ContentViewModel: ObservableObject {
             if let gestureStart = gestureCandidateStartTime(
                 for: state,
                 contactCount: contactCount,
-                previousContactCount: previousContactCount,
-                hasKeyboardAnchor: hasKeyboardAnchor
+                previousContactCount: previousContactCount
             ) {
                 state.mode = .gestureCandidate(start: gestureStart)
                 intentState = state
@@ -1908,10 +1907,11 @@ final class ContentViewModel: ObservableObject {
                 return true
             }
 
+            let typingAnchorActive = hasKeyboardAnchor && contactCount <= 1
             let allowTyping: Bool
             switch state.mode {
             case .idle:
-                if graceActive || hasKeyboardAnchor {
+                if graceActive || typingAnchorActive {
                     state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
                     intentState = state
                     updateIntentDisplayIfNeeded()
@@ -1926,7 +1926,7 @@ final class ContentViewModel: ObservableObject {
                     allowTyping = false
                 }
             case let .keyCandidate(start, _, _):
-                if graceActive || hasKeyboardAnchor {
+                if graceActive || typingAnchorActive {
                     state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
                     intentState = state
                     updateIntentDisplayIfNeeded()
@@ -1942,7 +1942,7 @@ final class ContentViewModel: ObservableObject {
                     allowTyping = false
                 }
             case let .typingCommitted(untilAllUp):
-                if graceActive || hasKeyboardAnchor {
+                if graceActive || typingAnchorActive {
                     state.mode = .typingCommitted(untilAllUp: untilAllUp)
                     allowTyping = true
                 } else if untilAllUp {
@@ -1955,7 +1955,7 @@ final class ContentViewModel: ObservableObject {
                     allowTyping = true
                 }
             case let .mouseCandidate(start):
-                if graceActive || hasKeyboardAnchor {
+                if graceActive || typingAnchorActive {
                     state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
                     intentState = state
                     updateIntentDisplayIfNeeded()
@@ -1969,7 +1969,7 @@ final class ContentViewModel: ObservableObject {
                     allowTyping = false
                 }
             case .mouseActive:
-                if graceActive || hasKeyboardAnchor {
+                if graceActive || typingAnchorActive {
                     state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
                     allowTyping = true
                 } else {
@@ -2623,12 +2623,10 @@ final class ContentViewModel: ObservableObject {
         private func gestureCandidateStartTime(
             for state: IntentState,
             contactCount: Int,
-            previousContactCount: Int,
-            hasKeyboardAnchor: Bool
+            previousContactCount: Int
         ) -> TimeInterval? {
             guard contactCount >= 2,
-                  previousContactCount <= 1,
-                  !hasKeyboardAnchor else {
+                  previousContactCount <= 1 else {
                 return nil
             }
             let startTimes = state.touches.values.map { $0.startTime }
