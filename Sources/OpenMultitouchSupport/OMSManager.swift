@@ -4,7 +4,6 @@
  Created by Takuto Nakamura on 2024/03/02.
 */
 
-import Combine
 @preconcurrency import OpenMultitouchSupportXCF
 import os
 
@@ -43,14 +42,18 @@ public final class OMSManager: Sendable {
     private let protectedDeviceIndexStore = OSAllocatedUnfairLock<DeviceIndexStore>(
         uncheckedState: DeviceIndexStore()
     )
-    private let touchDataSubject = PassthroughSubject<[OMSTouchData], Never>()
+    private let touchContinuations = OSAllocatedUnfairLock<[UUID: AsyncStream<[OMSTouchData]>.Continuation]>(
+        uncheckedState: [:]
+    )
     public var touchDataStream: AsyncStream<[OMSTouchData]> {
-        AsyncStream { continuation in
-            let cancellable = touchDataSubject.sink { value in
-                continuation.yield(value)
-            }
-            continuation.onTermination = { _ in
-                cancellable.cancel()
+        AsyncStream(bufferingPolicy: .bufferingNewest(2)) { continuation in
+            let id = UUID()
+            touchContinuations.withLockUnchecked { $0[id] = continuation }
+            continuation.onTermination = { [touchContinuations] _ in
+                touchContinuations.withLockUnchecked { continuations in
+                    continuations.removeValue(forKey: id)
+                    return ()
+                }
             }
         }
     }
@@ -148,7 +151,7 @@ public final class OMSManager: Sendable {
     @objc func listen(_ event: OpenMTEvent) {
         guard let touches = (event.touches as NSArray) as? [OpenMTTouch] else { return }
         if touches.isEmpty {
-            touchDataSubject.send([])
+            emitTouchData([])
         } else {
             let frameTimestamp = event.timestamp
             let formattedTimestamp = protectedTimestampEnabled.withLockUnchecked(\.self)
@@ -175,7 +178,15 @@ public final class OMSManager: Sendable {
                     formattedTimestamp: formattedTimestamp
                 ))
             }
-            touchDataSubject.send(data)
+            emitTouchData(data)
+        }
+    }
+
+    private func emitTouchData(_ data: [OMSTouchData]) {
+        touchContinuations.withLockUnchecked { continuations in
+            for continuation in continuations.values {
+                _ = continuation.yield(data)
+            }
         }
     }
 
@@ -191,9 +202,6 @@ public final class OMSManager: Sendable {
         }
     }
 }
-
-extension AnyCancellable: @retroactive @unchecked Sendable {}
-extension PassthroughSubject: @retroactive @unchecked Sendable {}
 
 private struct DeviceIndexStore: Sendable {
     var nextIndex: Int = 0

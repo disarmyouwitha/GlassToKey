@@ -223,7 +223,7 @@ final class ContentViewModel: ObservableObject {
     init() {
         let holder = ContinuationHolder()
         touchRevisionContinuationHolder = holder
-        touchRevisionUpdates = AsyncStream { continuation in
+        touchRevisionUpdates = AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             holder.continuation = continuation
         }
         weak var weakSelf: ContentViewModel?
@@ -289,7 +289,7 @@ final class ContentViewModel: ObservableObject {
         let snapshotLock = touchSnapshotLock
         let selectionLock = deviceSelectionLock
         let recordingLock = snapshotRecordingLock
-        task = Task.detached { [manager, processor, snapshotLock, selectionLock, recordingLock, self] in
+        task = Task.detached(priority: .userInitiated) { [manager, processor, snapshotLock, selectionLock, recordingLock, self] in
             for await touchData in manager.touchDataStream {
                 let selection = selectionLock.withLockUnchecked { $0 }
                 let split = Self.splitTouches(touchData, selection: selection)
