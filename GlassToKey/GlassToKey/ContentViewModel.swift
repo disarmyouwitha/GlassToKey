@@ -1287,6 +1287,19 @@ final class ContentViewModel: ObservableObject {
                             let modifierKey = modifierKey(for: pending.binding)
                             let isContinuousKey = isContinuousKey(pending.binding)
                             let holdBinding = holdBinding(for: pending.binding)
+                            if shouldImmediateTapWithModifiers(binding: pending.binding) {
+                                let dispatchInfo = makeDispatchInfo(
+                                    kind: .tap,
+                                    startTime: pending.startTime,
+                                    maxDistanceSquared: pending.maxDistanceSquared,
+                                    now: now
+                                )
+                                triggerBinding(pending.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
+                                _ = removePendingTouch(for: touchKey)
+                                touchInitialContactPoint.removeValue(forKey: touchKey)
+                                disqualifiedTouches.insert(touchKey)
+                                continue
+                            }
                             let active = ActiveTouch(
                                 binding: pending.binding,
                                 startTime: pending.startTime,
@@ -1320,6 +1333,20 @@ final class ContentViewModel: ObservableObject {
                         let modifierKey = modifierKey(for: binding)
                         let isContinuousKey = isContinuousKey(binding)
                         let holdBinding = holdBinding(for: binding)
+                        let allowPriority = allowsPriorityTyping(for: binding)
+                        let allowNow = intentAllowsTyping || allowPriority
+                        if allowNow, shouldImmediateTapWithModifiers(binding: binding) {
+                            let dispatchInfo = makeDispatchInfo(
+                                kind: .tap,
+                                startTime: now,
+                                maxDistanceSquared: 0,
+                                now: now
+                            )
+                            triggerBinding(binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
+                            touchInitialContactPoint.removeValue(forKey: touchKey)
+                            disqualifiedTouches.insert(touchKey)
+                            continue
+                        }
                         if isDragDetectionEnabled, (modifierKey != nil || isContinuousKey) {
                             setPendingTouch(
                                 touchKey,
@@ -1349,8 +1376,6 @@ final class ContentViewModel: ObservableObject {
                                     modifierEngaged: false
                                 )
                             setActiveTouch(touchKey, active)
-                            let allowPriority = allowsPriorityTyping(for: binding)
-                            let allowNow = intentAllowsTyping || allowPriority
                             if allowNow, let modifierKey {
                                 handleModifierDown(modifierKey, binding: binding)
                                 var updated = active
@@ -1476,6 +1501,10 @@ final class ContentViewModel: ObservableObject {
                     disqualifyTouch(touchKey, reason: .forceCapExceeded)
                 }
             }
+        }
+
+        private func shouldImmediateTapWithModifiers(binding: KeyBinding) -> Bool {
+            hasActiveModifiers() && modifierKey(for: binding) == nil
         }
 
         private func hasActiveModifiers() -> Bool {
