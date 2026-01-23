@@ -170,6 +170,10 @@ final class ContentViewModel: ObservableObject {
         uncheckedState: PendingTouchState()
     )
     private let touchCoalesceInterval: TimeInterval = 0.02
+    private let snapshotQueue = DispatchQueue(
+        label: "com.kyome.GlassToKey.TouchSnapshots",
+        qos: .utility
+    )
 #if DEBUG
     private let pipelineSignposter = OSSignposter(
         subsystem: "com.kyome.GlassToKey",
@@ -295,12 +299,15 @@ final class ContentViewModel: ObservableObject {
         let snapshotLock = touchSnapshotLock
         let selectionLock = deviceSelectionLock
         let recordingLock = snapshotRecordingLock
-        task = Task.detached(priority: .userInitiated) { [manager, processor, snapshotLock, selectionLock, recordingLock, self] in
-            for await touchData in manager.touchDataStream {
+        let snapshotQueue = snapshotQueue
+        task = Task.detached(priority: .userInitiated) { [manager, processor, snapshotLock, selectionLock, recordingLock, snapshotQueue, self] in
+            for await rawFrame in manager.rawTouchStream {
 #if DEBUG
                 let signpostState = pipelineSignposter.beginInterval("InputFrame")
                 defer { pipelineSignposter.endInterval("InputFrame", signpostState) }
 #endif
+                let touchData = OMSManager.buildTouchData(from: rawFrame)
+                rawFrame.release()
                 let selection = selectionLock.withLockUnchecked { $0 }
                 let split = Self.splitTouches(touchData, selection: selection)
                 let frame = TouchFrame(
@@ -309,26 +316,28 @@ final class ContentViewModel: ObservableObject {
                     right: split.right
                 )
                 let now = CACurrentMediaTime()
-                let snapshotCandidate = updatePendingTouches(with: frame, at: now)
-                var updatedRevision: UInt64?
-                if let candidate = snapshotCandidate,
-                   recordingLock.withLockUnchecked(\.self) {
-                    snapshotLock.withLockUnchecked { snapshot in
-                        snapshot.left = candidate.left
-                        snapshot.right = candidate.right
-                        snapshot.hasTransitionState = Self.hasTransitionState(
-                            left: candidate.left,
-                            right: candidate.right
-                        )
-                        snapshot.revision &+= 1
-                        updatedRevision = snapshot.revision
-                    }
+                snapshotQueue.async { [recordingLock, snapshotLock, self] in
+                    let snapshotCandidate = self.updatePendingTouches(with: frame, at: now)
+                    var updatedRevision: UInt64?
+                    if let candidate = snapshotCandidate,
+                       recordingLock.withLockUnchecked(\.self) {
+                        snapshotLock.withLockUnchecked { snapshot in
+                            snapshot.left = candidate.left
+                            snapshot.right = candidate.right
+                            snapshot.hasTransitionState = Self.hasTransitionState(
+                                left: candidate.left,
+                                right: candidate.right
+                            )
+                            snapshot.revision &+= 1
+                            updatedRevision = snapshot.revision
+                        }
 #if DEBUG
-                    pipelineSignposter.emitEvent("SnapshotUpdate")
+                        self.pipelineSignposter.emitEvent("SnapshotUpdate")
 #endif
-                }
-                if let revision = updatedRevision {
-                    touchRevisionContinuationHolder.continuation?.yield(revision)
+                    }
+                    if let revision = updatedRevision {
+                        self.touchRevisionContinuationHolder.continuation?.yield(revision)
+                    }
                 }
                 await processor.processTouchFrame(frame)
             }
