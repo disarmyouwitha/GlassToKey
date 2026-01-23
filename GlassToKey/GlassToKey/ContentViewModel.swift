@@ -143,6 +143,7 @@ final class ContentViewModel: ObservableObject {
         case keyCandidate
         case typing
         case mouse
+        case gesture
     }
 
     private struct DeviceSelection: Sendable {
@@ -716,6 +717,7 @@ final class ContentViewModel: ObservableObject {
             case typingCommitted(untilAllUp: Bool)
             case mouseCandidate(start: TimeInterval)
             case mouseActive
+            case gestureCandidate(start: TimeInterval)
         }
 
         private struct IntentConfig {
@@ -727,6 +729,7 @@ final class ContentViewModel: ObservableObject {
 
         private struct IntentTouchInfo {
             let startPoint: CGPoint
+            let startTime: TimeInterval
             var lastPoint: CGPoint
             var lastTime: TimeInterval
             var maxDistanceSquared: CGFloat
@@ -1825,6 +1828,7 @@ final class ContentViewModel: ObservableObject {
                 } else {
                     state.touches[touchKey] = IntentTouchInfo(
                         startPoint: point,
+                        startTime: now,
                         lastPoint: point,
                         lastTime: now,
                         maxDistanceSquared: 0
@@ -1877,6 +1881,20 @@ final class ContentViewModel: ObservableObject {
                 intentState = state
                 updateIntentDisplayIfNeeded()
                 return true
+            }
+
+            if let gestureStart = gestureCandidateStartTime(
+                for: state,
+                contactCount: contactCount
+            ) {
+                state.mode = .gestureCandidate(start: gestureStart)
+                intentState = state
+                updateIntentDisplayIfNeeded()
+                return false
+            }
+            if case .gestureCandidate = state.mode,
+               contactCount < 4 {
+                state.mode = .idle
             }
 
             // While typing grace is active, keep typing committed and skip mouse intent checks.
@@ -1954,6 +1972,8 @@ final class ContentViewModel: ObservableObject {
                 } else {
                     allowTyping = false
                 }
+            case .gestureCandidate:
+                allowTyping = false
             }
 
             intentState = state
@@ -1981,6 +2001,8 @@ final class ContentViewModel: ObservableObject {
                 return .typing
             case .mouseCandidate, .mouseActive:
                 return .mouse
+            case .gestureCandidate:
+                return .gesture
             }
         }
 
@@ -2162,6 +2184,8 @@ final class ContentViewModel: ObservableObject {
                 return true
             case .mouseActive:
                 return isModifier
+            case .gestureCandidate:
+                return false
             case .idle:
                 return false
             }
@@ -2591,6 +2615,21 @@ final class ContentViewModel: ObservableObject {
 
         private func notifyContactCounts() {
             onContactCountChanged(contactFingerCountsBySide)
+        }
+
+        private func gestureCandidateStartTime(
+            for state: IntentState,
+            contactCount: Int
+        ) -> TimeInterval? {
+            guard contactCount >= 4 else { return nil }
+            let startTimes = state.touches.values.map { $0.startTime }
+            guard startTimes.count >= 4,
+                  let minTime = startTimes.min(),
+                  let maxTime = startTimes.max(),
+                  maxTime - minTime <= intentConfig.keyBufferSeconds else {
+                return nil
+            }
+            return minTime
         }
 
         private func cachedContactCount(

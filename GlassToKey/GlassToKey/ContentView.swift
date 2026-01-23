@@ -558,6 +558,8 @@ struct ContentView: View {
                 return "typing"
             case .mouse:
                 return "mouse"
+            case .gesture:
+                return "gest"
             }
         }
 
@@ -571,6 +573,8 @@ struct ContentView: View {
                 return .green
             case .mouse:
                 return .blue
+            case .gesture:
+                return .purple
             }
         }
     }
