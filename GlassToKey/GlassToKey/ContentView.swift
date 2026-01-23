@@ -846,7 +846,7 @@ struct ContentView: View {
                                 showSlider: false
                             )
                             ColumnTuningRow(
-                                title: "X (%)",
+                                title: "X",
                                 value: Binding(
                                     get: { selection.settings.offsetXPercent },
                                     set: { newValue in
@@ -862,7 +862,7 @@ struct ContentView: View {
                                 showSlider: false
                             )
                             ColumnTuningRow(
-                                title: "Y (%)",
+                                title: "Y",
                                 value: Binding(
                                     get: { selection.settings.offsetYPercent },
                                     set: { newValue in
@@ -970,7 +970,7 @@ struct ContentView: View {
                         .pickerStyle(MenuPickerStyle())
                         VStack(alignment: .leading, spacing: 14) {
                             ColumnTuningRow(
-                                title: "X (%)",
+                                title: "X",
                                 value: positionBinding(for: selection.button, axis: .x),
                                 formatter: ContentView.columnOffsetFormatter,
                                 range: positionRange(for: selection.button, axis: .x),
@@ -979,7 +979,7 @@ struct ContentView: View {
                                 showSlider: false
                             )
                             ColumnTuningRow(
-                                title: "Y (%)",
+                                title: "Y",
                                 value: positionBinding(for: selection.button, axis: .y),
                                 formatter: ContentView.columnOffsetFormatter,
                                 range: positionRange(for: selection.button, axis: .y),
@@ -988,7 +988,7 @@ struct ContentView: View {
                                 showSlider: false
                             )
                             ColumnTuningRow(
-                                title: "Width (%)",
+                                title: "Width",
                                 value: sizeBinding(for: selection.button, dimension: .width),
                                 formatter: ContentView.columnOffsetFormatter,
                                 range: sizeRange(for: selection.button, dimension: .width),
@@ -997,7 +997,7 @@ struct ContentView: View {
                                 showSlider: false
                             )
                             ColumnTuningRow(
-                                title: "Height (%)",
+                                title: "Height",
                                 value: sizeBinding(for: selection.button, dimension: .height),
                                 formatter: ContentView.columnOffsetFormatter,
                                 range: sizeRange(for: selection.button, dimension: .height),
