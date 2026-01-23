@@ -76,6 +76,7 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.forceClickCap) private var forceClickCapSetting: Double = GlassToKeySettings.forceClickCap
     @AppStorage(GlassToKeyDefaultsKeys.hapticStrength) private var hapticStrengthSetting: Double = GlassToKeySettings.hapticStrengthPercent
     @AppStorage(GlassToKeyDefaultsKeys.intentBufferMs) private var intentBufferMsSetting: Double = GlassToKeySettings.intentBufferMs
+    @AppStorage(GlassToKeyDefaultsKeys.typingGraceMs) private var typingGraceMsSetting: Double = GlassToKeySettings.typingGraceMs
     @AppStorage(GlassToKeyDefaultsKeys.intentMoveThresholdMm)
     private var intentMoveThresholdMmSetting: Double = GlassToKeySettings.intentMoveThresholdMm
     @AppStorage(GlassToKeyDefaultsKeys.intentVelocityThresholdMmPerSec)
@@ -96,6 +97,7 @@ struct ContentView: View {
     fileprivate static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
     fileprivate static let hapticStrengthRange: ClosedRange<Double> = 0.0...100.0
     fileprivate static let intentBufferRange: ClosedRange<Double> = 10.0...120.0
+    fileprivate static let typingGraceRange: ClosedRange<Double> = 10.0...600.0
     fileprivate static let intentMoveThresholdRange: ClosedRange<Double> = 0.5...10.0
     fileprivate static let intentVelocityThresholdRange: ClosedRange<Double> = 10.0...200.0
     private static let keyCornerRadius: CGFloat = 6.0
@@ -169,6 +171,15 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 0
         formatter.minimum = NSNumber(value: ContentView.intentBufferRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.intentBufferRange.upperBound)
+        return formatter
+    }()
+    fileprivate static let typingGraceFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.minimum = NSNumber(value: ContentView.typingGraceRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.typingGraceRange.upperBound)
         return formatter
     }()
     fileprivate static let intentMoveThresholdFormatter: NumberFormatter = {
@@ -347,6 +358,9 @@ struct ContentView: View {
             .onChange(of: intentBufferMsSetting) { newValue in
                 viewModel.updateIntentKeyBufferMs(newValue)
             }
+            .onChange(of: typingGraceMsSetting) { newValue in
+                viewModel.updateTypingGraceMs(newValue)
+            }
             .onChange(of: intentMoveThresholdMmSetting) { newValue in
                 viewModel.updateIntentMoveThresholdMm(newValue)
             }
@@ -432,6 +446,7 @@ struct ContentView: View {
             forceClickCapSetting: $forceClickCapSetting,
             hapticStrengthSetting: $hapticStrengthSetting,
             intentBufferMsSetting: $intentBufferMsSetting,
+            typingGraceMsSetting: $typingGraceMsSetting,
             intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
             allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
@@ -643,6 +658,7 @@ struct ContentView: View {
         @Binding var forceClickCapSetting: Double
         @Binding var hapticStrengthSetting: Double
         @Binding var intentBufferMsSetting: Double
+        @Binding var typingGraceMsSetting: Double
         @Binding var intentMoveThresholdMmSetting: Double
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var allowMouseTakeoverDuringTyping: Bool
@@ -683,6 +699,7 @@ struct ContentView: View {
                             forceClickCapSetting: $forceClickCapSetting,
                             hapticStrengthSetting: $hapticStrengthSetting,
                             intentBufferMsSetting: $intentBufferMsSetting,
+                            typingGraceMsSetting: $typingGraceMsSetting,
                             intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
                             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
                             allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping
@@ -1182,6 +1199,7 @@ struct ContentView: View {
         @Binding var forceClickCapSetting: Double
         @Binding var hapticStrengthSetting: Double
         @Binding var intentBufferMsSetting: Double
+        @Binding var typingGraceMsSetting: Double
         @Binding var intentMoveThresholdMmSetting: Double
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var allowMouseTakeoverDuringTyping: Bool
@@ -1234,7 +1252,7 @@ struct ContentView: View {
                     .frame(minWidth: 120)
                 }
                 GridRow {
-                    Text("Typing Grace (ms)")
+                    Text("Intent Buffer (ms)")
                     TextField(
                         "40",
                         value: $intentBufferMsSetting,
@@ -1245,6 +1263,21 @@ struct ContentView: View {
                         value: $intentBufferMsSetting,
                         in: ContentView.intentBufferRange,
                         step: 5
+                    )
+                    .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("Typing Grace (ms)")
+                    TextField(
+                        "120",
+                        value: $typingGraceMsSetting,
+                        formatter: ContentView.typingGraceFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $typingGraceMsSetting,
+                        in: ContentView.typingGraceRange,
+                        step: 10
                     )
                     .frame(minWidth: 120)
                 }
@@ -2013,6 +2046,7 @@ struct ContentView: View {
         viewModel.updateForceClickCap(forceClickCapSetting)
         viewModel.updateHapticStrength(hapticStrengthSetting / 100.0)
         viewModel.updateIntentKeyBufferMs(intentBufferMsSetting)
+        viewModel.updateTypingGraceMs(typingGraceMsSetting)
         viewModel.updateIntentMoveThresholdMm(intentMoveThresholdMmSetting)
         viewModel.updateIntentVelocityThresholdMmPerSec(intentVelocityThresholdMmPerSecSetting)
         viewModel.updateAllowMouseTakeover(allowMouseTakeoverDuringTyping)

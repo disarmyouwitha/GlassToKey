@@ -621,6 +621,12 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func updateTypingGraceMs(_ milliseconds: Double) {
+        Task { [processor] in
+            await processor.updateTypingGrace(milliseconds)
+        }
+    }
+
     func updateIntentMoveThresholdMm(_ millimeters: Double) {
         Task { [processor] in
             await processor.updateIntentMoveThreshold(millimeters)
@@ -720,6 +726,7 @@ final class ContentViewModel: ObservableObject {
 
         private struct IntentConfig {
             var keyBufferSeconds: TimeInterval = 0.04
+            var typingGraceSeconds: TimeInterval = 0.12
             var moveThresholdMm: CGFloat = 3.0
             var velocityThresholdMmPerSec: CGFloat = 50.0
         }
@@ -925,6 +932,7 @@ final class ContentViewModel: ObservableObject {
         private var intentConfig = IntentConfig()
         private var allowMouseTakeoverDuringTyping = false
         private var typingGraceDeadline: TimeInterval?
+        private var typingGraceTask: Task<Void, Never>?
 
 #if DEBUG
         private let signposter = OSSignposter(
@@ -1016,6 +1024,11 @@ final class ContentViewModel: ObservableObject {
         func updateIntentKeyBuffer(_ milliseconds: Double) {
             let clampedMs = max(0, milliseconds)
             intentConfig.keyBufferSeconds = clampedMs / 1000.0
+        }
+
+        func updateTypingGrace(_ milliseconds: Double) {
+            let clampedMs = max(0, milliseconds)
+            intentConfig.typingGraceSeconds = clampedMs / 1000.0
         }
 
         func updateIntentMoveThreshold(_ millimeters: Double) {
@@ -1755,13 +1768,7 @@ final class ContentViewModel: ObservableObject {
             velocityThreshold: CGFloat
         ) -> Bool {
             var state = intentState
-            let graceActive: Bool
-            if let deadline = typingGraceDeadline, now < deadline {
-                graceActive = true
-            } else {
-                typingGraceDeadline = nil
-                graceActive = false
-            }
+            let graceActive = isTypingGraceActive(now: now)
 
             var contactCount = 0
             var onKeyCount = 0
@@ -1859,8 +1866,14 @@ final class ContentViewModel: ObservableObject {
             state.lastContactCount = contactCount
 
             guard contactCount > 0 else {
-                state.mode = .idle
                 state.touches.removeAll()
+                if graceActive {
+                    state.mode = .typingCommitted(untilAllUp: true)
+                    intentState = state
+                    updateIntentDisplayIfNeeded()
+                    return true
+                }
+                state.mode = .idle
                 intentState = state
                 updateIntentDisplayIfNeeded()
                 return true
@@ -1959,9 +1972,6 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func intentDisplay(for mode: IntentMode) -> IntentDisplay {
-            if isTypingGraceActive() {
-                return .typing
-            }
             switch mode {
             case .idle:
                 return .idle
@@ -2262,6 +2272,7 @@ final class ContentViewModel: ObservableObject {
             #if DEBUG
             onDebugBindingDetected(binding)
 #endif
+            extendTypingGrace(for: binding.side, now: Self.now())
             logKeyDispatch(
                 label: binding.label,
                 code: code,
@@ -2459,6 +2470,8 @@ final class ContentViewModel: ObservableObject {
             momentaryLayerTouches.removeAll()
             touchInitialContactPoint.removeAll()
             typingGraceDeadline = nil
+            typingGraceTask?.cancel()
+            typingGraceTask = nil
             updateActiveLayer()
             intentState = IntentState()
             updateIntentDisplayIfNeeded()
@@ -2496,8 +2509,41 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func extendTypingGrace(for side: TrackpadSide?, now: TimeInterval) {
-            guard intentConfig.keyBufferSeconds > 0 else { return }
-            typingGraceDeadline = now + intentConfig.keyBufferSeconds
+            guard intentConfig.typingGraceSeconds > 0 else { return }
+            let deadline = now + intentConfig.typingGraceSeconds
+            typingGraceDeadline = deadline
+            scheduleTypingGraceExpiry(deadline: deadline)
+            if case .typingCommitted = intentState.mode {
+                // Keep existing typing mode.
+            } else {
+                intentState.mode = .typingCommitted(untilAllUp: true)
+            }
+            updateIntentDisplayIfNeeded()
+        }
+
+        private func scheduleTypingGraceExpiry(deadline: TimeInterval) {
+            typingGraceTask?.cancel()
+            let delay = max(0, deadline - Self.now())
+            let nanoseconds = UInt64(delay * 1_000_000_000)
+            typingGraceTask = Task { [weak self] in
+                if nanoseconds > 0 {
+                    try? await Task.sleep(nanoseconds: nanoseconds)
+                }
+                await self?.expireTypingGraceIfNeeded(deadline: deadline)
+            }
+        }
+
+        private func expireTypingGraceIfNeeded(deadline: TimeInterval) {
+            guard let currentDeadline = typingGraceDeadline,
+                  currentDeadline == deadline,
+                  Self.now() >= deadline else {
+                return
+            }
+            typingGraceDeadline = nil
+            typingGraceTask = nil
+            if intentState.touches.isEmpty, case .typingCommitted = intentState.mode {
+                intentState.mode = .idle
+            }
             updateIntentDisplayIfNeeded()
         }
 
