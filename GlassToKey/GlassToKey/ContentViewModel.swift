@@ -754,10 +754,7 @@ final class ContentViewModel: ObservableObject {
             let maxDistance: CGFloat?
         }
 
-        private struct TouchKey: Hashable {
-            let deviceIndex: Int
-            let id: Int32
-        }
+        private typealias TouchKey = UInt64
 
         private enum IntentMode {
             case idle
@@ -766,6 +763,24 @@ final class ContentViewModel: ObservableObject {
             case mouseCandidate(start: TimeInterval)
             case mouseActive
             case gestureCandidate(start: TimeInterval)
+        }
+
+        private static func makeTouchKey(deviceIndex: Int, id: Int32) -> TouchKey {
+            let deviceBits = UInt64(UInt32(deviceIndex))
+            let idBits = UInt64(UInt32(bitPattern: id))
+            return (deviceBits << 32) | idBits
+        }
+
+        private static func touchKeyDeviceIndex(_ key: TouchKey) -> Int {
+            Int(UInt32(key >> 32))
+        }
+
+        private static func touchKeyID(_ key: TouchKey) -> Int32 {
+            Int32(bitPattern: UInt32(truncatingIfNeeded: key))
+        }
+
+        private static func nowUptimeNanoseconds() -> UInt64 {
+            DispatchTime.now().uptimeNanoseconds
         }
 
         private struct IntentConfig {
@@ -807,6 +822,14 @@ final class ContentViewModel: ObservableObject {
             var forceEntryTime: TimeInterval?
             var forceGuardTriggered: Bool
 
+        }
+
+        private struct RepeatEntry {
+            let code: CGKeyCode
+            let flags: CGEventFlags
+            let token: RepeatToken
+            let interval: UInt64
+            var nextFire: UInt64
         }
 
         private enum TouchState {
@@ -935,8 +958,8 @@ final class ContentViewModel: ObservableObject {
         private var controlTouchCount = 0
         private var optionTouchCount = 0
         private var commandTouchCount = 0
-        private var repeatTasks: [TouchKey: Task<Void, Never>] = [:]
-        private var repeatTokens: [TouchKey: RepeatToken] = [:]
+        private var repeatEntries: [TouchKey: RepeatEntry] = [:]
+        private var repeatLoopTask: Task<Void, Never>?
         private var toggleTouchStarts: [TouchKey: TimeInterval] = [:]
         private var layerToggleTouchStarts: [TouchKey: Int] = [:]
         private var momentaryLayerTouches: [TouchKey: Int] = [:]
@@ -1192,7 +1215,7 @@ final class ContentViewModel: ObservableObject {
                     x: CGFloat(touch.position.x) * canvasSize.width,
                     y: CGFloat(1.0 - touch.position.y) * canvasSize.height
                 )
-                let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
+                let touchKey = Self.makeTouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
                 if touchInitialContactPoint[touchKey] == nil,
                    Self.isContactState(touch.state) {
                     touchInitialContactPoint[touchKey] = point
@@ -1867,7 +1890,7 @@ final class ContentViewModel: ObservableObject {
 
             func process(_ touch: OMSTouchData, side: TrackpadSide, bindings: BindingIndex) {
                 guard Self.isIntentContactState(touch.state) else { return }
-                let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
+                let touchKey = Self.makeTouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
                 if momentaryLayerTouches[touchKey] != nil {
                     hasKeyboardAnchor = true
                     return
@@ -2421,14 +2444,15 @@ final class ContentViewModel: ObservableObject {
             let initialDelay = repeatInitialDelay
             let interval = repeatInterval(for: binding.action)
             let token = RepeatToken()
-            repeatTokens[touchKey] = token
-            repeatTasks[touchKey] = Task.detached(priority: .userInitiated) { [dispatcher = keyDispatcher] in
-                try? await Task.sleep(nanoseconds: initialDelay)
-                while !Task.isCancelled, token.isActive {
-                    dispatcher.postKeyStroke(code: code, flags: repeatFlags, token: token)
-                    try? await Task.sleep(nanoseconds: interval)
-                }
-            }
+            let nextFire = Self.nowUptimeNanoseconds() &+ initialDelay
+            repeatEntries[touchKey] = RepeatEntry(
+                code: code,
+                flags: repeatFlags,
+                token: token,
+                interval: interval,
+                nextFire: nextFire
+            )
+            ensureRepeatLoop()
         }
 
         private func repeatInterval(for action: KeyBindingAction) -> UInt64 {
@@ -2440,11 +2464,73 @@ final class ContentViewModel: ObservableObject {
             return repeatInterval
         }
 
-        private func stopRepeat(for touchKey: TouchKey) {
-            if let task = repeatTasks.removeValue(forKey: touchKey) {
-                task.cancel()
+        private func ensureRepeatLoop() {
+            guard repeatLoopTask == nil else { return }
+            repeatLoopTask = Task.detached(priority: .userInitiated) { [weak self] in
+                await self?.repeatLoop()
             }
-            repeatTokens.removeValue(forKey: touchKey)?.deactivate()
+        }
+
+        private func repeatLoop() async {
+            while !Task.isCancelled {
+                let now = Self.nowUptimeNanoseconds()
+                guard let delay = nextRepeatDelay(now: now) else {
+                    repeatLoopTask = nil
+                    return
+                }
+                if delay > 0 {
+                    try? await Task.sleep(nanoseconds: delay)
+                }
+                await fireRepeats(now: Self.nowUptimeNanoseconds())
+            }
+        }
+
+        private func nextRepeatDelay(now: UInt64) -> UInt64? {
+            guard !repeatEntries.isEmpty else { return nil }
+            var soonest = UInt64.max
+            for entry in repeatEntries.values {
+                if entry.nextFire < soonest {
+                    soonest = entry.nextFire
+                }
+            }
+            return soonest <= now ? 0 : (soonest - now)
+        }
+
+        private func fireRepeats(now: UInt64) async {
+            guard !repeatEntries.isEmpty else { return }
+            var toRemove: [TouchKey] = []
+            for (key, var entry) in repeatEntries {
+                if !entry.token.isActive {
+                    toRemove.append(key)
+                    continue
+                }
+                if entry.nextFire <= now {
+                    keyDispatcher.postKeyStroke(code: entry.code, flags: entry.flags, token: entry.token)
+                    var next = entry.nextFire
+                    while next <= now {
+                        next &+= entry.interval
+                    }
+                    entry.nextFire = next
+                    repeatEntries[key] = entry
+                }
+            }
+            for key in toRemove {
+                repeatEntries.removeValue(forKey: key)
+            }
+            if repeatEntries.isEmpty {
+                repeatLoopTask?.cancel()
+                repeatLoopTask = nil
+            }
+        }
+
+        private func stopRepeat(for touchKey: TouchKey) {
+            if let entry = repeatEntries.removeValue(forKey: touchKey) {
+                entry.token.deactivate()
+            }
+            if repeatEntries.isEmpty {
+                repeatLoopTask?.cancel()
+                repeatLoopTask = nil
+            }
         }
 
         private func handleModifierDown(_ modifierKey: ModifierKey, binding: KeyBinding) {
@@ -2692,7 +2778,9 @@ final class ContentViewModel: ObservableObject {
 
         private func logDisqualify(_ touchKey: TouchKey, reason: DisqualifyReason) {
             #if DEBUG
-            keyLogger.debug("disqualify deviceIndex=\(touchKey.deviceIndex) id=\(touchKey.id) reason=\(reason.rawValue)")
+            let deviceIndex = Self.touchKeyDeviceIndex(touchKey)
+            let touchID = Self.touchKeyID(touchKey)
+            keyLogger.debug("disqualify deviceIndex=\(deviceIndex) id=\(touchID) reason=\(reason.rawValue)")
             #endif
         }
 
