@@ -1866,6 +1866,14 @@ final class ContentViewModel: ObservableObject {
                 return true
             }
 
+            // While typing grace is active, keep typing committed and skip mouse intent checks.
+            if graceActive {
+                state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
+                intentState = state
+                updateIntentDisplayIfNeeded()
+                return true
+            }
+
             let allowTyping: Bool
             switch state.mode {
             case .idle:
