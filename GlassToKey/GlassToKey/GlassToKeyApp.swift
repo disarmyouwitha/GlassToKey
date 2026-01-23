@@ -19,7 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var configWindow: NSWindow?
     private var statusCancellable: AnyCancellable?
-    private static let configWindowDefaultHeight: CGFloat = 560
+    private static let configWindowDefaultHeight: CGFloat = 600
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)

@@ -365,7 +365,6 @@ struct ContentView: View {
     private var mainLayout: some View {
         VStack(spacing: 16) {
             headerView
-            contactCountView
             contentRow
         }
     }
@@ -376,6 +375,9 @@ struct ContentView: View {
             visualsEnabled: $visualsEnabled,
             layerToggleBinding: layerToggleBinding,
             isListening: viewModel.isListening,
+            leftContactCount: viewModel.contactFingerCountsBySide[.left] ?? 0,
+            rightContactCount: viewModel.contactFingerCountsBySide[.right] ?? 0,
+            intentDisplay: viewModel.intentDisplayBySide[.left] ?? .idle,
             onStart: {
                 viewModel.start()
             },
@@ -384,77 +386,6 @@ struct ContentView: View {
                 visualsEnabled = false
             }
         )
-    }
-
-    private var contactCountView: some View {
-        HStack(spacing: 12) {
-            Text("Contacting fingers:")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Spacer()
-            let leftCount = viewModel.contactFingerCountsBySide[.left] ?? 0
-            let rightCount = viewModel.contactFingerCountsBySide[.right] ?? 0
-            HStack(spacing: 8) {
-                Text("L \(leftCount)")
-                    .font(.caption2)
-                    .foregroundStyle(.primary)
-                Text("R \(rightCount)")
-                    .font(.caption2)
-                    .foregroundStyle(.primary)
-            }
-            Divider()
-                .frame(height: 12)
-            intentIndicatorView
-        }
-        .padding(.horizontal, 4)
-    }
-
-    private var intentIndicatorView: some View {
-        let intent = viewModel.intentDisplayBySide[.left] ?? .idle
-        return intentBadge(intent: intent)
-    }
-
-    private func intentBadge(intent: ContentViewModel.IntentDisplay) -> some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(intentColor(intent))
-                .frame(width: 6, height: 6)
-            Text("Global \(intentLabel(intent))")
-                .font(.caption2)
-                .foregroundStyle(.primary)
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(
-            Capsule()
-                .fill(Color.primary.opacity(0.06))
-        )
-    }
-
-    private func intentLabel(_ intent: ContentViewModel.IntentDisplay) -> String {
-        switch intent {
-        case .idle:
-            return "idle"
-        case .keyCandidate:
-            return "cand"
-        case .typing:
-            return "type"
-        case .mouse:
-            return "mouse"
-        }
-    }
-
-    private func intentColor(_ intent: ContentViewModel.IntentDisplay) -> Color {
-        switch intent {
-        case .idle:
-            return .gray
-        case .keyCandidate:
-            return .orange
-        case .typing:
-            return .green
-        case .mouse:
-            return .blue
-        }
     }
 
     private var contentRow: some View {
@@ -537,6 +468,9 @@ struct ContentView: View {
         @Binding var visualsEnabled: Bool
         let layerToggleBinding: Binding<Bool>
         let isListening: Bool
+        let leftContactCount: Int
+        let rightContactCount: Int
+        let intentDisplay: ContentViewModel.IntentDisplay
         let onStart: () -> Void
         let onStop: () -> Void
 
@@ -546,9 +480,10 @@ struct ContentView: View {
                     Text("GlassToKey Studio")
                         .font(.title2)
                         .bold()
-                    Text("Arrange, tune, and test")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        contactCountPills
+                        intentBadge(intent: intentDisplay)
+                    }
                 }
                 Spacer()
                 Toggle("Edit", isOn: $editModeEnabled)
@@ -573,6 +508,68 @@ struct ContentView: View {
                     }
                     .buttonStyle(.borderedProminent)
                 }
+            }
+        }
+
+        private var contactCountPills: some View {
+            HStack(spacing: 8) {
+                labelPill(prefix: "L", value: leftContactCount)
+                labelPill(prefix: "R", value: rightContactCount)
+            }
+        }
+
+        private func labelPill(prefix: String, value: Int) -> some View {
+            Text("\(prefix) \(value)")
+                .font(.caption2)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    Capsule()
+                        .fill(Color.primary.opacity(0.06))
+                )
+        }
+
+        private func intentBadge(intent: ContentViewModel.IntentDisplay) -> some View {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(intentColor(intent))
+                    .frame(width: 6, height: 6)
+                Text("Global \(intentLabel(intent))")
+                    .font(.caption2)
+                    .foregroundStyle(.primary)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                Capsule()
+                    .fill(Color.primary.opacity(0.06))
+            )
+        }
+
+        private func intentLabel(_ intent: ContentViewModel.IntentDisplay) -> String {
+            switch intent {
+            case .idle:
+                return "idle"
+            case .keyCandidate:
+                return "cand"
+            case .typing:
+                return "type"
+            case .mouse:
+                return "mouse"
+            }
+        }
+
+        private func intentColor(_ intent: ContentViewModel.IntentDisplay) -> Color {
+            switch intent {
+            case .idle:
+                return .gray
+            case .keyCandidate:
+                return .orange
+            case .typing:
+                return .green
+            case .mouse:
+                return .blue
             }
         }
     }
