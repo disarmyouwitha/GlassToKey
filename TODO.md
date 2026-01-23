@@ -1,5 +1,6 @@
 ## TODO
 - nsspellchecker & AX replace (Text prediction&replacement)
+- (Optional Install, CGEventFallback): Use Karabiner-DriverKit-VirtualHIDDevice to send keys!
 - normalize % to px??
 - trackpad battery level?
 - key for enable/disable mouse click CGEventTapCreate?? finger tap, don't send keys.

@@ -1852,7 +1852,8 @@ final class ContentViewModel: ObservableObject {
             let centroid: CGPoint? = contactCount > 0
                 ? CGPoint(x: sumX / CGFloat(contactCount), y: sumY / CGFloat(contactCount))
                 : nil
-            let secondFingerAppeared = contactCount > 1 && contactCount > state.lastContactCount
+            let previousContactCount = state.lastContactCount
+            let secondFingerAppeared = contactCount > 1 && contactCount > previousContactCount
             let anyOnKey = onKeyCount > 0
             let anyOffKey = offKeyCount > 0
             var centroidMoved = false
@@ -1866,8 +1867,6 @@ final class ContentViewModel: ObservableObject {
                 || velocitySignal
                 || (secondFingerAppeared && anyOffKey)
                 || centroidMoved
-
-            state.lastContactCount = contactCount
 
             guard contactCount > 0 else {
                 state.touches.removeAll()
@@ -1885,7 +1884,9 @@ final class ContentViewModel: ObservableObject {
 
             if let gestureStart = gestureCandidateStartTime(
                 for: state,
-                contactCount: contactCount
+                contactCount: contactCount,
+                previousContactCount: previousContactCount,
+                hasKeyboardAnchor: hasKeyboardAnchor
             ) {
                 state.mode = .gestureCandidate(start: gestureStart)
                 intentState = state
@@ -1893,9 +1894,11 @@ final class ContentViewModel: ObservableObject {
                 return false
             }
             if case .gestureCandidate = state.mode,
-               contactCount < 4 {
+               contactCount < 2 {
                 state.mode = .idle
             }
+
+            state.lastContactCount = contactCount
 
             // While typing grace is active, keep typing committed and skip mouse intent checks.
             if graceActive {
@@ -2619,11 +2622,17 @@ final class ContentViewModel: ObservableObject {
 
         private func gestureCandidateStartTime(
             for state: IntentState,
-            contactCount: Int
+            contactCount: Int,
+            previousContactCount: Int,
+            hasKeyboardAnchor: Bool
         ) -> TimeInterval? {
-            guard contactCount >= 4 else { return nil }
+            guard contactCount >= 2,
+                  previousContactCount <= 1,
+                  !hasKeyboardAnchor else {
+                return nil
+            }
             let startTimes = state.touches.values.map { $0.startTime }
-            guard startTimes.count >= 4,
+            guard startTimes.count >= 2,
                   let minTime = startTimes.min(),
                   let maxTime = startTimes.max(),
                   maxTime - minTime <= intentConfig.keyBufferSeconds else {
