@@ -7,7 +7,7 @@ enum GlassToKeySettings {
     static let forceClickCap: Double = 110.0
     static let hapticStrengthPercent: Double = 10.0
     static let typingGraceMs: Double = 600.0
-    static let intentMoveThresholdMm: Double = 3.0
+    static let intentMoveThresholdMm: Double = 4.0
     static let intentVelocityThresholdMmPerSec: Double = 50.0
     static let allowMouseTakeoverDuringTyping: Bool = false
 

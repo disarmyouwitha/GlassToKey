@@ -1239,13 +1239,6 @@ final class ContentViewModel: ObservableObject {
                             continue
                         }
 
-                        if !active.isContinuousKey,
-                           !active.binding.rect.contains(point),
-                           initialContactPointIsInsideBinding(touchKey, binding: active.binding) {
-                            disqualifyTouch(touchKey, reason: .leftKeyRect)
-                            continue
-                        }
-
                         if active.isContinuousKey,
                            !active.binding.rect.contains(point) {
                             disqualifyTouch(touchKey, reason: .leftContinuousRect)
@@ -1325,7 +1318,7 @@ final class ContentViewModel: ObservableObject {
                                 startRepeat(for: touchKey, binding: pending.binding)
                             }
                         } else if isDragDetectionEnabled {
-                            disqualifyTouch(touchKey, reason: .pendingLeftRect)
+                            _ = removePendingTouch(for: touchKey)
                         } else {
                             _ = removePendingTouch(for: touchKey)
                         }

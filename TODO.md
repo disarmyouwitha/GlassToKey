@@ -4,8 +4,9 @@
 - nsspellchecker & AX replace (Text prediction&replacement)
 - (Optional Install, CGEventFallback): Use Karabiner-DriverKit-VirtualHIDDevice to send keys!
 - normalize % to px??
-- trackpad battery level?
+- REMOVE: LeftRect
 - key for enable/disable mouse click CGEventTapCreate?? finger tap, don't send keys.
+- trackpad battery level?
 ###
 - random quote above textbox
 - any vestigial code? legacyColumnSettings, etc..
