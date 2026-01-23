@@ -2625,6 +2625,17 @@ final class ContentViewModel: ObservableObject {
             contactCount: Int,
             previousContactCount: Int
         ) -> TimeInterval? {
+            if contactCount >= 3 {
+                guard previousContactCount != 2 else { return nil }
+                let startTimes = state.touches.values.map { $0.startTime }
+                guard startTimes.count >= 3,
+                      let minTime = startTimes.min(),
+                      let maxTime = startTimes.max(),
+                      maxTime - minTime <= intentConfig.keyBufferSeconds else {
+                    return nil
+                }
+                return minTime
+            }
             guard contactCount >= 2,
                   previousContactCount <= 1 else {
                 return nil
