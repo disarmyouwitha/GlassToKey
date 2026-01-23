@@ -309,6 +309,7 @@ struct ContentView: View {
                 refreshColumnInspectorSelection()
             }
             .onChange(of: customButtons) { newValue in
+                saveCustomButtons(newValue)
                 viewModel.updateCustomButtons(newValue)
                 refreshButtonInspectorSelection()
             }
