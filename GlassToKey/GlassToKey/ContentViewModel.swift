@@ -898,6 +898,13 @@ final class ContentViewModel: ObservableObject {
             .left: 0,
             .right: 0
         ]
+        private struct ContactCountCache {
+            var actual: Int
+            var displayed: Int
+            var timestamp: TimeInterval
+        }
+        private var contactCountCache: [TrackpadSide: ContactCountCache] = [:]
+        private let contactCountHoldDuration: TimeInterval = 0.06
         private let repeatInitialDelay: UInt64 = 350_000_000
         private let repeatInterval: UInt64 = 50_000_000
         private let spaceRepeatMultiplier: UInt64 = 2
@@ -1124,7 +1131,11 @@ final class ContentViewModel: ObservableObject {
             let contactCount = touches.reduce(0) { current, touch in
                 current + (Self.isContactState(touch.state) ? 1 : 0)
             }
-            contactFingerCountsBySide[side] = contactCount
+            contactFingerCountsBySide[side] = cachedContactCount(
+                for: side,
+                actualCount: contactCount,
+                now: now
+            )
             for touch in touches {
                 let point = CGPoint(
                     x: CGFloat(touch.position.x) * canvasSize.width,
@@ -2580,6 +2591,26 @@ final class ContentViewModel: ObservableObject {
 
         private func notifyContactCounts() {
             onContactCountChanged(contactFingerCountsBySide)
+        }
+
+        private func cachedContactCount(
+            for side: TrackpadSide,
+            actualCount: Int,
+            now: TimeInterval
+        ) -> Int {
+            let previous = contactCountCache[side]
+            let elapsed = previous != nil ? now - previous!.timestamp : contactCountHoldDuration
+            let shouldHoldPrevious = actualCount == 0
+                && (previous?.actual ?? 0) > 0
+                && elapsed < contactCountHoldDuration
+            let displayed = shouldHoldPrevious ? (previous?.displayed ?? actualCount) : actualCount
+            let updatedCache = ContactCountCache(
+                actual: actualCount,
+                displayed: displayed,
+                timestamp: now
+            )
+            contactCountCache[side] = updatedCache
+            return displayed
         }
 
         private func logKeyDispatch(

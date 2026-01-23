@@ -647,7 +647,7 @@ struct ContentView: View {
         @Binding var intentMoveThresholdMmSetting: Double
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var allowMouseTakeoverDuringTyping: Bool
-        @State private var typingTuningExpanded = true
+        @State private var typingTuningExpanded = false
         let onRefreshDevices: () -> Void
         let onAutoResyncChange: (Bool) -> Void
         let onAddCustomButton: (TrackpadSide) -> Void
