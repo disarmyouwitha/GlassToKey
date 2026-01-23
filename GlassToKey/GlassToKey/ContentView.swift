@@ -1479,14 +1479,7 @@ struct ContentView: View {
                 return true
             }
 
-            if snapshot.data.contains(where: { touch in
-                switch touch.state {
-                case .starting, .breaking, .leaving:
-                    return true
-                default:
-                    return false
-                }
-            }) {
+            if snapshot.hasTransitionState {
                 return true
             }
 

@@ -126,10 +126,10 @@ final class ContentViewModel: ObservableObject {
     }
 
     struct TouchSnapshot: Sendable {
-        var data: [OMSTouchData] = []
         var left: [OMSTouchData] = []
         var right: [OMSTouchData] = []
         var revision: UInt64 = 0
+        var hasTransitionState: Bool = false
     }
 
     struct TouchFrame: Sendable {
@@ -170,6 +170,12 @@ final class ContentViewModel: ObservableObject {
         uncheckedState: PendingTouchState()
     )
     private let touchCoalesceInterval: TimeInterval = 0.02
+#if DEBUG
+    private let pipelineSignposter = OSSignposter(
+        subsystem: "com.kyome.GlassToKey",
+        category: "InputPipeline"
+    )
+#endif
     nonisolated private let deviceSelectionLock = OSAllocatedUnfairLock<DeviceSelection>(
         uncheckedState: DeviceSelection()
     )
@@ -291,6 +297,10 @@ final class ContentViewModel: ObservableObject {
         let recordingLock = snapshotRecordingLock
         task = Task.detached(priority: .userInitiated) { [manager, processor, snapshotLock, selectionLock, recordingLock, self] in
             for await touchData in manager.touchDataStream {
+#if DEBUG
+                let signpostState = pipelineSignposter.beginInterval("InputFrame")
+                defer { pipelineSignposter.endInterval("InputFrame", signpostState) }
+#endif
                 let selection = selectionLock.withLockUnchecked { $0 }
                 let split = Self.splitTouches(touchData, selection: selection)
                 let frame = TouchFrame(
@@ -304,12 +314,18 @@ final class ContentViewModel: ObservableObject {
                 if let candidate = snapshotCandidate,
                    recordingLock.withLockUnchecked(\.self) {
                     snapshotLock.withLockUnchecked { snapshot in
-                        snapshot.data = candidate.left + candidate.right
                         snapshot.left = candidate.left
                         snapshot.right = candidate.right
+                        snapshot.hasTransitionState = Self.hasTransitionState(
+                            left: candidate.left,
+                            right: candidate.right
+                        )
                         snapshot.revision &+= 1
                         updatedRevision = snapshot.revision
                     }
+#if DEBUG
+                    pipelineSignposter.emitEvent("SnapshotUpdate")
+#endif
                 }
                 if let revision = updatedRevision {
                     touchRevisionContinuationHolder.continuation?.yield(revision)
@@ -505,6 +521,29 @@ final class ContentViewModel: ObservableObject {
             }
         }
         return (left, right)
+    }
+
+    nonisolated private static func hasTransitionState(
+        left: [OMSTouchData],
+        right: [OMSTouchData]
+    ) -> Bool {
+        for touch in left {
+            switch touch.state {
+            case .starting, .breaking, .leaving:
+                return true
+            default:
+                break
+            }
+        }
+        for touch in right {
+            switch touch.state {
+            case .starting, .breaking, .leaving:
+                return true
+            default:
+                break
+            }
+        }
+        return false
     }
 
     nonisolated private func updatePendingTouches(

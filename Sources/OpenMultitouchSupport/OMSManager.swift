@@ -45,6 +45,12 @@ public final class OMSManager: Sendable {
     private let touchContinuations = OSAllocatedUnfairLock<[UUID: AsyncStream<[OMSTouchData]>.Continuation]>(
         uncheckedState: [:]
     )
+#if DEBUG
+    private let signposter = OSSignposter(
+        subsystem: "com.kyome.GlassToKey",
+        category: "OpenMT"
+    )
+#endif
     public var touchDataStream: AsyncStream<[OMSTouchData]> {
         AsyncStream(bufferingPolicy: .bufferingNewest(2)) { continuation in
             let id = UUID()
@@ -149,6 +155,10 @@ public final class OMSManager: Sendable {
     }
 
     @objc func listen(_ event: OpenMTEvent) {
+#if DEBUG
+        let signpostState = signposter.beginInterval("OpenMTEvent")
+        defer { signposter.endInterval("OpenMTEvent", signpostState) }
+#endif
         guard let touches = (event.touches as NSArray) as? [OpenMTTouch] else { return }
         if touches.isEmpty {
             emitTouchData([])
@@ -183,10 +193,9 @@ public final class OMSManager: Sendable {
     }
 
     private func emitTouchData(_ data: [OMSTouchData]) {
-        touchContinuations.withLockUnchecked { continuations in
-            for continuation in continuations.values {
-                _ = continuation.yield(data)
-            }
+        let continuations = touchContinuations.withLockUnchecked { Array($0.values) }
+        for continuation in continuations {
+            _ = continuation.yield(data)
         }
     }
 
