@@ -2,12 +2,14 @@ import OpenMultitouchSupport
 import SwiftUI
 
 enum GlassToKeySettings {
-    static let tapHoldDurationMs: Double = 220.0
-    static let twoFingerTapIntervalMs: Double = 10.0
-    static let twoFingerSuppressionMs: Double = 0.0
-    static let dragCancelDistanceMm: Double = 15.0
-    static let forceClickCap: Double = 0.0
-    static let hapticStrengthPercent: Double = 70.0
+    static let tapHoldDurationMs: Double = 200.0
+    static let dragCancelDistanceMm: Double = 10.0
+    static let forceClickCap: Double = 110.0
+    static let hapticStrengthPercent: Double = 10.0
+    static let typingGraceMs: Double = 600.0
+    static let intentMoveThresholdMm: Double = 4.0
+    static let intentVelocityThresholdMmPerSec: Double = 50.0
+    static let allowMouseTakeoverDuringTyping: Bool = false
 
     static func persistedDouble(
         forKey key: String,
@@ -89,7 +91,8 @@ final class GlassToKeyController: ObservableObject {
             rightLayout: rightLayout,
             leftLabels: layout.leftLabels,
             rightLabels: layout.rightLabels,
-            trackpadSize: trackpadSize
+            trackpadSize: trackpadSize,
+            trackpadWidthMm: ContentView.trackpadWidthMM
         )
 
         let customButtons = loadCustomButtons()
@@ -172,16 +175,6 @@ final class GlassToKeyController: ObservableObject {
             defaults: defaults,
             fallback: GlassToKeySettings.tapHoldDurationMs
         )
-        let twoFingerMs = GlassToKeySettings.persistedDouble(
-            forKey: GlassToKeyDefaultsKeys.twoFingerTapInterval,
-            defaults: defaults,
-            fallback: GlassToKeySettings.twoFingerTapIntervalMs
-        )
-        let twoFingerSuppressionMs = GlassToKeySettings.persistedDouble(
-            forKey: GlassToKeyDefaultsKeys.twoFingerSuppressionDuration,
-            defaults: defaults,
-            fallback: GlassToKeySettings.twoFingerSuppressionMs
-        )
         let dragDistance = GlassToKeySettings.persistedDouble(
             forKey: GlassToKeyDefaultsKeys.dragCancelDistance,
             defaults: defaults,
@@ -197,13 +190,33 @@ final class GlassToKeyController: ObservableObject {
             defaults: defaults,
             fallback: GlassToKeySettings.hapticStrengthPercent
         )
+        let typingGraceMs = GlassToKeySettings.persistedDouble(
+            forKey: GlassToKeyDefaultsKeys.typingGraceMs,
+            defaults: defaults,
+            fallback: GlassToKeySettings.typingGraceMs
+        )
+        let intentMoveThresholdMm = GlassToKeySettings.persistedDouble(
+            forKey: GlassToKeyDefaultsKeys.intentMoveThresholdMm,
+            defaults: defaults,
+            fallback: GlassToKeySettings.intentMoveThresholdMm
+        )
+        let intentVelocityThresholdMmPerSec = GlassToKeySettings.persistedDouble(
+            forKey: GlassToKeyDefaultsKeys.intentVelocityThresholdMmPerSec,
+            defaults: defaults,
+            fallback: GlassToKeySettings.intentVelocityThresholdMmPerSec
+        )
+        let allowMouseTakeoverDuringTyping = defaults.object(
+            forKey: GlassToKeyDefaultsKeys.allowMouseTakeoverDuringTyping
+        ) as? Bool ?? GlassToKeySettings.allowMouseTakeoverDuringTyping
 
         viewModel.updateHoldThreshold(tapHoldMs / 1000.0)
-        viewModel.updateTwoFingerTapInterval(twoFingerMs / 1000.0)
-        viewModel.updateTwoFingerSuppressionDuration(twoFingerSuppressionMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragDistance))
         viewModel.updateForceClickCap(forceCap)
         viewModel.updateHapticStrength(hapticStrengthPercent / 100.0)
+        viewModel.updateTypingGraceMs(typingGraceMs)
+        viewModel.updateIntentMoveThresholdMm(intentMoveThresholdMm)
+        viewModel.updateIntentVelocityThresholdMmPerSec(intentVelocityThresholdMmPerSec)
+        viewModel.updateAllowMouseTakeover(allowMouseTakeoverDuringTyping)
     }
 
     private func legacyColumnSettings(

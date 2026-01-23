@@ -72,11 +72,16 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.keyMappings) private var storedKeyMappingsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.autoResyncMissingTrackpads) private var storedAutoResyncMissingTrackpads = false
     @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = GlassToKeySettings.tapHoldDurationMs
-    @AppStorage(GlassToKeyDefaultsKeys.twoFingerTapInterval) private var twoFingerTapIntervalMs: Double = GlassToKeySettings.twoFingerTapIntervalMs
-    @AppStorage(GlassToKeyDefaultsKeys.twoFingerSuppressionDuration) private var twoFingerSuppressionDurationMs: Double = GlassToKeySettings.twoFingerSuppressionMs
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
     @AppStorage(GlassToKeyDefaultsKeys.forceClickCap) private var forceClickCapSetting: Double = GlassToKeySettings.forceClickCap
     @AppStorage(GlassToKeyDefaultsKeys.hapticStrength) private var hapticStrengthSetting: Double = GlassToKeySettings.hapticStrengthPercent
+    @AppStorage(GlassToKeyDefaultsKeys.typingGraceMs) private var typingGraceMsSetting: Double = GlassToKeySettings.typingGraceMs
+    @AppStorage(GlassToKeyDefaultsKeys.intentMoveThresholdMm)
+    private var intentMoveThresholdMmSetting: Double = GlassToKeySettings.intentMoveThresholdMm
+    @AppStorage(GlassToKeyDefaultsKeys.intentVelocityThresholdMmPerSec)
+    private var intentVelocityThresholdMmPerSecSetting: Double = GlassToKeySettings.intentVelocityThresholdMmPerSec
+    @AppStorage(GlassToKeyDefaultsKeys.allowMouseTakeoverDuringTyping)
+    private var allowMouseTakeoverDuringTyping = GlassToKeySettings.allowMouseTakeoverDuringTyping
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -88,10 +93,11 @@ struct ContentView: View {
     fileprivate static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
     fileprivate static let dragCancelDistanceRange: ClosedRange<Double> = 1.0...30.0
     fileprivate static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
-    fileprivate static let twoFingerTapIntervalRange: ClosedRange<Double> = 0.0...50.0
     fileprivate static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
-    fileprivate static let twoFingerSuppressionRange: ClosedRange<Double> = 0.0...100.0
     fileprivate static let hapticStrengthRange: ClosedRange<Double> = 0.0...100.0
+    fileprivate static let typingGraceRange: ClosedRange<Double> = 10.0...600.0
+    fileprivate static let intentMoveThresholdRange: ClosedRange<Double> = 0.5...10.0
+    fileprivate static let intentVelocityThresholdRange: ClosedRange<Double> = 10.0...200.0
     private static let keyCornerRadius: CGFloat = 6.0
     fileprivate static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -129,24 +135,6 @@ struct ContentView: View {
         formatter.maximum = NSNumber(value: ContentView.tapHoldDurationRange.upperBound)
         return formatter
     }()
-    fileprivate static let twoFingerTapIntervalFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 0
-        formatter.minimum = NSNumber(value: ContentView.twoFingerTapIntervalRange.lowerBound)
-        formatter.maximum = NSNumber(value: ContentView.twoFingerTapIntervalRange.upperBound)
-        return formatter
-    }()
-    fileprivate static let twoFingerSuppressionFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 0
-        formatter.minimum = NSNumber(value: ContentView.twoFingerSuppressionRange.lowerBound)
-        formatter.maximum = NSNumber(value: ContentView.twoFingerSuppressionRange.upperBound)
-        return formatter
-    }()
     fileprivate static let dragCancelDistanceFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -172,6 +160,33 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 0
         formatter.minimum = NSNumber(value: 0)
         formatter.maximum = NSNumber(value: 100)
+        return formatter
+    }()
+    fileprivate static let typingGraceFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.minimum = NSNumber(value: ContentView.typingGraceRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.typingGraceRange.upperBound)
+        return formatter
+    }()
+    fileprivate static let intentMoveThresholdFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 1
+        formatter.maximumFractionDigits = 2
+        formatter.minimum = NSNumber(value: ContentView.intentMoveThresholdRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.intentMoveThresholdRange.upperBound)
+        return formatter
+    }()
+    fileprivate static let intentVelocityThresholdFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.minimum = NSNumber(value: ContentView.intentVelocityThresholdRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.intentVelocityThresholdRange.upperBound)
         return formatter
     }()
     private static let legacyKeyScaleKey = "GlassToKey.keyScale"
@@ -294,6 +309,7 @@ struct ContentView: View {
                 refreshColumnInspectorSelection()
             }
             .onChange(of: customButtons) { newValue in
+                saveCustomButtons(newValue)
                 viewModel.updateCustomButtons(newValue)
                 refreshButtonInspectorSelection()
             }
@@ -320,12 +336,6 @@ struct ContentView: View {
             .onChange(of: tapHoldDurationMs) { newValue in
                 viewModel.updateHoldThreshold(newValue / 1000.0)
             }
-            .onChange(of: twoFingerTapIntervalMs) { newValue in
-                viewModel.updateTwoFingerTapInterval(newValue / 1000.0)
-            }
-            .onChange(of: twoFingerSuppressionDurationMs) { newValue in
-                viewModel.updateTwoFingerSuppressionDuration(newValue / 1000.0)
-            }
             .onChange(of: dragCancelDistanceSetting) { newValue in
                 viewModel.updateDragCancelDistance(CGFloat(newValue))
             }
@@ -334,6 +344,18 @@ struct ContentView: View {
             }
             .onChange(of: hapticStrengthSetting) { newValue in
                 viewModel.updateHapticStrength(newValue / 100.0)
+            }
+            .onChange(of: typingGraceMsSetting) { newValue in
+                viewModel.updateTypingGraceMs(newValue)
+            }
+            .onChange(of: intentMoveThresholdMmSetting) { newValue in
+                viewModel.updateIntentMoveThresholdMm(newValue)
+            }
+            .onChange(of: intentVelocityThresholdMmPerSecSetting) { newValue in
+                viewModel.updateIntentVelocityThresholdMmPerSec(newValue)
+            }
+            .onChange(of: allowMouseTakeoverDuringTyping) { newValue in
+                viewModel.updateAllowMouseTakeover(newValue)
             }
             .onChange(of: storedAutoResyncMissingTrackpads) { newValue in
                 viewModel.setAutoResyncEnabled(newValue)
@@ -354,6 +376,9 @@ struct ContentView: View {
             visualsEnabled: $visualsEnabled,
             layerToggleBinding: layerToggleBinding,
             isListening: viewModel.isListening,
+            leftContactCount: viewModel.contactFingerCountsBySide[.left] ?? 0,
+            rightContactCount: viewModel.contactFingerCountsBySide[.right] ?? 0,
+            intentDisplay: viewModel.intentDisplayBySide[.left] ?? .idle,
             onStart: {
                 viewModel.start()
             },
@@ -405,10 +430,12 @@ struct ContentView: View {
             editModeEnabled: editModeEnabled,
             tapHoldDurationMs: $tapHoldDurationMs,
             dragCancelDistanceSetting: $dragCancelDistanceSetting,
-            twoFingerTapIntervalMs: $twoFingerTapIntervalMs,
-            twoFingerSuppressionDurationMs: $twoFingerSuppressionDurationMs,
             forceClickCapSetting: $forceClickCapSetting,
             hapticStrengthSetting: $hapticStrengthSetting,
+            typingGraceMsSetting: $typingGraceMsSetting,
+            intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
+            intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
+            allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
             onRefreshDevices: {
                 viewModel.loadDevices(preserveSelection: true)
             },
@@ -442,6 +469,9 @@ struct ContentView: View {
         @Binding var visualsEnabled: Bool
         let layerToggleBinding: Binding<Bool>
         let isListening: Bool
+        let leftContactCount: Int
+        let rightContactCount: Int
+        let intentDisplay: ContentViewModel.IntentDisplay
         let onStart: () -> Void
         let onStop: () -> Void
 
@@ -451,9 +481,10 @@ struct ContentView: View {
                     Text("GlassToKey Studio")
                         .font(.title2)
                         .bold()
-                    Text("Arrange, tune, and test")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        contactCountPills
+                        intentBadge(intent: intentDisplay)
+                    }
                 }
                 Spacer()
                 Toggle("Edit", isOn: $editModeEnabled)
@@ -478,6 +509,72 @@ struct ContentView: View {
                     }
                     .buttonStyle(.borderedProminent)
                 }
+            }
+        }
+
+        private var contactCountPills: some View {
+            HStack(spacing: 8) {
+                labelPill(prefix: "L", value: leftContactCount)
+                labelPill(prefix: "R", value: rightContactCount)
+            }
+        }
+
+        private func labelPill(prefix: String, value: Int) -> some View {
+            Text("\(prefix) \(value)")
+                .font(.caption2)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    Capsule()
+                        .fill(Color.primary.opacity(0.06))
+                )
+        }
+
+        private func intentBadge(intent: ContentViewModel.IntentDisplay) -> some View {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(intentColor(intent))
+                    .frame(width: 6, height: 6)
+                Text(intentLabel(intent))
+                .font(.caption2)
+                .foregroundStyle(.primary)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                Capsule()
+                    .fill(Color.primary.opacity(0.06))
+            )
+        }
+
+        private func intentLabel(_ intent: ContentViewModel.IntentDisplay) -> String {
+            switch intent {
+            case .idle:
+                return "idle"
+            case .keyCandidate:
+                return "cand"
+            case .typing:
+                return "typing"
+            case .mouse:
+                return "mouse"
+            case .gesture:
+                return "gest"
+            }
+        }
+
+        private func intentColor(_ intent: ContentViewModel.IntentDisplay) -> Color {
+            switch intent {
+            case .idle:
+                return .gray
+            case .keyCandidate:
+                return .orange
+            case .typing:
+                return .green
+            case .mouse:
+                return .blue
+            case .gesture:
+                return .purple
             }
         }
     }
@@ -548,11 +645,13 @@ struct ContentView: View {
         let editModeEnabled: Bool
         @Binding var tapHoldDurationMs: Double
         @Binding var dragCancelDistanceSetting: Double
-        @Binding var twoFingerTapIntervalMs: Double
-        @Binding var twoFingerSuppressionDurationMs: Double
         @Binding var forceClickCapSetting: Double
         @Binding var hapticStrengthSetting: Double
-        @State private var typingTuningExpanded = true
+        @Binding var typingGraceMsSetting: Double
+        @Binding var intentMoveThresholdMmSetting: Double
+        @Binding var intentVelocityThresholdMmPerSecSetting: Double
+        @Binding var allowMouseTakeoverDuringTyping: Bool
+        @State private var typingTuningExpanded = false
         let onRefreshDevices: () -> Void
         let onAutoResyncChange: (Bool) -> Void
         let onAddCustomButton: (TrackpadSide) -> Void
@@ -586,10 +685,12 @@ struct ContentView: View {
                         TypingTuningSectionView(
                             tapHoldDurationMs: $tapHoldDurationMs,
                             dragCancelDistanceSetting: $dragCancelDistanceSetting,
-                            twoFingerTapIntervalMs: $twoFingerTapIntervalMs,
-                            twoFingerSuppressionDurationMs: $twoFingerSuppressionDurationMs,
                             forceClickCapSetting: $forceClickCapSetting,
-                            hapticStrengthSetting: $hapticStrengthSetting
+                            hapticStrengthSetting: $hapticStrengthSetting,
+                            typingGraceMsSetting: $typingGraceMsSetting,
+                            intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
+                            intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
+                            allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping
                         )
                         .padding(.top, 8)
                     } label: {
@@ -749,7 +850,7 @@ struct ContentView: View {
                                 showSlider: false
                             )
                             ColumnTuningRow(
-                                title: "X (%)",
+                                title: "X",
                                 value: Binding(
                                     get: { selection.settings.offsetXPercent },
                                     set: { newValue in
@@ -765,7 +866,7 @@ struct ContentView: View {
                                 showSlider: false
                             )
                             ColumnTuningRow(
-                                title: "Y (%)",
+                                title: "Y",
                                 value: Binding(
                                     get: { selection.settings.offsetYPercent },
                                     set: { newValue in
@@ -873,7 +974,7 @@ struct ContentView: View {
                         .pickerStyle(MenuPickerStyle())
                         VStack(alignment: .leading, spacing: 14) {
                             ColumnTuningRow(
-                                title: "X (%)",
+                                title: "X",
                                 value: positionBinding(for: selection.button, axis: .x),
                                 formatter: ContentView.columnOffsetFormatter,
                                 range: positionRange(for: selection.button, axis: .x),
@@ -882,7 +983,7 @@ struct ContentView: View {
                                 showSlider: false
                             )
                             ColumnTuningRow(
-                                title: "Y (%)",
+                                title: "Y",
                                 value: positionBinding(for: selection.button, axis: .y),
                                 formatter: ContentView.columnOffsetFormatter,
                                 range: positionRange(for: selection.button, axis: .y),
@@ -891,7 +992,7 @@ struct ContentView: View {
                                 showSlider: false
                             )
                             ColumnTuningRow(
-                                title: "Width (%)",
+                                title: "Width",
                                 value: sizeBinding(for: selection.button, dimension: .width),
                                 formatter: ContentView.columnOffsetFormatter,
                                 range: sizeRange(for: selection.button, dimension: .width),
@@ -900,7 +1001,7 @@ struct ContentView: View {
                                 showSlider: false
                             )
                             ColumnTuningRow(
-                                title: "Height (%)",
+                                title: "Height",
                                 value: sizeBinding(for: selection.button, dimension: .height),
                                 formatter: ContentView.columnOffsetFormatter,
                                 range: sizeRange(for: selection.button, dimension: .height),
@@ -1083,10 +1184,12 @@ struct ContentView: View {
     private struct TypingTuningSectionView: View {
         @Binding var tapHoldDurationMs: Double
         @Binding var dragCancelDistanceSetting: Double
-        @Binding var twoFingerTapIntervalMs: Double
-        @Binding var twoFingerSuppressionDurationMs: Double
         @Binding var forceClickCapSetting: Double
         @Binding var hapticStrengthSetting: Double
+        @Binding var typingGraceMsSetting: Double
+        @Binding var intentMoveThresholdMmSetting: Double
+        @Binding var intentVelocityThresholdMmPerSecSetting: Double
+        @Binding var allowMouseTakeoverDuringTyping: Bool
 
         var body: some View {
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
@@ -1106,7 +1209,22 @@ struct ContentView: View {
                     .frame(minWidth: 120)
                 }
                 GridRow {
-                    Text("Drag Cancel")
+                    Text("Force Cap (g)")
+                    TextField(
+                        "0",
+                        value: $forceClickCapSetting,
+                        formatter: ContentView.forceClickCapFormatter
+                    )
+                    .frame(width: 60)
+                    Slider(
+                        value: $forceClickCapSetting,
+                        in: ContentView.forceClickCapRange,
+                        step: 5
+                    )
+                    .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("Drag Cancel (mm)")
                     TextField(
                         "1",
                         value: $dragCancelDistanceSetting,
@@ -1121,46 +1239,46 @@ struct ContentView: View {
                     .frame(minWidth: 120)
                 }
                 GridRow {
-                    Text("2-Finger Tap (ms)")
+                    Text("Typing Grace (ms)")
                     TextField(
-                        "10",
-                        value: $twoFingerTapIntervalMs,
-                        formatter: ContentView.twoFingerTapIntervalFormatter
+                        "120",
+                        value: $typingGraceMsSetting,
+                        formatter: ContentView.typingGraceFormatter
                     )
                     .frame(width: 60)
                     Slider(
-                        value: $twoFingerTapIntervalMs,
-                        in: ContentView.twoFingerTapIntervalRange,
-                        step: 5
+                        value: $typingGraceMsSetting,
+                        in: ContentView.typingGraceRange,
+                        step: 10
                     )
                     .frame(minWidth: 120)
                 }
                 GridRow {
-                    Text("2-Finger Suppress (ms)")
+                    Text("Intent Move (mm)")
                     TextField(
-                        "0",
-                        value: $twoFingerSuppressionDurationMs,
-                        formatter: ContentView.twoFingerSuppressionFormatter
+                        "3.0",
+                        value: $intentMoveThresholdMmSetting,
+                        formatter: ContentView.intentMoveThresholdFormatter
                     )
                     .frame(width: 60)
                     Slider(
-                        value: $twoFingerSuppressionDurationMs,
-                        in: ContentView.twoFingerSuppressionRange,
-                        step: 5
+                        value: $intentMoveThresholdMmSetting,
+                        in: ContentView.intentMoveThresholdRange,
+                        step: 0.1
                     )
                     .frame(minWidth: 120)
                 }
                 GridRow {
-                    Text("Force Cap (g)")
+                    Text("Intent Velocity (mm/s)")
                     TextField(
-                        "0",
-                        value: $forceClickCapSetting,
-                        formatter: ContentView.forceClickCapFormatter
+                        "50",
+                        value: $intentVelocityThresholdMmPerSecSetting,
+                        formatter: ContentView.intentVelocityThresholdFormatter
                     )
                     .frame(width: 60)
                     Slider(
-                        value: $forceClickCapSetting,
-                        in: ContentView.forceClickCapRange,
+                        value: $intentVelocityThresholdMmPerSecSetting,
+                        in: ContentView.intentVelocityThresholdRange,
                         step: 5
                     )
                     .frame(minWidth: 120)
@@ -1179,6 +1297,13 @@ struct ContentView: View {
                         step: 10
                     )
                     .frame(minWidth: 120)
+                }
+                GridRow {
+                    Text("Mouse Takeover")
+                    Toggle("", isOn: $allowMouseTakeoverDuringTyping)
+                        .toggleStyle(SwitchToggleStyle())
+                        .labelsHidden()
+                    Spacer()
                 }
             }
         }
@@ -1832,7 +1957,8 @@ struct ContentView: View {
                 rightLayout: rightLayout,
                 leftLabels: leftGridLabels,
                 rightLabels: rightGridLabels,
-                trackpadSize: trackpadSize
+                trackpadSize: trackpadSize,
+                trackpadWidthMm: Self.trackpadWidthMM
             )
             return
         }
@@ -1864,7 +1990,8 @@ struct ContentView: View {
             rightLayout: rightLayout,
             leftLabels: leftGridLabels,
             rightLabels: rightGridLabels,
-            trackpadSize: trackpadSize
+            trackpadSize: trackpadSize,
+            trackpadWidthMm: Self.trackpadWidthMM
         )
     }
 
@@ -1887,10 +2014,13 @@ struct ContentView: View {
         viewModel.selectRightDevice(rightDevice)
         }
         viewModel.updateHoldThreshold(tapHoldDurationMs / 1000.0)
-        viewModel.updateTwoFingerTapInterval(twoFingerTapIntervalMs / 1000.0)
-        viewModel.updateTwoFingerSuppressionDuration(twoFingerSuppressionDurationMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragCancelDistanceSetting))
+        viewModel.updateForceClickCap(forceClickCapSetting)
         viewModel.updateHapticStrength(hapticStrengthSetting / 100.0)
+        viewModel.updateTypingGraceMs(typingGraceMsSetting)
+        viewModel.updateIntentMoveThresholdMm(intentMoveThresholdMmSetting)
+        viewModel.updateIntentVelocityThresholdMmPerSec(intentVelocityThresholdMmPerSecSetting)
+        viewModel.updateAllowMouseTakeover(allowMouseTakeoverDuringTyping)
         viewModel.setTouchSnapshotRecordingEnabled(visualsEnabled)
     }
 
