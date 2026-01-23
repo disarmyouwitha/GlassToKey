@@ -535,9 +535,9 @@ struct ContentView: View {
                 Circle()
                     .fill(intentColor(intent))
                     .frame(width: 6, height: 6)
-                Text("Global \(intentLabel(intent))")
-                    .font(.caption2)
-                    .foregroundStyle(.primary)
+                Text(intentLabel(intent))
+                .font(.caption2)
+                .foregroundStyle(.primary)
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -554,7 +554,7 @@ struct ContentView: View {
             case .keyCandidate:
                 return "cand"
             case .typing:
-                return "type"
+                return "typing"
             case .mouse:
                 return "mouse"
             }
