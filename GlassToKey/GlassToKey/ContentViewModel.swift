@@ -2516,7 +2516,7 @@ final class ContentViewModel: ObservableObject {
                 }
                 endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
             }
-            if reason == .dragCancelled || reason == .pendingDragCancelled {
+            if reason == .dragCancelled || reason == .pendingDragCancelled || reason == .forceCapExceeded {
                 enterMouseIntentFromDragCancel()
             }
             logDisqualify(touchKey, reason: reason)
