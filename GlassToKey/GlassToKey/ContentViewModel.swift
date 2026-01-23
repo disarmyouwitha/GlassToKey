@@ -1458,8 +1458,10 @@ final class ContentViewModel: ObservableObject {
             now: TimeInterval
         ) {
             guard forceClickCap > 0 else { return }
+            if hasActiveModifiers() { return }
 
             if let active = activeTouch(for: touchKey) {
+                if active.modifierKey != nil { return }
                 let delta = max(0, pressure - active.initialPressure)
                 if delta >= forceClickCap {
                     disqualifyTouch(touchKey, reason: .forceCapExceeded)
@@ -1468,11 +1470,19 @@ final class ContentViewModel: ObservableObject {
             }
 
             if let pending = pendingTouch(for: touchKey) {
+                if modifierKey(for: pending.binding) != nil { return }
                 let delta = max(0, pressure - pending.initialPressure)
                 if delta >= forceClickCap {
                     disqualifyTouch(touchKey, reason: .forceCapExceeded)
                 }
             }
+        }
+
+        private func hasActiveModifiers() -> Bool {
+            leftShiftTouchCount > 0
+                || controlTouchCount > 0
+                || optionTouchCount > 0
+                || commandTouchCount > 0
         }
 
         private func activeTouch(for touchKey: TouchKey) -> ActiveTouch? {
