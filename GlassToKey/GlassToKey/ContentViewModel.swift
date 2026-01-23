@@ -615,12 +615,6 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    func updateIntentKeyBufferMs(_ milliseconds: Double) {
-        Task { [processor] in
-            await processor.updateIntentKeyBuffer(milliseconds)
-        }
-    }
-
     func updateTypingGraceMs(_ milliseconds: Double) {
         Task { [processor] in
             await processor.updateTypingGrace(milliseconds)
@@ -1019,11 +1013,6 @@ final class ContentViewModel: ObservableObject {
 
         func updateDragCancelDistance(_ distance: CGFloat) {
             dragCancelDistance = max(0, distance)
-        }
-
-        func updateIntentKeyBuffer(_ milliseconds: Double) {
-            let clampedMs = max(0, milliseconds)
-            intentConfig.keyBufferSeconds = clampedMs / 1000.0
         }
 
         func updateTypingGrace(_ milliseconds: Double) {
@@ -2489,7 +2478,18 @@ final class ContentViewModel: ObservableObject {
                 }
                 endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
             }
+            if reason == .dragCancelled || reason == .pendingDragCancelled {
+                enterMouseIntentFromDragCancel()
+            }
             logDisqualify(touchKey, reason: reason)
+        }
+
+        private func enterMouseIntentFromDragCancel() {
+            typingGraceDeadline = nil
+            typingGraceTask?.cancel()
+            typingGraceTask = nil
+            intentState.mode = .mouseActive
+            updateIntentDisplayIfNeeded()
         }
 
         private func distanceSquared(from start: CGPoint, to end: CGPoint) -> CGFloat {

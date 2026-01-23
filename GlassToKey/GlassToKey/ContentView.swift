@@ -75,7 +75,6 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
     @AppStorage(GlassToKeyDefaultsKeys.forceClickCap) private var forceClickCapSetting: Double = GlassToKeySettings.forceClickCap
     @AppStorage(GlassToKeyDefaultsKeys.hapticStrength) private var hapticStrengthSetting: Double = GlassToKeySettings.hapticStrengthPercent
-    @AppStorage(GlassToKeyDefaultsKeys.intentBufferMs) private var intentBufferMsSetting: Double = GlassToKeySettings.intentBufferMs
     @AppStorage(GlassToKeyDefaultsKeys.typingGraceMs) private var typingGraceMsSetting: Double = GlassToKeySettings.typingGraceMs
     @AppStorage(GlassToKeyDefaultsKeys.intentMoveThresholdMm)
     private var intentMoveThresholdMmSetting: Double = GlassToKeySettings.intentMoveThresholdMm
@@ -96,7 +95,6 @@ struct ContentView: View {
     fileprivate static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
     fileprivate static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
     fileprivate static let hapticStrengthRange: ClosedRange<Double> = 0.0...100.0
-    fileprivate static let intentBufferRange: ClosedRange<Double> = 10.0...120.0
     fileprivate static let typingGraceRange: ClosedRange<Double> = 10.0...600.0
     fileprivate static let intentMoveThresholdRange: ClosedRange<Double> = 0.5...10.0
     fileprivate static let intentVelocityThresholdRange: ClosedRange<Double> = 10.0...200.0
@@ -162,15 +160,6 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 0
         formatter.minimum = NSNumber(value: 0)
         formatter.maximum = NSNumber(value: 100)
-        return formatter
-    }()
-    fileprivate static let intentBufferFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 0
-        formatter.minimum = NSNumber(value: ContentView.intentBufferRange.lowerBound)
-        formatter.maximum = NSNumber(value: ContentView.intentBufferRange.upperBound)
         return formatter
     }()
     fileprivate static let typingGraceFormatter: NumberFormatter = {
@@ -355,9 +344,6 @@ struct ContentView: View {
             .onChange(of: hapticStrengthSetting) { newValue in
                 viewModel.updateHapticStrength(newValue / 100.0)
             }
-            .onChange(of: intentBufferMsSetting) { newValue in
-                viewModel.updateIntentKeyBufferMs(newValue)
-            }
             .onChange(of: typingGraceMsSetting) { newValue in
                 viewModel.updateTypingGraceMs(newValue)
             }
@@ -445,7 +431,6 @@ struct ContentView: View {
             dragCancelDistanceSetting: $dragCancelDistanceSetting,
             forceClickCapSetting: $forceClickCapSetting,
             hapticStrengthSetting: $hapticStrengthSetting,
-            intentBufferMsSetting: $intentBufferMsSetting,
             typingGraceMsSetting: $typingGraceMsSetting,
             intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
@@ -657,7 +642,6 @@ struct ContentView: View {
         @Binding var dragCancelDistanceSetting: Double
         @Binding var forceClickCapSetting: Double
         @Binding var hapticStrengthSetting: Double
-        @Binding var intentBufferMsSetting: Double
         @Binding var typingGraceMsSetting: Double
         @Binding var intentMoveThresholdMmSetting: Double
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
@@ -698,7 +682,6 @@ struct ContentView: View {
                             dragCancelDistanceSetting: $dragCancelDistanceSetting,
                             forceClickCapSetting: $forceClickCapSetting,
                             hapticStrengthSetting: $hapticStrengthSetting,
-                            intentBufferMsSetting: $intentBufferMsSetting,
                             typingGraceMsSetting: $typingGraceMsSetting,
                             intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
                             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
@@ -1198,7 +1181,6 @@ struct ContentView: View {
         @Binding var dragCancelDistanceSetting: Double
         @Binding var forceClickCapSetting: Double
         @Binding var hapticStrengthSetting: Double
-        @Binding var intentBufferMsSetting: Double
         @Binding var typingGraceMsSetting: Double
         @Binding var intentMoveThresholdMmSetting: Double
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
@@ -1248,21 +1230,6 @@ struct ContentView: View {
                         value: $dragCancelDistanceSetting,
                         in: ContentView.dragCancelDistanceRange,
                         step: 1
-                    )
-                    .frame(minWidth: 120)
-                }
-                GridRow {
-                    Text("Intent Buffer (ms)")
-                    TextField(
-                        "40",
-                        value: $intentBufferMsSetting,
-                        formatter: ContentView.intentBufferFormatter
-                    )
-                    .frame(width: 60)
-                    Slider(
-                        value: $intentBufferMsSetting,
-                        in: ContentView.intentBufferRange,
-                        step: 5
                     )
                     .frame(minWidth: 120)
                 }
@@ -2045,7 +2012,6 @@ struct ContentView: View {
         viewModel.updateDragCancelDistance(CGFloat(dragCancelDistanceSetting))
         viewModel.updateForceClickCap(forceClickCapSetting)
         viewModel.updateHapticStrength(hapticStrengthSetting / 100.0)
-        viewModel.updateIntentKeyBufferMs(intentBufferMsSetting)
         viewModel.updateTypingGraceMs(typingGraceMsSetting)
         viewModel.updateIntentMoveThresholdMm(intentMoveThresholdMmSetting)
         viewModel.updateIntentVelocityThresholdMmPerSec(intentVelocityThresholdMmPerSecSetting)

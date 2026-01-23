@@ -23,13 +23,27 @@ Clicking Edit will allow you to click any Column/Button and set the Action/Hold 
 <img src="Screenshots/GTK_keymap.png" alt="GlassToKey" />
 
 ## Typing Tuning
-- Tap/Hold (ms): Time in miliseconds until a tap becomds a hold
-- Drag Cancel (mm): How far you need to move before top becomes a drag
+- Tap/Hold (ms): Time in miliseconds until a tap becomes a hold
+- Drag Cancel (mm): How far you need to move before tap becomes a drag
 - Force Cap (g): Pressure (in grams) beyond the initial touch that disqualifies the touch before it can type, preventing accidental strong presses.
-- Intent Buffer (ms): Window to decide typing vs mouse for ambiguous touches.
+- Typing Grace (ms): Time after a key dispatch to keep typing intent active.
 - Intent Move (mm): Movement threshold before a touch is treated as mouse intent.
 - Intent Velocity (mm/s): Speed threshold before a touch is treated as mouse intent.
 - Mouse Takeover: Allow mouse intent to interrupt typing before all fingers are lifted.
+
+## Intent State Machine
+GlassToKey runs a simple intent state machine to decide when touches should be interpreted as typing vs mouse input.
+
+- **Idle**: No active contacts. Any touch that begins on a key enters `keyCandidate`; otherwise it enters `mouseCandidate`.
+- **KeyCandidate**: A short buffer window (fixed at 40ms) watches for mouse-like motion. If the touch stays within thresholds, it becomes `typingCommitted`.
+- **TypingCommitted**: Key dispatches are allowed. Typing Grace keeps this state alive for a short window after a key is released.
+- **MouseCandidate**: Short buffer window (fixed at 40ms) watching for mouse-like motion. If motion exceeds thresholds or the buffer elapses, it becomes `mouseActive`.
+- **MouseActive**: Typing is suppressed while mouse intent is active (unless mouse takeover is disabled).
+
+Transitions and notes:
+- **Typing Grace** extends `typingCommitted` after a key dispatch, even if all fingers lift.
+- **Drag Cancel** immediately disqualifies the touch and forces `mouseActive`.
+- **Mouse Takeover** (if enabled) allows mouse intent to interrupt typing before all fingers are lifted.
 
 ## Diagnostics (Debug Builds)
 - Logs include key dispatches and disqualification reasons (drag cancelled, typing disabled, etc.)
