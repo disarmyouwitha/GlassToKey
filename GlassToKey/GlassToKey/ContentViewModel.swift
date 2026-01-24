@@ -707,6 +707,12 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func updateMouseGraceMs(_ milliseconds: Double) {
+        Task { [processor] in
+            await processor.updateMouseGrace(milliseconds)
+        }
+    }
+
     func updateAllowMouseTakeover(_ enabled: Bool) {
         Task { [processor] in
             await processor.updateAllowMouseTakeover(enabled)
@@ -883,6 +889,14 @@ final class ContentViewModel: ObservableObject {
             var forceEntryTime: TimeInterval?
             var forceGuardTriggered: Bool
 
+        }
+
+        private struct PendingSingleTap {
+            let binding: KeyBinding
+            let touchKey: TouchKey
+            let startTime: TimeInterval
+            let maxDistanceSquared: CGFloat
+            let deadline: TimeInterval
         }
 
         private struct RepeatEntry {
@@ -1294,6 +1308,11 @@ final class ContentViewModel: ObservableObject {
         private var allowMouseTakeoverDuringTyping = false
         private var typingGraceDeadline: TimeInterval?
         private var typingGraceTask: Task<Void, Never>?
+        private var typingSequenceConfirmed = false
+        private var pendingSingleTap: PendingSingleTap?
+        private var singleTapTypingWindowSeconds: TimeInterval = 0.16
+        private var mouseGraceSeconds: TimeInterval = 0.3
+        private var mouseGraceDeadline: TimeInterval?
 
         struct StatusSnapshot: Sendable {
             let contactCounts: SidePair<Int>
@@ -1403,6 +1422,14 @@ final class ContentViewModel: ObservableObject {
             intentConfig.velocityThresholdMmPerSec = max(0, CGFloat(millimetersPerSecond))
         }
 
+        func updateMouseGrace(_ milliseconds: Double) {
+            let clampedMs = max(0, milliseconds)
+            mouseGraceSeconds = clampedMs / 1000.0
+            if mouseGraceSeconds <= 0 {
+                mouseGraceDeadline = nil
+            }
+        }
+
         func updateAllowMouseTakeover(_ enabled: Bool) {
             allowMouseTakeoverDuringTyping = enabled
         }
@@ -1432,6 +1459,7 @@ final class ContentViewModel: ObservableObject {
                 return
             }
             let now = Self.now()
+            expirePendingSingleTapIfNeeded(now: now)
 #if DEBUG
             tapTraceFrameIndex &+= 1
 #endif
@@ -1609,6 +1637,13 @@ final class ContentViewModel: ObservableObject {
 
                 switch touch.state {
                 case .starting, .making, .touching:
+                    if touchStates.value(for: touchKey) == nil {
+                        resolvePendingSingleTapIfNeeded(
+                            binding: bindingAtPoint,
+                            touchKey: touchKey,
+                            now: now
+                        )
+                    }
                     if var active = activeTouch(for: touchKey) {
                         let distanceSquared = distanceSquared(from: active.startPoint, to: point)
                         active.maxDistanceSquared = max(active.maxDistanceSquared, distanceSquared)
@@ -1833,14 +1868,27 @@ final class ContentViewModel: ObservableObject {
                                 point: point,
                                 side: side
                             ) {
-                                let dispatchInfo = makeDispatchInfo(
-                                    kind: .tap,
-                                    startTime: active.startTime,
-                                    maxDistanceSquared: active.maxDistanceSquared,
-                                    now: now
-                                )
-                                triggerBinding(active.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
-                                didDispatch = true
+                                if shouldDispatchTapImmediately(now: now) {
+                                    let dispatchInfo = makeDispatchInfo(
+                                        kind: .tap,
+                                        startTime: active.startTime,
+                                        maxDistanceSquared: active.maxDistanceSquared,
+                                        now: now
+                                    )
+                                    triggerBinding(active.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
+                                    didDispatch = true
+                                } else if shouldDropSingleTap(now: now) {
+                                    didDispatch = true
+                                } else {
+                                    bufferSingleTap(
+                                        binding: active.binding,
+                                        touchKey: touchKey,
+                                        startTime: active.startTime,
+                                        maxDistanceSquared: active.maxDistanceSquared,
+                                        now: now
+                                    )
+                                    didDispatch = true
+                                }
                             }
                         }
                         endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
@@ -2524,6 +2572,7 @@ final class ContentViewModel: ObservableObject {
                     return true
                 }
                 state.mode = .idle
+                typingSequenceConfirmed = false
                 intentState = state
                 updateIntentDisplayIfNeeded()
                 return true
@@ -2626,6 +2675,11 @@ final class ContentViewModel: ObservableObject {
                 allowTyping = false
             }
 
+            if isMouseMode(state.mode) {
+                extendMouseGrace(now: now)
+                pendingSingleTap = nil
+            }
+
             intentState = state
             updateIntentDisplayIfNeeded()
             return allowTyping
@@ -2664,6 +2718,97 @@ final class ContentViewModel: ObservableObject {
             }
             typingGraceDeadline = nil
             return false
+        }
+
+        @inline(__always)
+        private func isMouseGraceActive(now: TimeInterval? = nil) -> Bool {
+            let currentNow = now ?? Self.now()
+            if let deadline = mouseGraceDeadline, currentNow < deadline {
+                return true
+            }
+            mouseGraceDeadline = nil
+            return false
+        }
+
+        @inline(__always)
+        private func isMouseMode(_ mode: IntentMode) -> Bool {
+            switch mode {
+            case .mouseCandidate, .mouseActive:
+                return true
+            case .idle, .keyCandidate, .typingCommitted, .gestureCandidate:
+                return false
+            }
+        }
+
+        private func extendMouseGrace(now: TimeInterval) {
+            guard mouseGraceSeconds > 0 else {
+                mouseGraceDeadline = nil
+                return
+            }
+            mouseGraceDeadline = now + mouseGraceSeconds
+        }
+
+        private func expirePendingSingleTapIfNeeded(now: TimeInterval) {
+            guard let pending = pendingSingleTap else { return }
+            if now >= pending.deadline {
+                pendingSingleTap = nil
+            }
+        }
+
+        private func resolvePendingSingleTapIfNeeded(
+            binding: KeyBinding?,
+            touchKey: TouchKey,
+            now: TimeInterval
+        ) {
+            guard let pending = pendingSingleTap else { return }
+            if now > pending.deadline {
+                pendingSingleTap = nil
+                return
+            }
+            guard let binding, case .key = binding.action else { return }
+            if isMouseGraceActive(now: now) {
+                pendingSingleTap = nil
+                return
+            }
+            let dispatchInfo = makeDispatchInfo(
+                kind: .tap,
+                startTime: pending.startTime,
+                maxDistanceSquared: pending.maxDistanceSquared,
+                now: now
+            )
+            triggerBinding(pending.binding, touchKey: pending.touchKey, dispatchInfo: dispatchInfo)
+            pendingSingleTap = nil
+        }
+
+        private func shouldDispatchTapImmediately(now: TimeInterval) -> Bool {
+            if isTypingGraceActive(now: now) {
+                return true
+            }
+            return typingSequenceConfirmed
+        }
+
+        private func shouldDropSingleTap(now: TimeInterval) -> Bool {
+            if isMouseGraceActive(now: now) {
+                return true
+            }
+            return singleTapTypingWindowSeconds <= 0
+        }
+
+        private func bufferSingleTap(
+            binding: KeyBinding,
+            touchKey: TouchKey,
+            startTime: TimeInterval,
+            maxDistanceSquared: CGFloat,
+            now: TimeInterval
+        ) {
+            let deadline = now + singleTapTypingWindowSeconds
+            pendingSingleTap = PendingSingleTap(
+                binding: binding,
+                touchKey: touchKey,
+                startTime: startTime,
+                maxDistanceSquared: maxDistanceSquared,
+                deadline: deadline
+            )
         }
 
         private func suppressKeyProcessing(for touchKeys: TouchTable<Bool>) {
@@ -2878,13 +3023,26 @@ final class ContentViewModel: ObservableObject {
                   !pending.forceGuardTriggered else {
                 return false
             }
-            let dispatchInfo = makeDispatchInfo(
-                kind: .tap,
+            if shouldDispatchTapImmediately(now: now) {
+                let dispatchInfo = makeDispatchInfo(
+                    kind: .tap,
+                    startTime: pending.startTime,
+                    maxDistanceSquared: pending.maxDistanceSquared,
+                    now: now
+                )
+                sendKey(binding: pending.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
+                return true
+            }
+            if shouldDropSingleTap(now: now) {
+                return true
+            }
+            bufferSingleTap(
+                binding: pending.binding,
+                touchKey: touchKey,
                 startTime: pending.startTime,
                 maxDistanceSquared: pending.maxDistanceSquared,
                 now: now
             )
-            sendKey(binding: pending.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
             return true
         }
 
@@ -3214,9 +3372,12 @@ final class ContentViewModel: ObservableObject {
             layerToggleTouchStarts.removeAll()
             momentaryLayerTouches.removeAll()
             touchInitialContactPoint.removeAll()
+            typingSequenceConfirmed = false
+            pendingSingleTap = nil
             typingGraceDeadline = nil
             typingGraceTask?.cancel()
             typingGraceTask = nil
+            mouseGraceDeadline = nil
             updateActiveLayer()
             intentState = IntentState()
             updateIntentDisplayIfNeeded()
@@ -3260,6 +3421,8 @@ final class ContentViewModel: ObservableObject {
             typingGraceDeadline = nil
             typingGraceTask?.cancel()
             typingGraceTask = nil
+            pendingSingleTap = nil
+            extendMouseGrace(now: Self.now())
             intentState.mode = .mouseActive
             updateIntentDisplayIfNeeded()
         }
@@ -3281,15 +3444,18 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func extendTypingGrace(for side: TrackpadSide?, now: TimeInterval) {
-            guard intentConfig.typingGraceSeconds > 0 else { return }
-            let deadline = now + intentConfig.typingGraceSeconds
-            typingGraceDeadline = deadline
-            scheduleTypingGraceExpiry(deadline: deadline)
+            if intentConfig.typingGraceSeconds > 0 {
+                let deadline = now + intentConfig.typingGraceSeconds
+                typingGraceDeadline = deadline
+                scheduleTypingGraceExpiry(deadline: deadline)
+            }
+            typingSequenceConfirmed = true
             if case .typingCommitted = intentState.mode {
                 // Keep existing typing mode.
             } else {
                 intentState.mode = .typingCommitted(untilAllUp: true)
             }
+            pendingSingleTap = nil
             updateIntentDisplayIfNeeded()
         }
 
@@ -3315,6 +3481,7 @@ final class ContentViewModel: ObservableObject {
             typingGraceTask = nil
             if intentState.touches.isEmpty, case .typingCommitted = intentState.mode {
                 intentState.mode = .idle
+                typingSequenceConfirmed = false
             }
             updateIntentDisplayIfNeeded()
         }

@@ -7,6 +7,7 @@ enum GlassToKeySettings {
     static let forceClickCap: Double = 110.0
     static let hapticStrengthPercent: Double = 10.0
     static let typingGraceMs: Double = 600.0
+    static let mouseGraceMs: Double = 300.0
     static let intentMoveThresholdMm: Double = 4.0
     static let intentVelocityThresholdMmPerSec: Double = 50.0
     static let allowMouseTakeoverDuringTyping: Bool = false
@@ -201,6 +202,11 @@ final class GlassToKeyController: ObservableObject {
             defaults: defaults,
             fallback: GlassToKeySettings.typingGraceMs
         )
+        let mouseGraceMs = GlassToKeySettings.persistedDouble(
+            forKey: GlassToKeyDefaultsKeys.mouseGraceMs,
+            defaults: defaults,
+            fallback: GlassToKeySettings.mouseGraceMs
+        )
         let intentMoveThresholdMm = GlassToKeySettings.persistedDouble(
             forKey: GlassToKeyDefaultsKeys.intentMoveThresholdMm,
             defaults: defaults,
@@ -225,6 +231,7 @@ final class GlassToKeyController: ObservableObject {
         viewModel.updateForceClickCap(forceCap)
         viewModel.updateHapticStrength(hapticStrengthPercent / 100.0)
         viewModel.updateTypingGraceMs(typingGraceMs)
+        viewModel.updateMouseGraceMs(mouseGraceMs)
         viewModel.updateIntentMoveThresholdMm(intentMoveThresholdMm)
         viewModel.updateIntentVelocityThresholdMmPerSec(intentVelocityThresholdMmPerSec)
         viewModel.updateAllowMouseTakeover(allowMouseTakeoverDuringTyping)
