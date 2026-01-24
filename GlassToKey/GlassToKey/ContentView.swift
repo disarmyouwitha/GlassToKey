@@ -1266,16 +1266,20 @@ struct ContentView: View {
         @Binding var allowMouseTakeoverDuringTyping: Bool
         @Binding var autocorrectEnabled: Bool
 
+        private let labelWidth: CGFloat = 160
+        private let valueFieldWidth: CGFloat = 50
+
         var body: some View {
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
                 GridRow {
                     Text("Tap/Hold (ms)")
+                        .frame(width: labelWidth, alignment: .leading)
                     TextField(
                         "200",
                         value: $tapHoldDurationMs,
                         formatter: ContentView.tapHoldDurationFormatter
                     )
-                    .frame(width: 60)
+                    .frame(width: valueFieldWidth)
                     Slider(
                         value: $tapHoldDurationMs,
                         in: ContentView.tapHoldDurationRange,
@@ -1286,12 +1290,13 @@ struct ContentView: View {
                 }
                 GridRow {
                     Text("Force Cap (g)")
+                        .frame(width: labelWidth, alignment: .leading)
                     TextField(
                         "0",
                         value: $forceClickCapSetting,
                         formatter: ContentView.forceClickCapFormatter
                     )
-                    .frame(width: 60)
+                    .frame(width: valueFieldWidth)
                     Slider(
                         value: $forceClickCapSetting,
                         in: ContentView.forceClickCapRange,
@@ -1302,12 +1307,13 @@ struct ContentView: View {
                 }
                 GridRow {
                     Text("Drag Cancel (mm)")
+                        .frame(width: labelWidth, alignment: .leading)
                     TextField(
                         "1",
                         value: $dragCancelDistanceSetting,
                         formatter: ContentView.dragCancelDistanceFormatter
                     )
-                    .frame(width: 60)
+                    .frame(width: valueFieldWidth)
                     Slider(
                         value: $dragCancelDistanceSetting,
                         in: ContentView.dragCancelDistanceRange,
@@ -1318,12 +1324,13 @@ struct ContentView: View {
                 }
                 GridRow {
                     Text("Typing Grace (ms)")
+                        .frame(width: labelWidth, alignment: .leading)
                     TextField(
                         "120",
                         value: $typingGraceMsSetting,
                         formatter: ContentView.typingGraceFormatter
                     )
-                    .frame(width: 60)
+                    .frame(width: valueFieldWidth)
                     Slider(
                         value: $typingGraceMsSetting,
                         in: ContentView.typingGraceRange,
@@ -1334,12 +1341,13 @@ struct ContentView: View {
                 }
                 GridRow {
                     Text("Intent Move (mm)")
+                        .frame(width: labelWidth, alignment: .leading)
                     TextField(
                         "3.0",
                         value: $intentMoveThresholdMmSetting,
                         formatter: ContentView.intentMoveThresholdFormatter
                     )
-                    .frame(width: 60)
+                    .frame(width: valueFieldWidth)
                     Slider(
                         value: $intentMoveThresholdMmSetting,
                         in: ContentView.intentMoveThresholdRange,
@@ -1350,12 +1358,13 @@ struct ContentView: View {
                 }
                 GridRow {
                     Text("Intent Velocity (mm/s)")
+                        .frame(width: labelWidth, alignment: .leading)
                     TextField(
                         "50",
                         value: $intentVelocityThresholdMmPerSecSetting,
                         formatter: ContentView.intentVelocityThresholdFormatter
                     )
-                    .frame(width: 60)
+                    .frame(width: valueFieldWidth)
                     Slider(
                         value: $intentVelocityThresholdMmPerSecSetting,
                         in: ContentView.intentVelocityThresholdRange,
@@ -1366,12 +1375,13 @@ struct ContentView: View {
                 }
                 GridRow {
                     Text("Haptic Strength (%)")
+                        .frame(width: labelWidth, alignment: .leading)
                     TextField(
                         "70",
                         value: $hapticStrengthSetting,
                         formatter: ContentView.hapticStrengthFormatter
                     )
-                    .frame(width: 60)
+                    .frame(width: valueFieldWidth)
                     Slider(
                         value: $hapticStrengthSetting,
                         in: ContentView.hapticStrengthRange,
@@ -1382,10 +1392,12 @@ struct ContentView: View {
                 }
                 GridRow {
                     Text("Mouse Takeover")
+                        .frame(width: labelWidth, alignment: .leading)
                     Toggle("", isOn: $allowMouseTakeoverDuringTyping)
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
                     Text("Autocorrect")
+                        .frame(width: labelWidth, alignment: .leading)
                     Toggle("", isOn: $autocorrectEnabled)
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
