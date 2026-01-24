@@ -30,6 +30,7 @@ Clicking Edit will allow you to click any Column/Button and set the Action/Hold 
 - Intent Move (mm): Movement threshold before a touch is treated as mouse intent.
 - Intent Velocity (mm/s): Speed threshold before a touch is treated as mouse intent.
 - Mouse Takeover: Allow mouse intent to interrupt typing before all fingers are lifted.
+- Autocorrect: Enables the built-in autocorrect engine for post-key dispatch word replacement.
 
 ## Intent State Machine
 GlassToKey runs a simple intent state machine to decide when touches should be interpreted as typing vs mouse input.

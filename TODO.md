@@ -1,4 +1,5 @@
 ## TODO
+- sonetimes correction buffer is off by one? "ooptionally"
 - *Swallow Tap-To-Click while typing: key for enable/disable mouse click CGEventTapCreate?? finger tap, don't send keys.
 - (Optional Install, CGEventFallback): Use Karabiner-DriverKit-VirtualHIDDevice to send keys!
 - normalize % to px??

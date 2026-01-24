@@ -1282,6 +1282,7 @@ struct ContentView: View {
                         step: 10
                     )
                     .frame(minWidth: 120)
+                    .gridCellColumns(2)
                 }
                 GridRow {
                     Text("Force Cap (g)")
@@ -1297,6 +1298,7 @@ struct ContentView: View {
                         step: 5
                     )
                     .frame(minWidth: 120)
+                    .gridCellColumns(2)
                 }
                 GridRow {
                     Text("Drag Cancel (mm)")
@@ -1312,6 +1314,7 @@ struct ContentView: View {
                         step: 1
                     )
                     .frame(minWidth: 120)
+                    .gridCellColumns(2)
                 }
                 GridRow {
                     Text("Typing Grace (ms)")
@@ -1327,6 +1330,7 @@ struct ContentView: View {
                         step: 10
                     )
                     .frame(minWidth: 120)
+                    .gridCellColumns(2)
                 }
                 GridRow {
                     Text("Intent Move (mm)")
@@ -1342,6 +1346,7 @@ struct ContentView: View {
                         step: 0.1
                     )
                     .frame(minWidth: 120)
+                    .gridCellColumns(2)
                 }
                 GridRow {
                     Text("Intent Velocity (mm/s)")
@@ -1357,6 +1362,7 @@ struct ContentView: View {
                         step: 5
                     )
                     .frame(minWidth: 120)
+                    .gridCellColumns(2)
                 }
                 GridRow {
                     Text("Haptic Strength (%)")
@@ -1372,20 +1378,17 @@ struct ContentView: View {
                         step: 1
                     )
                     .frame(minWidth: 120)
+                    .gridCellColumns(2)
                 }
                 GridRow {
                     Text("Mouse Takeover")
                     Toggle("", isOn: $allowMouseTakeoverDuringTyping)
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
-                    Spacer()
-                }
-                GridRow {
                     Text("Autocorrect")
                     Toggle("", isOn: $autocorrectEnabled)
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
-                    Spacer()
                 }
             }
         }
