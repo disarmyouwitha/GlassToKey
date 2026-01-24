@@ -10,6 +10,7 @@ enum GlassToKeySettings {
     static let intentMoveThresholdMm: Double = 4.0
     static let intentVelocityThresholdMmPerSec: Double = 50.0
     static let allowMouseTakeoverDuringTyping: Bool = false
+    static let autocorrectEnabled: Bool = false
 
     static func persistedDouble(
         forKey key: String,
@@ -102,6 +103,10 @@ final class GlassToKeyController: ObservableObject {
         viewModel.updateKeyMappings(keyMappings)
 
         applySavedInteractionSettings()
+        let autocorrectEnabled = UserDefaults.standard.bool(
+            forKey: GlassToKeyDefaultsKeys.autocorrectEnabled
+        )
+        AutocorrectEngine.shared.setEnabled(autocorrectEnabled)
 
         let leftDeviceID = stringValue(forKey: GlassToKeyDefaultsKeys.leftDeviceID)
         let rightDeviceID = stringValue(forKey: GlassToKeyDefaultsKeys.rightDeviceID)

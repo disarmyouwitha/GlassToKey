@@ -83,6 +83,8 @@ struct ContentView: View {
     private var intentVelocityThresholdMmPerSecSetting: Double = GlassToKeySettings.intentVelocityThresholdMmPerSec
     @AppStorage(GlassToKeyDefaultsKeys.allowMouseTakeoverDuringTyping)
     private var allowMouseTakeoverDuringTyping = GlassToKeySettings.allowMouseTakeoverDuringTyping
+    @AppStorage(GlassToKeyDefaultsKeys.autocorrectEnabled)
+    private var autocorrectEnabled = GlassToKeySettings.autocorrectEnabled
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -358,6 +360,9 @@ struct ContentView: View {
             .onChange(of: allowMouseTakeoverDuringTyping) { newValue in
                 viewModel.updateAllowMouseTakeover(newValue)
             }
+            .onChange(of: autocorrectEnabled) { newValue in
+                AutocorrectEngine.shared.setEnabled(newValue)
+            }
             .onChange(of: storedAutoResyncMissingTrackpads) { newValue in
                 viewModel.setAutoResyncEnabled(newValue)
             }
@@ -437,6 +442,7 @@ struct ContentView: View {
             intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
             allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
+            autocorrectEnabled: $autocorrectEnabled,
             onRefreshDevices: {
                 viewModel.loadDevices(preserveSelection: true)
             },
@@ -654,6 +660,7 @@ struct ContentView: View {
         @Binding var intentMoveThresholdMmSetting: Double
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var allowMouseTakeoverDuringTyping: Bool
+        @Binding var autocorrectEnabled: Bool
         @State private var typingTuningExpanded = false
 #if DEBUG
         @State private var tapTraceDumpPath: String?
@@ -698,7 +705,8 @@ struct ContentView: View {
                             typingGraceMsSetting: $typingGraceMsSetting,
                             intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
                             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
-                            allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping
+                            allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
+                            autocorrectEnabled: $autocorrectEnabled
                         )
                         .padding(.top, 8)
                     } label: {
@@ -1256,6 +1264,7 @@ struct ContentView: View {
         @Binding var intentMoveThresholdMmSetting: Double
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var allowMouseTakeoverDuringTyping: Bool
+        @Binding var autocorrectEnabled: Bool
 
         var body: some View {
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
@@ -1367,6 +1376,13 @@ struct ContentView: View {
                 GridRow {
                     Text("Mouse Takeover")
                     Toggle("", isOn: $allowMouseTakeoverDuringTyping)
+                        .toggleStyle(SwitchToggleStyle())
+                        .labelsHidden()
+                    Spacer()
+                }
+                GridRow {
+                    Text("Autocorrect")
+                    Toggle("", isOn: $autocorrectEnabled)
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
                     Spacer()
@@ -2046,6 +2062,7 @@ struct ContentView: View {
     private func applySavedSettings() {
         visualsEnabled = storedVisualsEnabled
         viewModel.setStatusVisualsEnabled(visualsEnabled)
+        AutocorrectEngine.shared.setEnabled(autocorrectEnabled)
         let resolvedLayout = TrackpadLayoutPreset(rawValue: storedLayoutPreset) ?? .sixByThree
         layoutOption = resolvedLayout
         selectedColumn = nil
