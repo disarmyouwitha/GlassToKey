@@ -376,9 +376,9 @@ struct ContentView: View {
             visualsEnabled: $visualsEnabled,
             layerToggleBinding: layerToggleBinding,
             isListening: viewModel.isListening,
-            leftContactCount: viewModel.contactFingerCountsBySide[.left] ?? 0,
-            rightContactCount: viewModel.contactFingerCountsBySide[.right] ?? 0,
-            intentDisplay: viewModel.intentDisplayBySide[.left] ?? .idle,
+            leftContactCount: viewModel.contactFingerCountsBySide.left,
+            rightContactCount: viewModel.contactFingerCountsBySide.right,
+            intentDisplay: viewModel.intentDisplayBySide.left,
             onStart: {
                 viewModel.start()
             },
@@ -1479,14 +1479,7 @@ struct ContentView: View {
                 return true
             }
 
-            if snapshot.data.contains(where: { touch in
-                switch touch.state {
-                case .starting, .breaking, .leaving:
-                    return true
-                default:
-                    return false
-                }
-            }) {
+            if snapshot.hasTransitionState {
                 return true
             }
 

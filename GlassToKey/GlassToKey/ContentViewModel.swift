@@ -22,6 +22,34 @@ enum TrackpadSide: String, Codable, CaseIterable, Identifiable {
 
 typealias LayeredKeyMappings = [Int: [String: KeyMapping]]
 
+struct SidePair<Value> {
+    var left: Value
+    var right: Value
+
+    init(left: Value, right: Value) {
+        self.left = left
+        self.right = right
+    }
+
+    init(repeating value: Value) {
+        self.left = value
+        self.right = value
+    }
+
+    subscript(_ side: TrackpadSide) -> Value {
+        get { side == .left ? left : right }
+        set {
+            if side == .left {
+                left = newValue
+            } else {
+                right = newValue
+            }
+        }
+    }
+}
+
+extension SidePair: Sendable where Value: Sendable {}
+
 struct GridKeyPosition: Codable, Hashable {
     let side: TrackpadSide
     let row: Int
@@ -126,10 +154,10 @@ final class ContentViewModel: ObservableObject {
     }
 
     struct TouchSnapshot: Sendable {
-        var data: [OMSTouchData] = []
         var left: [OMSTouchData] = []
         var right: [OMSTouchData] = []
         var revision: UInt64 = 0
+        var hasTransitionState: Bool = false
     }
 
     struct TouchFrame: Sendable {
@@ -170,6 +198,16 @@ final class ContentViewModel: ObservableObject {
         uncheckedState: PendingTouchState()
     )
     private let touchCoalesceInterval: TimeInterval = 0.02
+    private let snapshotQueue = DispatchQueue(
+        label: "com.kyome.GlassToKey.TouchSnapshots",
+        qos: .utility
+    )
+#if DEBUG
+    private let pipelineSignposter = OSSignposter(
+        subsystem: "com.kyome.GlassToKey",
+        category: "InputPipeline"
+    )
+#endif
     nonisolated private let deviceSelectionLock = OSAllocatedUnfairLock<DeviceSelection>(
         uncheckedState: DeviceSelection()
     )
@@ -184,14 +222,8 @@ final class ContentViewModel: ObservableObject {
     @Published var isListening: Bool = false
     @Published var isTypingEnabled: Bool = true
     @Published private(set) var activeLayer: Int = 0
-    @Published private(set) var contactFingerCountsBySide: [TrackpadSide: Int] = [
-        .left: 0,
-        .right: 0
-    ]
-    @Published private(set) var intentDisplayBySide: [TrackpadSide: IntentDisplay] = [
-        .left: .idle,
-        .right: .idle
-    ]
+    @Published private(set) var contactFingerCountsBySide = SidePair(left: 0, right: 0)
+    @Published private(set) var intentDisplayBySide = SidePair(left: IntentDisplay.idle, right: .idle)
     private let isDragDetectionEnabled = true
     @Published var availableDevices = [OMSDeviceInfo]()
     @Published var leftDevice: OMSDeviceInfo?
@@ -223,7 +255,7 @@ final class ContentViewModel: ObservableObject {
     init() {
         let holder = ContinuationHolder()
         touchRevisionContinuationHolder = holder
-        touchRevisionUpdates = AsyncStream { continuation in
+        touchRevisionUpdates = AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             holder.continuation = continuation
         }
         weak var weakSelf: ContentViewModel?
@@ -232,12 +264,12 @@ final class ContentViewModel: ObservableObject {
                 weakSelf?.recordDebugHit(binding)
             }
         }
-        let contactCountHandler: @Sendable ([TrackpadSide: Int]) -> Void = { counts in
+        let contactCountHandler: @Sendable (SidePair<Int>) -> Void = { counts in
             Task { @MainActor in
                 weakSelf?.contactFingerCountsBySide = counts
             }
         }
-        let intentStateHandler: @Sendable ([TrackpadSide: IntentDisplay]) -> Void = { states in
+        let intentStateHandler: @Sendable (SidePair<IntentDisplay>) -> Void = { states in
             Task { @MainActor in
                 weakSelf?.intentDisplayBySide = states
             }
@@ -289,8 +321,15 @@ final class ContentViewModel: ObservableObject {
         let snapshotLock = touchSnapshotLock
         let selectionLock = deviceSelectionLock
         let recordingLock = snapshotRecordingLock
-        task = Task.detached { [manager, processor, snapshotLock, selectionLock, recordingLock, self] in
-            for await touchData in manager.touchDataStream {
+        let snapshotQueue = snapshotQueue
+        task = Task.detached(priority: .userInitiated) { [manager, processor, snapshotLock, selectionLock, recordingLock, snapshotQueue, self] in
+            for await rawFrame in manager.rawTouchStream {
+#if DEBUG
+                let signpostState = pipelineSignposter.beginInterval("InputFrame")
+                defer { pipelineSignposter.endInterval("InputFrame", signpostState) }
+#endif
+                let touchData = OMSManager.buildTouchData(from: rawFrame)
+                rawFrame.release()
                 let selection = selectionLock.withLockUnchecked { $0 }
                 let split = Self.splitTouches(touchData, selection: selection)
                 let frame = TouchFrame(
@@ -299,20 +338,28 @@ final class ContentViewModel: ObservableObject {
                     right: split.right
                 )
                 let now = CACurrentMediaTime()
-                let snapshotCandidate = updatePendingTouches(with: frame, at: now)
-                var updatedRevision: UInt64?
-                if let candidate = snapshotCandidate,
-                   recordingLock.withLockUnchecked(\.self) {
-                    snapshotLock.withLockUnchecked { snapshot in
-                        snapshot.data = candidate.left + candidate.right
-                        snapshot.left = candidate.left
-                        snapshot.right = candidate.right
-                        snapshot.revision &+= 1
-                        updatedRevision = snapshot.revision
+                snapshotQueue.async { [recordingLock, snapshotLock, self] in
+                    let snapshotCandidate = self.updatePendingTouches(with: frame, at: now)
+                    var updatedRevision: UInt64?
+                    if let candidate = snapshotCandidate,
+                       recordingLock.withLockUnchecked(\.self) {
+                        snapshotLock.withLockUnchecked { snapshot in
+                            snapshot.left = candidate.left
+                            snapshot.right = candidate.right
+                            snapshot.hasTransitionState = Self.hasTransitionState(
+                                left: candidate.left,
+                                right: candidate.right
+                            )
+                            snapshot.revision &+= 1
+                            updatedRevision = snapshot.revision
+                        }
+#if DEBUG
+                        self.pipelineSignposter.emitEvent("SnapshotUpdate")
+#endif
                     }
-                }
-                if let revision = updatedRevision {
-                    touchRevisionContinuationHolder.continuation?.yield(revision)
+                    if let revision = updatedRevision {
+                        self.touchRevisionContinuationHolder.continuation?.yield(revision)
+                    }
                 }
                 await processor.processTouchFrame(frame)
             }
@@ -505,6 +552,29 @@ final class ContentViewModel: ObservableObject {
             }
         }
         return (left, right)
+    }
+
+    nonisolated private static func hasTransitionState(
+        left: [OMSTouchData],
+        right: [OMSTouchData]
+    ) -> Bool {
+        for touch in left {
+            switch touch.state {
+            case .starting, .breaking, .leaving:
+                return true
+            default:
+                break
+            }
+        }
+        for touch in right {
+            switch touch.state {
+            case .starting, .breaking, .leaving:
+                return true
+            default:
+                break
+            }
+        }
+        return false
     }
 
     nonisolated private func updatePendingTouches(
@@ -706,10 +776,7 @@ final class ContentViewModel: ObservableObject {
             let maxDistance: CGFloat?
         }
 
-        private struct TouchKey: Hashable {
-            let deviceIndex: Int
-            let id: Int32
-        }
+        private typealias TouchKey = UInt64
 
         private enum IntentMode {
             case idle
@@ -718,6 +785,24 @@ final class ContentViewModel: ObservableObject {
             case mouseCandidate(start: TimeInterval)
             case mouseActive
             case gestureCandidate(start: TimeInterval)
+        }
+
+        private static func makeTouchKey(deviceIndex: Int, id: Int32) -> TouchKey {
+            let deviceBits = UInt64(UInt32(deviceIndex))
+            let idBits = UInt64(UInt32(bitPattern: id))
+            return (deviceBits << 32) | idBits
+        }
+
+        private static func touchKeyDeviceIndex(_ key: TouchKey) -> Int {
+            Int(UInt32(key >> 32))
+        }
+
+        private static func touchKeyID(_ key: TouchKey) -> Int32 {
+            Int32(bitPattern: UInt32(truncatingIfNeeded: key))
+        }
+
+        private static func nowUptimeNanoseconds() -> UInt64 {
+            DispatchTime.now().uptimeNanoseconds
         }
 
         private struct IntentConfig {
@@ -761,9 +846,164 @@ final class ContentViewModel: ObservableObject {
 
         }
 
+        private struct RepeatEntry {
+            let code: CGKeyCode
+            let flags: CGEventFlags
+            let token: RepeatToken
+            let interval: UInt64
+            var nextFire: UInt64
+        }
+
         private enum TouchState {
             case pending(PendingTouch)
             case active(ActiveTouch)
+        }
+
+        private struct TouchTable<Value> {
+            private enum SlotState: UInt8 {
+                case empty = 0
+                case occupied = 1
+                case tombstone = 2
+            }
+
+            private var keys: [TouchKey]
+            private var values: [Value?]
+            private var states: [SlotState]
+            private(set) var count: Int
+            private var tombstones: Int
+
+            init(minimumCapacity: Int = 16) {
+                let capacity = max(16, TouchTable.nextPowerOfTwo(minimumCapacity))
+                keys = Array(repeating: 0, count: capacity)
+                values = Array(repeating: nil, count: capacity)
+                states = Array(repeating: .empty, count: capacity)
+                count = 0
+                tombstones = 0
+            }
+
+            var isEmpty: Bool { count == 0 }
+
+            mutating func removeAll(keepingCapacity: Bool = true) {
+                if keepingCapacity {
+                    for index in states.indices {
+                        states[index] = .empty
+                        values[index] = nil
+                    }
+                    count = 0
+                    tombstones = 0
+                } else {
+                    self = TouchTable(minimumCapacity: 16)
+                }
+            }
+
+            func value(for key: TouchKey) -> Value? {
+                guard let index = findIndex(for: key) else { return nil }
+                return values[index]
+            }
+
+            mutating func set(_ key: TouchKey, _ value: Value) {
+                ensureCapacity(for: count + 1)
+                let capacityMask = keys.count - 1
+                var index = TouchTable.hashIndex(for: key, mask: capacityMask)
+                var firstTombstone: Int?
+                while true {
+                    switch states[index] {
+                    case .empty:
+                        let insertIndex = firstTombstone ?? index
+                        keys[insertIndex] = key
+                        values[insertIndex] = value
+                        states[insertIndex] = .occupied
+                        count += 1
+                        if firstTombstone != nil {
+                            tombstones -= 1
+                        }
+                        return
+                    case .occupied:
+                        if keys[index] == key {
+                            values[index] = value
+                            return
+                        }
+                    case .tombstone:
+                        if firstTombstone == nil {
+                            firstTombstone = index
+                        }
+                    }
+                    index = (index + 1) & capacityMask
+                }
+            }
+
+            @discardableResult
+            mutating func remove(_ key: TouchKey) -> Value? {
+                guard let index = findIndex(for: key) else { return nil }
+                let value = values[index]
+                values[index] = nil
+                states[index] = .tombstone
+                count -= 1
+                tombstones += 1
+                return value
+            }
+
+            func forEach(_ body: (TouchKey, Value) -> Void) {
+                for index in states.indices where states[index] == .occupied {
+                    if let value = values[index] {
+                        body(keys[index], value)
+                    }
+                }
+            }
+
+            private mutating func ensureCapacity(for desiredCount: Int) {
+                let capacity = keys.count
+                if desiredCount * 2 < capacity && (desiredCount + tombstones) * 2 < capacity {
+                    return
+                }
+                rehash(to: capacity * 2)
+            }
+
+            private mutating func rehash(to newCapacity: Int) {
+                var newTable = TouchTable(minimumCapacity: newCapacity)
+                for index in states.indices where states[index] == .occupied {
+                    if let value = values[index] {
+                        newTable.set(keys[index], value)
+                    }
+                }
+                self = newTable
+            }
+
+            private func findIndex(for key: TouchKey) -> Int? {
+                let capacityMask = keys.count - 1
+                var index = TouchTable.hashIndex(for: key, mask: capacityMask)
+                while true {
+                    switch states[index] {
+                    case .empty:
+                        return nil
+                    case .occupied:
+                        if keys[index] == key {
+                            return index
+                        }
+                    case .tombstone:
+                        break
+                    }
+                    index = (index + 1) & capacityMask
+                }
+            }
+
+            private static func nextPowerOfTwo(_ value: Int) -> Int {
+                var result = 1
+                while result < value {
+                    result <<= 1
+                }
+                return result
+            }
+
+            private static func hashIndex(for key: TouchKey, mask: Int) -> Int {
+                var x = key
+                x ^= x >> 33
+                x &*= 0xff51afd7ed558ccd
+                x ^= x >> 33
+                x &*= 0xc4ceb9fe1a85ec53
+                x ^= x >> 33
+                return Int(truncatingIfNeeded: x) & mask
+            }
         }
 
         private struct BindingGrid {
@@ -867,8 +1107,8 @@ final class ContentViewModel: ObservableObject {
         private let onTypingEnabledChanged: @Sendable (Bool) -> Void
         private let onActiveLayerChanged: @Sendable (Int) -> Void
         private let onDebugBindingDetected: @Sendable (KeyBinding) -> Void
-        private let onContactCountChanged: @Sendable ([TrackpadSide: Int]) -> Void
-        private let onIntentStateChanged: @Sendable ([TrackpadSide: IntentDisplay]) -> Void
+        private let onContactCountChanged: @Sendable (SidePair<Int>) -> Void
+        private let onIntentStateChanged: @Sendable (SidePair<IntentDisplay>) -> Void
         private let isDragDetectionEnabled = true
         private var isListening = false
         private var isTypingEnabled = true
@@ -881,32 +1121,29 @@ final class ContentViewModel: ObservableObject {
         private var customButtons: [CustomButton] = []
         private var customButtonsByLayerAndSide: [Int: [TrackpadSide: [CustomButton]]] = [:]
         private var customKeyMappingsByLayer: LayeredKeyMappings = [:]
-        private var touchStates: [TouchKey: TouchState] = [:]
-        private var disqualifiedTouches: Set<TouchKey> = []
+        private var touchStates = TouchTable<TouchState>()
+        private var disqualifiedTouches = TouchTable<Bool>()
         private var leftShiftTouchCount = 0
         private var controlTouchCount = 0
         private var optionTouchCount = 0
         private var commandTouchCount = 0
-        private var repeatTasks: [TouchKey: Task<Void, Never>] = [:]
-        private var repeatTokens: [TouchKey: RepeatToken] = [:]
-        private var toggleTouchStarts: [TouchKey: TimeInterval] = [:]
-        private var layerToggleTouchStarts: [TouchKey: Int] = [:]
-        private var momentaryLayerTouches: [TouchKey: Int] = [:]
-        private var touchInitialContactPoint: [TouchKey: CGPoint] = [:]
+        private var repeatEntries: [TouchKey: RepeatEntry] = [:]
+        private var repeatLoopTask: Task<Void, Never>?
+        private var toggleTouchStarts = TouchTable<TimeInterval>()
+        private var layerToggleTouchStarts = TouchTable<Int>()
+        private var momentaryLayerTouches = TouchTable<Int>()
+        private var touchInitialContactPoint = TouchTable<CGPoint>()
         private var tapMaxDuration: TimeInterval = 0.2
         private var holdMinDuration: TimeInterval = 0.2
         private var dragCancelDistance: CGFloat = 2.5
         private var forceClickCap: Float = 0
-        private var contactFingerCountsBySide: [TrackpadSide: Int] = [
-            .left: 0,
-            .right: 0
-        ]
+        private var contactFingerCountsBySide = SidePair(left: 0, right: 0)
         private struct ContactCountCache {
             var actual: Int
             var displayed: Int
             var timestamp: TimeInterval
         }
-        private var contactCountCache: [TrackpadSide: ContactCountCache] = [:]
+        private var contactCountCache = SidePair<ContactCountCache?>(left: nil, right: nil)
         private let contactCountHoldDuration: TimeInterval = 0.06
         private let repeatInitialDelay: UInt64 = 350_000_000
         private let repeatInterval: UInt64 = 50_000_000
@@ -917,22 +1154,19 @@ final class ContentViewModel: ObservableObject {
         private var rightLabels: [[String]] = []
         private var trackpadSize: CGSize = .zero
         private var trackpadWidthMm: CGFloat = 1.0
-        private var bindingsCache: [TrackpadSide: BindingIndex] = [:]
+        private var bindingsCache = SidePair<BindingIndex?>(left: nil, right: nil)
         private var bindingsCacheLayer: Int = -1
         private var bindingsGeneration = 0
-        private var bindingsGenerationBySide: [TrackpadSide: Int] = [:]
+        private var bindingsGenerationBySide = SidePair(left: -1, right: -1)
         private var hapticStrength: Double = 0
         private struct IntentState {
             var mode: IntentMode = .idle
-            var touches: [TouchKey: IntentTouchInfo] = [:]
+            var touches = TouchTable<IntentTouchInfo>()
             var lastContactCount = 0
         }
 
         private var intentState = IntentState()
-        private var intentDisplayBySide: [TrackpadSide: IntentDisplay] = [
-            .left: .idle,
-            .right: .idle
-        ]
+        private var intentDisplayBySide = SidePair(left: IntentDisplay.idle, right: .idle)
         private var intentConfig = IntentConfig()
         private var allowMouseTakeoverDuringTyping = false
         private var typingGraceDeadline: TimeInterval?
@@ -954,8 +1188,8 @@ final class ContentViewModel: ObservableObject {
             onTypingEnabledChanged: @Sendable @escaping (Bool) -> Void,
             onActiveLayerChanged: @Sendable @escaping (Int) -> Void,
             onDebugBindingDetected: @Sendable @escaping (KeyBinding) -> Void,
-            onContactCountChanged: @Sendable @escaping ([TrackpadSide: Int]) -> Void,
-            onIntentStateChanged: @Sendable @escaping ([TrackpadSide: IntentDisplay]) -> Void
+            onContactCountChanged: @Sendable @escaping (SidePair<Int>) -> Void,
+            onIntentStateChanged: @Sendable @escaping (SidePair<IntentDisplay>) -> Void
         ) {
             self.keyDispatcher = keyDispatcher
             self.onTypingEnabledChanged = onTypingEnabledChanged
@@ -1144,15 +1378,15 @@ final class ContentViewModel: ObservableObject {
                     x: CGFloat(touch.position.x) * canvasSize.width,
                     y: CGFloat(1.0 - touch.position.y) * canvasSize.height
                 )
-                let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
-                if touchInitialContactPoint[touchKey] == nil,
+                let touchKey = Self.makeTouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
+                if touchInitialContactPoint.value(for: touchKey) == nil,
                    Self.isContactState(touch.state) {
-                    touchInitialContactPoint[touchKey] = point
+                    touchInitialContactPoint.set(touchKey, point)
                 }
                 handleForceGuard(touchKey: touchKey, pressure: touch.pressure, now: now)
                 let bindingAtPoint = binding(at: point, index: bindings)
 
-                if disqualifiedTouches.contains(touchKey) {
+                if disqualifiedTouches.value(for: touchKey) != nil {
                     switch touch.state {
                     case .breaking, .leaving, .notTouching:
                         disqualifiedTouches.remove(touchKey)
@@ -1162,7 +1396,7 @@ final class ContentViewModel: ObservableObject {
                     continue
                 }
 
-                if momentaryLayerTouches[touchKey] != nil {
+                if momentaryLayerTouches.value(for: touchKey) != nil {
                     handleMomentaryLayerTouch(
                         touchKey: touchKey,
                         state: touch.state,
@@ -1171,11 +1405,11 @@ final class ContentViewModel: ObservableObject {
                     )
                     continue
                 }
-                if layerToggleTouchStarts[touchKey] != nil {
+                if layerToggleTouchStarts.value(for: touchKey) != nil {
                     handleLayerToggleTouch(touchKey: touchKey, state: touch.state, targetLayer: nil)
                     continue
                 }
-                if toggleTouchStarts[touchKey] != nil {
+                if toggleTouchStarts.value(for: touchKey) != nil {
                     handleTypingToggleTouch(
                         touchKey: touchKey,
                         state: touch.state,
@@ -1219,7 +1453,7 @@ final class ContentViewModel: ObservableObject {
                     }
                     _ = removePendingTouch(for: touchKey)
                     disqualifiedTouches.remove(touchKey)
-                    touchInitialContactPoint.removeValue(forKey: touchKey)
+                    touchInitialContactPoint.remove(touchKey)
                     logDisqualify(touchKey, reason: .typingDisabled)
                     continue
                 }
@@ -1289,8 +1523,8 @@ final class ContentViewModel: ObservableObject {
                                 )
                                 triggerBinding(pending.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
                                 _ = removePendingTouch(for: touchKey)
-                                touchInitialContactPoint.removeValue(forKey: touchKey)
-                                disqualifiedTouches.insert(touchKey)
+                                touchInitialContactPoint.remove(touchKey)
+                                disqualifiedTouches.set(touchKey, true)
                                 continue
                             }
                             let active = ActiveTouch(
@@ -1336,8 +1570,8 @@ final class ContentViewModel: ObservableObject {
                                 now: now
                             )
                             triggerBinding(binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
-                            touchInitialContactPoint.removeValue(forKey: touchKey)
-                            disqualifiedTouches.insert(touchKey)
+                            touchInitialContactPoint.remove(touchKey)
+                            disqualifiedTouches.set(touchKey, true)
                             continue
                         }
                         if isDragDetectionEnabled, (modifierKey != nil || isContinuousKey) {
@@ -1381,7 +1615,7 @@ final class ContentViewModel: ObservableObject {
                         }
                     }
                 case .breaking, .leaving:
-                    let releaseStartPoint = touchInitialContactPoint.removeValue(forKey: touchKey)
+                    let releaseStartPoint = touchInitialContactPoint.remove(touchKey)
                     if var pending = removePendingTouch(for: touchKey) {
                         let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
                         pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
@@ -1436,7 +1670,7 @@ final class ContentViewModel: ObservableObject {
                         }
                     }
                 case .notTouching:
-                    touchInitialContactPoint.removeValue(forKey: touchKey)
+                    touchInitialContactPoint.remove(touchKey)
                     if var pending = removePendingTouch(for: touchKey) {
                         let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
                         pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
@@ -1508,7 +1742,7 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func activeTouch(for touchKey: TouchKey) -> ActiveTouch? {
-            guard let state = touchStates[touchKey],
+            guard let state = touchStates.value(for: touchKey),
                   case let .active(active) = state else {
                 return nil
             }
@@ -1516,7 +1750,7 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func pendingTouch(for touchKey: TouchKey) -> PendingTouch? {
-            guard let state = touchStates[touchKey],
+            guard let state = touchStates.value(for: touchKey),
                   case let .pending(pending) = state else {
                 return nil
             }
@@ -1524,33 +1758,33 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func setActiveTouch(_ touchKey: TouchKey, _ active: ActiveTouch) {
-            touchStates[touchKey] = .active(active)
+            touchStates.set(touchKey, .active(active))
         }
 
         private func setPendingTouch(_ touchKey: TouchKey, _ pending: PendingTouch) {
-            touchStates[touchKey] = .pending(pending)
+            touchStates.set(touchKey, .pending(pending))
         }
 
         private func removeActiveTouch(for touchKey: TouchKey) -> ActiveTouch? {
-            guard let state = touchStates[touchKey],
+            guard let state = touchStates.value(for: touchKey),
                   case let .active(active) = state else {
                 return nil
             }
-            touchStates.removeValue(forKey: touchKey)
+            touchStates.remove(touchKey)
             return active
         }
 
         private func removePendingTouch(for touchKey: TouchKey) -> PendingTouch? {
-            guard let state = touchStates[touchKey],
+            guard let state = touchStates.value(for: touchKey),
                   case let .pending(pending) = state else {
                 return nil
             }
-            touchStates.removeValue(forKey: touchKey)
+            touchStates.remove(touchKey)
             return pending
         }
 
         private func popTouchState(for touchKey: TouchKey) -> TouchState? {
-            touchStates.removeValue(forKey: touchKey)
+            touchStates.remove(touchKey)
         }
 
         private func makeBindings(
@@ -1819,8 +2053,8 @@ final class ContentViewModel: ObservableObject {
 
             func process(_ touch: OMSTouchData, side: TrackpadSide, bindings: BindingIndex) {
                 guard Self.isIntentContactState(touch.state) else { return }
-                let touchKey = TouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
-                if momentaryLayerTouches[touchKey] != nil {
+                let touchKey = Self.makeTouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
+                if momentaryLayerTouches.value(for: touchKey) != nil {
                     hasKeyboardAnchor = true
                     return
                 }
@@ -1847,7 +2081,7 @@ final class ContentViewModel: ObservableObject {
                     offKeyCount += 1
                 }
 
-                if var info = state.touches[touchKey] {
+                if var info = state.touches.value(for: touchKey) {
                     let distanceSq = distanceSquared(from: info.startPoint, to: point)
                     info.maxDistanceSquared = max(info.maxDistanceSquared, distanceSq)
                     maxDistanceSquared = max(maxDistanceSquared, info.maxDistanceSquared)
@@ -1856,15 +2090,15 @@ final class ContentViewModel: ObservableObject {
                     maxVelocity = max(maxVelocity, velocity)
                     info.lastPoint = point
                     info.lastTime = now
-                    state.touches[touchKey] = info
+                    state.touches.set(touchKey, info)
                 } else {
-                    state.touches[touchKey] = IntentTouchInfo(
+                    state.touches.set(touchKey, IntentTouchInfo(
                         startPoint: point,
                         startTime: now,
                         lastPoint: point,
                         lastTime: now,
                         maxDistanceSquared: 0
-                    )
+                    ))
                 }
             }
 
@@ -1876,8 +2110,14 @@ final class ContentViewModel: ObservableObject {
             }
 
             if state.touches.count != currentKeys.count {
-                for key in state.touches.keys where !currentKeys.contains(key) {
-                    state.touches.removeValue(forKey: key)
+                var toRemove: [TouchKey] = []
+                state.touches.forEach { key, _ in
+                    if !currentKeys.contains(key) {
+                        toRemove.append(key)
+                    }
+                }
+                for key in toRemove {
+                    state.touches.remove(key)
                 }
             }
 
@@ -2056,12 +2296,12 @@ final class ContentViewModel: ObservableObject {
                 return
             }
             for touchKey in touchKeys {
-                if momentaryLayerTouches[touchKey] != nil {
+                if momentaryLayerTouches.value(for: touchKey) != nil {
                     continue
                 }
                 disqualifyTouch(touchKey, reason: .intentMouse)
-                toggleTouchStarts.removeValue(forKey: touchKey)
-                layerToggleTouchStarts.removeValue(forKey: touchKey)
+                toggleTouchStarts.remove(touchKey)
+                layerToggleTouchStarts.remove(touchKey)
             }
         }
 
@@ -2077,7 +2317,7 @@ final class ContentViewModel: ObservableObject {
             }
             let moveThreshold = intentConfig.moveThresholdMm * mmUnitsPerMillimeter()
             let moveThresholdSquared = moveThreshold * moveThreshold
-            let maxDistanceSquared = state.touches[touchKey]?.maxDistanceSquared ?? 0
+            let maxDistanceSquared = state.touches.value(for: touchKey)?.maxDistanceSquared ?? 0
             guard maxDistanceSquared <= moveThresholdSquared else { return false }
             guard binding.rect.contains(point),
                   initialContactPointIsInsideBinding(touchKey, binding: binding) else {
@@ -2100,24 +2340,24 @@ final class ContentViewModel: ObservableObject {
         ) {
             switch state {
             case .starting, .making, .touching:
-                if toggleTouchStarts[touchKey] == nil {
-                    toggleTouchStarts[touchKey] = Self.now()
+                if toggleTouchStarts.value(for: touchKey) == nil {
+                    toggleTouchStarts.set(touchKey, Self.now())
                 }
             case .breaking, .leaving:
-                let didStart = toggleTouchStarts.removeValue(forKey: touchKey)
+                let didStart = toggleTouchStarts.remove(touchKey)
                 if didStart != nil {
                     let maxDistance = dragCancelDistance * dragCancelDistance
-                    let initialPoint = touchInitialContactPoint[touchKey]
+                    let initialPoint = touchInitialContactPoint.value(for: touchKey)
                     let distance = initialPoint
                         .map { distanceSquared(from: $0, to: point) } ?? 0
                     if distance <= maxDistance {
                         toggleTypingMode()
                     }
                 }
-                touchInitialContactPoint.removeValue(forKey: touchKey)
+                touchInitialContactPoint.remove(touchKey)
             case .notTouching:
-                toggleTouchStarts.removeValue(forKey: touchKey)
-                touchInitialContactPoint.removeValue(forKey: touchKey)
+                toggleTouchStarts.remove(touchKey)
+                touchInitialContactPoint.remove(touchKey)
             case .hovering, .lingering:
                 break
             }
@@ -2132,15 +2372,15 @@ final class ContentViewModel: ObservableObject {
             case .starting, .making, .touching:
                 guard isTypingEnabled else { break }
                 if let targetLayer {
-                    layerToggleTouchStarts[touchKey] = targetLayer
+                    layerToggleTouchStarts.set(touchKey, targetLayer)
                 }
             case .breaking, .leaving:
-                if let targetLayer = layerToggleTouchStarts.removeValue(forKey: touchKey) {
+                if let targetLayer = layerToggleTouchStarts.remove(touchKey) {
                     guard isTypingEnabled else { break }
                     toggleLayer(to: targetLayer)
                 }
             case .notTouching:
-                layerToggleTouchStarts.removeValue(forKey: touchKey)
+                layerToggleTouchStarts.remove(touchKey)
             case .hovering, .lingering:
                 break
             }
@@ -2154,17 +2394,17 @@ final class ContentViewModel: ObservableObject {
         ) {
             switch state {
             case .starting, .making, .touching:
-                guard momentaryLayerTouches[touchKey] == nil,
+                guard momentaryLayerTouches.value(for: touchKey) == nil,
                       let targetLayer,
                       let rect = bindingRect,
-                      let initialPoint = touchInitialContactPoint[touchKey],
+                      let initialPoint = touchInitialContactPoint.value(for: touchKey),
                       rect.contains(initialPoint) else {
                     break
                 }
-                momentaryLayerTouches[touchKey] = targetLayer
+                momentaryLayerTouches.set(touchKey, targetLayer)
                 updateActiveLayer()
             case .breaking, .leaving, .notTouching:
-                if momentaryLayerTouches.removeValue(forKey: touchKey) != nil {
+                if momentaryLayerTouches.remove(touchKey) != nil {
                     updateActiveLayer()
                 }
             case .hovering, .lingering:
@@ -2278,7 +2518,7 @@ final class ContentViewModel: ObservableObject {
             switch binding.action {
             case let .layerMomentary(layer):
                 guard let touchKey else { return }
-                momentaryLayerTouches[touchKey] = layer
+                momentaryLayerTouches.set(touchKey, layer)
                 updateActiveLayer()
             case let .layerToggle(layer):
                 toggleLayer(to: layer)
@@ -2345,7 +2585,7 @@ final class ContentViewModel: ObservableObject {
 
         private func playHapticIfNeeded(on side: TrackpadSide?, touchKey: TouchKey? = nil) {
             guard hapticStrength > 0 else { return }
-            if let touchKey, disqualifiedTouches.contains(touchKey) { return }
+            if let touchKey, disqualifiedTouches.value(for: touchKey) != nil { return }
             let deviceID: String?
             switch side {
             case .left:
@@ -2360,7 +2600,7 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func initialContactPointIsInsideBinding(_ touchKey: TouchKey, binding: KeyBinding) -> Bool {
-            guard let startPoint = touchInitialContactPoint[touchKey] else {
+            guard let startPoint = touchInitialContactPoint.value(for: touchKey) else {
                 return true
             }
             return binding.rect.contains(startPoint)
@@ -2373,14 +2613,15 @@ final class ContentViewModel: ObservableObject {
             let initialDelay = repeatInitialDelay
             let interval = repeatInterval(for: binding.action)
             let token = RepeatToken()
-            repeatTokens[touchKey] = token
-            repeatTasks[touchKey] = Task.detached(priority: .userInitiated) { [dispatcher = keyDispatcher] in
-                try? await Task.sleep(nanoseconds: initialDelay)
-                while !Task.isCancelled, token.isActive {
-                    dispatcher.postKeyStroke(code: code, flags: repeatFlags, token: token)
-                    try? await Task.sleep(nanoseconds: interval)
-                }
-            }
+            let nextFire = Self.nowUptimeNanoseconds() &+ initialDelay
+            repeatEntries[touchKey] = RepeatEntry(
+                code: code,
+                flags: repeatFlags,
+                token: token,
+                interval: interval,
+                nextFire: nextFire
+            )
+            ensureRepeatLoop()
         }
 
         private func repeatInterval(for action: KeyBindingAction) -> UInt64 {
@@ -2392,11 +2633,73 @@ final class ContentViewModel: ObservableObject {
             return repeatInterval
         }
 
-        private func stopRepeat(for touchKey: TouchKey) {
-            if let task = repeatTasks.removeValue(forKey: touchKey) {
-                task.cancel()
+        private func ensureRepeatLoop() {
+            guard repeatLoopTask == nil else { return }
+            repeatLoopTask = Task.detached(priority: .userInitiated) { [weak self] in
+                await self?.repeatLoop()
             }
-            repeatTokens.removeValue(forKey: touchKey)?.deactivate()
+        }
+
+        private func repeatLoop() async {
+            while !Task.isCancelled {
+                let now = Self.nowUptimeNanoseconds()
+                guard let delay = nextRepeatDelay(now: now) else {
+                    repeatLoopTask = nil
+                    return
+                }
+                if delay > 0 {
+                    try? await Task.sleep(nanoseconds: delay)
+                }
+                await fireRepeats(now: Self.nowUptimeNanoseconds())
+            }
+        }
+
+        private func nextRepeatDelay(now: UInt64) -> UInt64? {
+            guard !repeatEntries.isEmpty else { return nil }
+            var soonest = UInt64.max
+            for entry in repeatEntries.values {
+                if entry.nextFire < soonest {
+                    soonest = entry.nextFire
+                }
+            }
+            return soonest <= now ? 0 : (soonest - now)
+        }
+
+        private func fireRepeats(now: UInt64) async {
+            guard !repeatEntries.isEmpty else { return }
+            var toRemove: [TouchKey] = []
+            for (key, var entry) in repeatEntries {
+                if !entry.token.isActive {
+                    toRemove.append(key)
+                    continue
+                }
+                if entry.nextFire <= now {
+                    keyDispatcher.postKeyStroke(code: entry.code, flags: entry.flags, token: entry.token)
+                    var next = entry.nextFire
+                    while next <= now {
+                        next &+= entry.interval
+                    }
+                    entry.nextFire = next
+                    repeatEntries[key] = entry
+                }
+            }
+            for key in toRemove {
+                repeatEntries.removeValue(forKey: key)
+            }
+            if repeatEntries.isEmpty {
+                repeatLoopTask?.cancel()
+                repeatLoopTask = nil
+            }
+        }
+
+        private func stopRepeat(for touchKey: TouchKey) {
+            if let entry = repeatEntries.removeValue(forKey: touchKey) {
+                entry.token.deactivate()
+            }
+            if repeatEntries.isEmpty {
+                repeatLoopTask?.cancel()
+                repeatLoopTask = nil
+            }
         }
 
         private func handleModifierDown(_ modifierKey: ModifierKey, binding: KeyBinding) {
@@ -2515,9 +2818,11 @@ final class ContentViewModel: ObservableObject {
                 postKey(binding: commandBinding, keyDown: false)
                 commandTouchCount = 0
             }
-            let activeTouchKeys = touchStates.compactMap { key, state in
-                if case .active = state { return key }
-                return nil
+            var activeTouchKeys: [TouchKey] = []
+            touchStates.forEach { key, state in
+                if case .active = state {
+                    activeTouchKeys.append(key)
+                }
             }
             for touchKey in activeTouchKeys {
                 stopRepeat(for: touchKey)
@@ -2537,8 +2842,8 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func disqualifyTouch(_ touchKey: TouchKey, reason: DisqualifyReason) {
-            touchInitialContactPoint.removeValue(forKey: touchKey)
-            disqualifiedTouches.insert(touchKey)
+            touchInitialContactPoint.remove(touchKey)
+            disqualifiedTouches.set(touchKey, true)
             if let state = popTouchState(for: touchKey),
                case let .active(active) = state {
                 if let modifierKey = active.modifierKey, active.modifierEngaged {
@@ -2618,7 +2923,7 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func updateActiveLayer() {
-            let resolvedLayer = momentaryLayerTouches.values.max() ?? persistentLayer
+            let resolvedLayer = maxMomentaryLayer() ?? persistentLayer
             if activeLayer != resolvedLayer {
                 activeLayer = resolvedLayer
                 invalidateBindingsCache()
@@ -2626,11 +2931,25 @@ final class ContentViewModel: ObservableObject {
             }
         }
 
+        private func maxMomentaryLayer() -> Int? {
+            var maxLayer: Int?
+            momentaryLayerTouches.forEach { _, layer in
+                if let current = maxLayer {
+                    if layer > current {
+                        maxLayer = layer
+                    }
+                } else {
+                    maxLayer = layer
+                }
+            }
+            return maxLayer
+        }
+
         private func endMomentaryHoldIfNeeded(_ binding: KeyBinding?, touchKey: TouchKey) {
             guard let binding else { return }
             switch binding.action {
             case .layerMomentary:
-                if momentaryLayerTouches.removeValue(forKey: touchKey) != nil {
+                if momentaryLayerTouches.remove(touchKey) != nil {
                     updateActiveLayer()
                 }
             default:
@@ -2644,7 +2963,9 @@ final class ContentViewModel: ObservableObject {
 
         private func logDisqualify(_ touchKey: TouchKey, reason: DisqualifyReason) {
             #if DEBUG
-            keyLogger.debug("disqualify deviceIndex=\(touchKey.deviceIndex) id=\(touchKey.id) reason=\(reason.rawValue)")
+            let deviceIndex = Self.touchKeyDeviceIndex(touchKey)
+            let touchID = Self.touchKeyID(touchKey)
+            keyLogger.debug("disqualify deviceIndex=\(deviceIndex) id=\(touchID) reason=\(reason.rawValue)")
             #endif
         }
 
@@ -2659,10 +2980,15 @@ final class ContentViewModel: ObservableObject {
         ) -> TimeInterval? {
             if contactCount >= 3 {
                 guard previousContactCount != 2 else { return nil }
-                let startTimes = state.touches.values.map { $0.startTime }
-                guard startTimes.count >= 3,
-                      let minTime = startTimes.min(),
-                      let maxTime = startTimes.max(),
+                var minTime = TimeInterval.greatestFiniteMagnitude
+                var maxTime: TimeInterval = 0
+                var count = 0
+                state.touches.forEach { _, info in
+                    count += 1
+                    minTime = min(minTime, info.startTime)
+                    maxTime = max(maxTime, info.startTime)
+                }
+                guard count >= 3,
                       maxTime - minTime <= intentConfig.keyBufferSeconds else {
                     return nil
                 }
@@ -2672,10 +2998,15 @@ final class ContentViewModel: ObservableObject {
                   previousContactCount <= 1 else {
                 return nil
             }
-            let startTimes = state.touches.values.map { $0.startTime }
-            guard startTimes.count >= 2,
-                  let minTime = startTimes.min(),
-                  let maxTime = startTimes.max(),
+            var minTime = TimeInterval.greatestFiniteMagnitude
+            var maxTime: TimeInterval = 0
+            var count = 0
+            state.touches.forEach { _, info in
+                count += 1
+                minTime = min(minTime, info.startTime)
+                maxTime = max(maxTime, info.startTime)
+            }
+            guard count >= 2,
                   maxTime - minTime <= intentConfig.keyBufferSeconds else {
                 return nil
             }
@@ -2747,10 +3078,10 @@ final class ContentViewModel: ObservableObject {
         }
 
         func clearVisualCaches() {
-            bindingsCache.removeAll()
+            bindingsCache = SidePair<BindingIndex?>(left: nil, right: nil)
             bindingsCacheLayer = -1
             bindingsGeneration &+= 1
-            bindingsGenerationBySide.removeAll()
+            bindingsGenerationBySide = SidePair(left: -1, right: -1)
         }
 
         private func bindings(
@@ -2763,7 +3094,7 @@ final class ContentViewModel: ObservableObject {
                 bindingsCacheLayer = activeLayer
                 invalidateBindingsCache()
             }
-            let currentGeneration = bindingsGenerationBySide[side] ?? -1
+            let currentGeneration = bindingsGenerationBySide[side]
             if currentGeneration != bindingsGeneration || bindingsCache[side] == nil {
                 bindingsCache[side] = makeBindings(
                     layout: layout,
