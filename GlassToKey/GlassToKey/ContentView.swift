@@ -1287,7 +1287,7 @@ struct ContentView: View {
         @Binding var allowMouseTakeoverDuringTyping: Bool
         @Binding var autocorrectEnabled: Bool
 
-        private let labelWidth: CGFloat = 160
+        private let labelWidth: CGFloat = 140
         private let valueFieldWidth: CGFloat = 50
 
         var body: some View {
@@ -1306,7 +1306,7 @@ struct ContentView: View {
                         in: ContentView.tapHoldDurationRange,
                         step: 10
                     )
-                    .frame(minWidth: 120)
+                    .frame(minWidth: 100)
                     .gridCellColumns(2)
                 }
                 GridRow {
