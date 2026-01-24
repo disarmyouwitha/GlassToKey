@@ -557,7 +557,7 @@ struct ContentView: View {
                 .buttonStyle(.bordered)
                 .disabled(tapTraceDumpInProgress)
 #endif
-                Toggle("Edit", isOn: $editModeEnabled)
+                Toggle("Edit Keymap", isOn: $editModeEnabled)
                     .toggleStyle(SwitchToggleStyle())
                 Toggle("Visuals", isOn: $visualsEnabled)
                     .toggleStyle(SwitchToggleStyle())
@@ -723,7 +723,7 @@ struct ContentView: View {
         @Binding var allowMouseTakeoverDuringTyping: Bool
         @Binding var autocorrectEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
-        @State private var typingTuningExpanded = false
+        @State private var typingTuningExpanded = true
         let onRefreshDevices: () -> Void
         let onAutoResyncChange: (Bool) -> Void
         let onAddCustomButton: (TrackpadSide) -> Void
