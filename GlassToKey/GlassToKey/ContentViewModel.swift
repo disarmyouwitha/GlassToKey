@@ -22,6 +22,34 @@ enum TrackpadSide: String, Codable, CaseIterable, Identifiable {
 
 typealias LayeredKeyMappings = [Int: [String: KeyMapping]]
 
+struct SidePair<Value> {
+    var left: Value
+    var right: Value
+
+    init(left: Value, right: Value) {
+        self.left = left
+        self.right = right
+    }
+
+    init(repeating value: Value) {
+        self.left = value
+        self.right = value
+    }
+
+    subscript(_ side: TrackpadSide) -> Value {
+        get { side == .left ? left : right }
+        set {
+            if side == .left {
+                left = newValue
+            } else {
+                right = newValue
+            }
+        }
+    }
+}
+
+extension SidePair: Sendable where Value: Sendable {}
+
 struct GridKeyPosition: Codable, Hashable {
     let side: TrackpadSide
     let row: Int
@@ -194,14 +222,8 @@ final class ContentViewModel: ObservableObject {
     @Published var isListening: Bool = false
     @Published var isTypingEnabled: Bool = true
     @Published private(set) var activeLayer: Int = 0
-    @Published private(set) var contactFingerCountsBySide: [TrackpadSide: Int] = [
-        .left: 0,
-        .right: 0
-    ]
-    @Published private(set) var intentDisplayBySide: [TrackpadSide: IntentDisplay] = [
-        .left: .idle,
-        .right: .idle
-    ]
+    @Published private(set) var contactFingerCountsBySide = SidePair(left: 0, right: 0)
+    @Published private(set) var intentDisplayBySide = SidePair(left: IntentDisplay.idle, right: .idle)
     private let isDragDetectionEnabled = true
     @Published var availableDevices = [OMSDeviceInfo]()
     @Published var leftDevice: OMSDeviceInfo?
@@ -242,12 +264,12 @@ final class ContentViewModel: ObservableObject {
                 weakSelf?.recordDebugHit(binding)
             }
         }
-        let contactCountHandler: @Sendable ([TrackpadSide: Int]) -> Void = { counts in
+        let contactCountHandler: @Sendable (SidePair<Int>) -> Void = { counts in
             Task { @MainActor in
                 weakSelf?.contactFingerCountsBySide = counts
             }
         }
-        let intentStateHandler: @Sendable ([TrackpadSide: IntentDisplay]) -> Void = { states in
+        let intentStateHandler: @Sendable (SidePair<IntentDisplay>) -> Void = { states in
             Task { @MainActor in
                 weakSelf?.intentDisplayBySide = states
             }
@@ -1085,8 +1107,8 @@ final class ContentViewModel: ObservableObject {
         private let onTypingEnabledChanged: @Sendable (Bool) -> Void
         private let onActiveLayerChanged: @Sendable (Int) -> Void
         private let onDebugBindingDetected: @Sendable (KeyBinding) -> Void
-        private let onContactCountChanged: @Sendable ([TrackpadSide: Int]) -> Void
-        private let onIntentStateChanged: @Sendable ([TrackpadSide: IntentDisplay]) -> Void
+        private let onContactCountChanged: @Sendable (SidePair<Int>) -> Void
+        private let onIntentStateChanged: @Sendable (SidePair<IntentDisplay>) -> Void
         private let isDragDetectionEnabled = true
         private var isListening = false
         private var isTypingEnabled = true
@@ -1115,16 +1137,13 @@ final class ContentViewModel: ObservableObject {
         private var holdMinDuration: TimeInterval = 0.2
         private var dragCancelDistance: CGFloat = 2.5
         private var forceClickCap: Float = 0
-        private var contactFingerCountsBySide: [TrackpadSide: Int] = [
-            .left: 0,
-            .right: 0
-        ]
+        private var contactFingerCountsBySide = SidePair(left: 0, right: 0)
         private struct ContactCountCache {
             var actual: Int
             var displayed: Int
             var timestamp: TimeInterval
         }
-        private var contactCountCache: [TrackpadSide: ContactCountCache] = [:]
+        private var contactCountCache = SidePair<ContactCountCache?>(left: nil, right: nil)
         private let contactCountHoldDuration: TimeInterval = 0.06
         private let repeatInitialDelay: UInt64 = 350_000_000
         private let repeatInterval: UInt64 = 50_000_000
@@ -1135,10 +1154,10 @@ final class ContentViewModel: ObservableObject {
         private var rightLabels: [[String]] = []
         private var trackpadSize: CGSize = .zero
         private var trackpadWidthMm: CGFloat = 1.0
-        private var bindingsCache: [TrackpadSide: BindingIndex] = [:]
+        private var bindingsCache = SidePair<BindingIndex?>(left: nil, right: nil)
         private var bindingsCacheLayer: Int = -1
         private var bindingsGeneration = 0
-        private var bindingsGenerationBySide: [TrackpadSide: Int] = [:]
+        private var bindingsGenerationBySide = SidePair(left: -1, right: -1)
         private var hapticStrength: Double = 0
         private struct IntentState {
             var mode: IntentMode = .idle
@@ -1147,10 +1166,7 @@ final class ContentViewModel: ObservableObject {
         }
 
         private var intentState = IntentState()
-        private var intentDisplayBySide: [TrackpadSide: IntentDisplay] = [
-            .left: .idle,
-            .right: .idle
-        ]
+        private var intentDisplayBySide = SidePair(left: IntentDisplay.idle, right: .idle)
         private var intentConfig = IntentConfig()
         private var allowMouseTakeoverDuringTyping = false
         private var typingGraceDeadline: TimeInterval?
@@ -1172,8 +1188,8 @@ final class ContentViewModel: ObservableObject {
             onTypingEnabledChanged: @Sendable @escaping (Bool) -> Void,
             onActiveLayerChanged: @Sendable @escaping (Int) -> Void,
             onDebugBindingDetected: @Sendable @escaping (KeyBinding) -> Void,
-            onContactCountChanged: @Sendable @escaping ([TrackpadSide: Int]) -> Void,
-            onIntentStateChanged: @Sendable @escaping ([TrackpadSide: IntentDisplay]) -> Void
+            onContactCountChanged: @Sendable @escaping (SidePair<Int>) -> Void,
+            onIntentStateChanged: @Sendable @escaping (SidePair<IntentDisplay>) -> Void
         ) {
             self.keyDispatcher = keyDispatcher
             self.onTypingEnabledChanged = onTypingEnabledChanged
@@ -3062,10 +3078,10 @@ final class ContentViewModel: ObservableObject {
         }
 
         func clearVisualCaches() {
-            bindingsCache.removeAll()
+            bindingsCache = SidePair<BindingIndex?>(left: nil, right: nil)
             bindingsCacheLayer = -1
             bindingsGeneration &+= 1
-            bindingsGenerationBySide.removeAll()
+            bindingsGenerationBySide = SidePair(left: -1, right: -1)
         }
 
         private func bindings(
@@ -3078,7 +3094,7 @@ final class ContentViewModel: ObservableObject {
                 bindingsCacheLayer = activeLayer
                 invalidateBindingsCache()
             }
-            let currentGeneration = bindingsGenerationBySide[side] ?? -1
+            let currentGeneration = bindingsGenerationBySide[side]
             if currentGeneration != bindingsGeneration || bindingsCache[side] == nil {
                 bindingsCache[side] = makeBindings(
                     layout: layout,

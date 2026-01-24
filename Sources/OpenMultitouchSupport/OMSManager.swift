@@ -245,13 +245,7 @@ public final class OMSManager: Sendable {
 
     private func resolveDeviceIndex(for deviceID: String) -> Int {
         protectedDeviceIndexStore.withLockUnchecked { store in
-            if let existing = store.indexByID[deviceID] {
-                return existing
-            }
-            let assigned = store.nextIndex
-            store.nextIndex += 1
-            store.indexByID[deviceID] = assigned
-            return assigned
+            store.index(for: deviceID)
         }
     }
 
@@ -302,8 +296,46 @@ public final class OMSManager: Sendable {
 }
 
 private struct DeviceIndexStore: Sendable {
-    var nextIndex: Int = 0
-    var indexByID: [String: Int] = [:]
+    private var id0: String?
+    private var id1: String?
+    private var last0: UInt64 = 0
+    private var last1: UInt64 = 0
+    private var counter: UInt64 = 0
+
+    mutating func index(for deviceID: String) -> Int {
+        if id0 == deviceID {
+            last0 = tick()
+            return 0
+        }
+        if id1 == deviceID {
+            last1 = tick()
+            return 1
+        }
+        let current = tick()
+        if id0 == nil {
+            id0 = deviceID
+            last0 = current
+            return 0
+        }
+        if id1 == nil {
+            id1 = deviceID
+            last1 = current
+            return 1
+        }
+        if last0 <= last1 {
+            id0 = deviceID
+            last0 = current
+            return 0
+        }
+        id1 = deviceID
+        last1 = current
+        return 1
+    }
+
+    private mutating func tick() -> UInt64 {
+        counter &+= 1
+        return counter
+    }
 }
 
 public struct OMSRawTouch: Sendable {
