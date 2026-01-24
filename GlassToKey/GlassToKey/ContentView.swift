@@ -108,7 +108,7 @@ struct ContentView: View {
     fileprivate static let typingGraceRange: ClosedRange<Double> = 10.0...1000.0
     fileprivate static let intentMoveThresholdRange: ClosedRange<Double> = 0.5...10.0
     fileprivate static let intentVelocityThresholdRange: ClosedRange<Double> = 10.0...200.0
-    fileprivate static let snapRadiusPercentRange: ClosedRange<Double> = 10.0...80.0
+    fileprivate static let snapRadiusPercentRange: ClosedRange<Double> = 10.0...125.0
     private static let keyCornerRadius: CGFloat = 6.0
     fileprivate static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
