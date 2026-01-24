@@ -1,9 +1,13 @@
 import ApplicationServices
+import AppKit
 import Dispatch
 import Foundation
 
 final class AccessibilityTextReplacer: @unchecked Sendable {
     private let maxDurationNs: UInt64 = 20_000_000
+    private static let axBlockedBundleIDs: Set<String> = [
+        "com.googlecode.iterm2"
+    ]
 
     func replaceLastWord(
         wordLength: Int,
@@ -28,6 +32,12 @@ final class AccessibilityTextReplacer: @unchecked Sendable {
         var pid: pid_t = 0
         let pidResult = AXUIElementGetPid(element, &pid)
         if pidResult == .success, pid == getpid() {
+            return false
+        }
+        if pidResult == .success,
+           let app = NSRunningApplication(processIdentifier: pid),
+           let bundleID = app.bundleIdentifier,
+           Self.axBlockedBundleIDs.contains(bundleID) {
             return false
         }
 
