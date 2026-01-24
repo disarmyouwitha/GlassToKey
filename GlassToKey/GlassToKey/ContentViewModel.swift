@@ -1100,7 +1100,7 @@ final class ContentViewModel: ObservableObject {
         private var customButtonsByLayerAndSide: [Int: [TrackpadSide: [CustomButton]]] = [:]
         private var customKeyMappingsByLayer: LayeredKeyMappings = [:]
         private var touchStates = TouchTable<TouchState>()
-        private var disqualifiedTouches: Set<TouchKey> = []
+        private var disqualifiedTouches = TouchTable<Bool>()
         private var leftShiftTouchCount = 0
         private var controlTouchCount = 0
         private var optionTouchCount = 0
@@ -1370,7 +1370,7 @@ final class ContentViewModel: ObservableObject {
                 handleForceGuard(touchKey: touchKey, pressure: touch.pressure, now: now)
                 let bindingAtPoint = binding(at: point, index: bindings)
 
-                if disqualifiedTouches.contains(touchKey) {
+                if disqualifiedTouches.value(for: touchKey) != nil {
                     switch touch.state {
                     case .breaking, .leaving, .notTouching:
                         disqualifiedTouches.remove(touchKey)
@@ -1508,7 +1508,7 @@ final class ContentViewModel: ObservableObject {
                                 triggerBinding(pending.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
                                 _ = removePendingTouch(for: touchKey)
                                 touchInitialContactPoint.remove(touchKey)
-                                disqualifiedTouches.insert(touchKey)
+                                disqualifiedTouches.set(touchKey, true)
                                 continue
                             }
                             let active = ActiveTouch(
@@ -1555,7 +1555,7 @@ final class ContentViewModel: ObservableObject {
                             )
                             triggerBinding(binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
                             touchInitialContactPoint.remove(touchKey)
-                            disqualifiedTouches.insert(touchKey)
+                            disqualifiedTouches.set(touchKey, true)
                             continue
                         }
                         if isDragDetectionEnabled, (modifierKey != nil || isContinuousKey) {
@@ -2569,7 +2569,7 @@ final class ContentViewModel: ObservableObject {
 
         private func playHapticIfNeeded(on side: TrackpadSide?, touchKey: TouchKey? = nil) {
             guard hapticStrength > 0 else { return }
-            if let touchKey, disqualifiedTouches.contains(touchKey) { return }
+            if let touchKey, disqualifiedTouches.value(for: touchKey) != nil { return }
             let deviceID: String?
             switch side {
             case .left:
@@ -2827,7 +2827,7 @@ final class ContentViewModel: ObservableObject {
 
         private func disqualifyTouch(_ touchKey: TouchKey, reason: DisqualifyReason) {
             touchInitialContactPoint.remove(touchKey)
-            disqualifiedTouches.insert(touchKey)
+            disqualifiedTouches.set(touchKey, true)
             if let state = popTouchState(for: touchKey),
                case let .active(active) = state {
                 if let modifierKey = active.modifierKey, active.modifierEngaged {
