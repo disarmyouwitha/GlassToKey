@@ -1663,12 +1663,13 @@ final class ContentViewModel: ObservableObject {
 
                 switch touch.state {
                 case .starting, .making, .touching:
-                    if touchStates.value(for: touchKey) == nil {
-                        resolvePendingSingleTapIfNeeded(
+                    if touchStates.value(for: touchKey) == nil,
+                       resolvePendingSingleTapIfNeeded(
                             binding: bindingAtPoint,
                             touchKey: touchKey,
                             now: now
-                        )
+                        ) {
+                        continue
                     }
                     if var active = activeTouch(for: touchKey) {
                         let distanceSquared = distanceSquared(from: active.startPoint, to: point)
@@ -2804,16 +2805,24 @@ final class ContentViewModel: ObservableObject {
             binding: KeyBinding?,
             touchKey: TouchKey,
             now: TimeInterval
-        ) {
-            guard let pending = pendingSingleTap else { return }
+        ) -> Bool {
+            guard let pending = pendingSingleTap else { return false }
             if now > pending.deadline {
                 pendingSingleTap = nil
-                return
+                return false
             }
-            guard let binding, case .key = binding.action else { return }
+            guard let binding, case .key = binding.action else { return false }
             if isMouseGraceActive(now: now) {
                 pendingSingleTap = nil
-                return
+                return false
+            }
+            if !typingSequenceConfirmed,
+               !isTypingGraceActive(now: now),
+               (now - pending.startTime) <= intentConfig.keyBufferSeconds,
+               tapIdentity(for: binding) == tapIdentity(for: pending.binding) {
+                pendingSingleTap = nil
+                disqualifyTouch(touchKey, reason: .intentMouse)
+                return true
             }
             let dispatchInfo = makeDispatchInfo(
                 kind: .tap,
@@ -2823,6 +2832,7 @@ final class ContentViewModel: ObservableObject {
             )
             triggerBinding(pending.binding, touchKey: pending.touchKey, dispatchInfo: dispatchInfo)
             pendingSingleTap = nil
+            return false
         }
 
         private func shouldDispatchTapImmediately(now: TimeInterval, minHoldSatisfied: Bool) -> Bool {
@@ -2859,6 +2869,29 @@ final class ContentViewModel: ObservableObject {
                 maxDistanceSquared: maxDistanceSquared,
                 deadline: deadline
             )
+        }
+
+        private func tapIdentity(for binding: KeyBinding) -> UInt64 {
+            if let position = binding.position {
+                let sideBits: UInt64 = binding.side == .left ? 1 : 2
+                let rowBits = UInt64(UInt32(max(0, min(position.row, 0x0FFF))))
+                let colBits = UInt64(UInt32(max(0, min(position.column, 0x0FFF))))
+                return (sideBits << 48) | (rowBits << 24) | colBits
+            }
+            let sideBits: UInt64 = binding.side == .left ? 1 : 2
+            let scale: CGFloat = 4095.0
+            let x = UInt64(clampTapIdentity(binding.normalizedRect.x, scale: scale))
+            let y = UInt64(clampTapIdentity(binding.normalizedRect.y, scale: scale))
+            let w = UInt64(clampTapIdentity(binding.normalizedRect.width, scale: scale))
+            let h = UInt64(clampTapIdentity(binding.normalizedRect.height, scale: scale))
+            return (sideBits << 48) | (x << 36) | (y << 24) | (w << 12) | h
+        }
+
+        private func clampTapIdentity(_ value: CGFloat, scale: CGFloat) -> UInt32 {
+            let scaled = value * scale
+            if scaled <= 0 { return 0 }
+            if scaled >= scale { return UInt32(scale) }
+            return UInt32(scaled)
         }
 
         private func suppressKeyProcessing(for touchKeys: TouchTable<Bool>) {
