@@ -183,6 +183,9 @@ enum TapTrace {
             }
             let line = "{\"ts_ns\":\(entry.timestampNs),\"frame\":\(entry.frame),\"touchKey\":\(entry.touchKey),\"type\":\"\(typeLabel)\",\"keyCell\":\(keyCell),\"keyCode\":\(keyCodeValue),\"keyName\":\(keyNameValue),\"char\":\(charValue),\"charStr\":\(charStr),\"reason\":\"\(reasonLabel)\"}\n"
             buffer.append(contentsOf: line.utf8)
+            if entry.type == TapTraceEventType.finalized.rawValue {
+                buffer.append(contentsOf: "-------\n".utf8)
+            }
             if buffer.count >= 64 * 1024 {
                 handle.write(buffer)
                 buffer.removeAll(keepingCapacity: true)
