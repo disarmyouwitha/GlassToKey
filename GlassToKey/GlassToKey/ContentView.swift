@@ -482,9 +482,11 @@ struct ContentView: View {
                     Text("GlassToKey Studio")
                         .font(.title2)
                         .bold()
-                    HStack(spacing: 10) {
-                        contactCountPills
-                        intentBadge(intent: intentDisplay)
+                    if visualsEnabled {
+                        HStack(spacing: 10) {
+                            contactCountPills
+                            intentBadge(intent: intentDisplay)
+                        }
                     }
                 }
                 Spacer()
@@ -1486,6 +1488,7 @@ struct ContentView: View {
                         displayRightTouchesState = []
                         lastDisplayedHadTouches = false
                     }
+                    viewModel.setStatusVisualsEnabled(enabled)
                 }
                 .task(id: visualsEnabled) {
                     guard visualsEnabled else { return }
@@ -2042,6 +2045,7 @@ struct ContentView: View {
 
     private func applySavedSettings() {
         visualsEnabled = storedVisualsEnabled
+        viewModel.setStatusVisualsEnabled(visualsEnabled)
         let resolvedLayout = TrackpadLayoutPreset(rawValue: storedLayoutPreset) ?? .sixByThree
         layoutOption = resolvedLayout
         selectedColumn = nil

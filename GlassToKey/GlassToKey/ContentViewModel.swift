@@ -49,6 +49,7 @@ struct SidePair<Value> {
 }
 
 extension SidePair: Sendable where Value: Sendable {}
+extension SidePair: Equatable where Value: Equatable {}
 
 struct GridKeyPosition: Codable, Hashable {
     let side: TrackpadSide
@@ -243,6 +244,7 @@ final class ContentViewModel: ObservableObject {
     private var requestedRightDeviceID: String?
     private var autoResyncTask: Task<Void, Never>?
     private var autoResyncEnabled = false
+    private var uiStatusVisualsEnabled = true
     private static let connectedResyncIntervalSeconds: TimeInterval = 10.0
     private static let disconnectedResyncIntervalSeconds: TimeInterval = 1.0
     private static let connectedResyncIntervalNanoseconds = UInt64(connectedResyncIntervalSeconds * 1_000_000_000)
@@ -266,12 +268,12 @@ final class ContentViewModel: ObservableObject {
         }
         let contactCountHandler: @Sendable (SidePair<Int>) -> Void = { counts in
             Task { @MainActor in
-                weakSelf?.contactFingerCountsBySide = counts
+                weakSelf?.publishContactCountsIfNeeded(counts)
             }
         }
         let intentStateHandler: @Sendable (SidePair<IntentDisplay>) -> Void = { states in
             Task { @MainActor in
-                weakSelf?.intentDisplayBySide = states
+                weakSelf?.publishIntentDisplayIfNeeded(states)
             }
         }
         processor = TouchProcessor(
@@ -741,8 +743,33 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func setStatusVisualsEnabled(_ enabled: Bool) {
+        uiStatusVisualsEnabled = enabled
+        if enabled {
+            Task { [processor] in
+                let snapshot = await processor.statusSnapshot()
+                Task { @MainActor in
+                    self.contactFingerCountsBySide = snapshot.contactCounts
+                    self.intentDisplayBySide = snapshot.intentDisplays
+                }
+            }
+        }
+    }
+
     deinit {
         autoResyncTask?.cancel()
+    }
+
+    private func publishContactCountsIfNeeded(_ counts: SidePair<Int>) {
+        guard uiStatusVisualsEnabled else { return }
+        guard counts != contactFingerCountsBySide else { return }
+        contactFingerCountsBySide = counts
+    }
+
+    private func publishIntentDisplayIfNeeded(_ display: SidePair<IntentDisplay>) {
+        guard uiStatusVisualsEnabled else { return }
+        guard display != intentDisplayBySide else { return }
+        intentDisplayBySide = display
     }
 
     private actor TouchProcessor {
@@ -1213,6 +1240,7 @@ final class ContentViewModel: ObservableObject {
         private var dragCancelDistance: CGFloat = 2.5
         private var forceClickCap: Float = 0
         private var contactFingerCountsBySide = SidePair(left: 0, right: 0)
+        private var lastReportedContactCounts = SidePair(left: -1, right: -1)
         private var tapTraceFrameIndex: UInt64 = 0
         private struct ContactCountCache {
             var actual: Int
@@ -1248,6 +1276,11 @@ final class ContentViewModel: ObservableObject {
         private var typingGraceDeadline: TimeInterval?
         private var typingGraceTask: Task<Void, Never>?
 
+        struct StatusSnapshot: Sendable {
+            let contactCounts: SidePair<Int>
+            let intentDisplays: SidePair<IntentDisplay>
+        }
+
 #if DEBUG
         private let signposter = OSSignposter(
             subsystem: "com.kyome.GlassToKey",
@@ -1273,6 +1306,13 @@ final class ContentViewModel: ObservableObject {
 
         func setListening(_ isListening: Bool) {
             self.isListening = isListening
+        }
+
+        func statusSnapshot() -> StatusSnapshot {
+            StatusSnapshot(
+                contactCounts: contactFingerCountsBySide,
+                intentDisplays: intentDisplayBySide
+            )
         }
 
         func updateActiveDevices(
@@ -3222,6 +3262,8 @@ final class ContentViewModel: ObservableObject {
         #endif
 
         private func notifyContactCounts() {
+            guard contactFingerCountsBySide != lastReportedContactCounts else { return }
+            lastReportedContactCounts = contactFingerCountsBySide
             onContactCountChanged(contactFingerCountsBySide)
         }
 
