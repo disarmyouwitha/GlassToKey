@@ -801,6 +801,10 @@ final class ContentViewModel: ObservableObject {
             Int32(bitPattern: UInt32(truncatingIfNeeded: key))
         }
 
+        private static func touchIDKey(from touchKey: TouchKey) -> TouchKey {
+            TouchKey(UInt64(UInt32(bitPattern: touchKeyID(touchKey))))
+        }
+
         private static func nowUptimeNanoseconds() -> UInt64 {
             DispatchTime.now().uptimeNanoseconds
         }
@@ -1006,6 +1010,77 @@ final class ContentViewModel: ObservableObject {
             }
         }
 
+        private struct MomentaryLayerTouches {
+            private var table0 = TouchTable<Int>(minimumCapacity: 8)
+            private var table1 = TouchTable<Int>(minimumCapacity: 8)
+
+            var isEmpty: Bool { table0.isEmpty && table1.isEmpty }
+
+            mutating func removeAll() {
+                table0.removeAll()
+                table1.removeAll()
+            }
+
+            func value(for touchKey: TouchKey) -> Int? {
+                guard let tableIndex = tableIndex(for: touchKey) else { return nil }
+                let idKey = TouchProcessor.touchIDKey(from: touchKey)
+                switch tableIndex {
+                case 0:
+                    return table0.value(for: idKey)
+                case 1:
+                    return table1.value(for: idKey)
+                default:
+                    return nil
+                }
+            }
+
+            mutating func set(_ touchKey: TouchKey, _ layer: Int) {
+                guard let tableIndex = tableIndex(for: touchKey) else { return }
+                let idKey = TouchProcessor.touchIDKey(from: touchKey)
+                switch tableIndex {
+                case 0:
+                    table0.set(idKey, layer)
+                case 1:
+                    table1.set(idKey, layer)
+                default:
+                    break
+                }
+            }
+
+            @discardableResult
+            mutating func remove(_ touchKey: TouchKey) -> Int? {
+                guard let tableIndex = tableIndex(for: touchKey) else { return nil }
+                let idKey = TouchProcessor.touchIDKey(from: touchKey)
+                switch tableIndex {
+                case 0:
+                    return table0.remove(idKey)
+                case 1:
+                    return table1.remove(idKey)
+                default:
+                    return nil
+                }
+            }
+
+            func forEachLayer(_ body: (Int) -> Void) {
+                table0.forEach { _, layer in
+                    body(layer)
+                }
+                table1.forEach { _, layer in
+                    body(layer)
+                }
+            }
+
+            private func tableIndex(for touchKey: TouchKey) -> Int? {
+                let deviceIndex = TouchProcessor.touchKeyDeviceIndex(touchKey)
+                switch deviceIndex {
+                case 0, 1:
+                    return deviceIndex
+                default:
+                    return nil
+                }
+            }
+        }
+
         private struct BindingGrid {
             private let rows: Int
             private let cols: Int
@@ -1131,7 +1206,7 @@ final class ContentViewModel: ObservableObject {
         private var repeatLoopTask: Task<Void, Never>?
         private var toggleTouchStarts = TouchTable<TimeInterval>()
         private var layerToggleTouchStarts = TouchTable<Int>()
-        private var momentaryLayerTouches = TouchTable<Int>()
+        private var momentaryLayerTouches = MomentaryLayerTouches()
         private var touchInitialContactPoint = TouchTable<CGPoint>()
         private var tapMaxDuration: TimeInterval = 0.2
         private var holdMinDuration: TimeInterval = 0.2
@@ -2047,8 +2122,7 @@ final class ContentViewModel: ObservableObject {
             var sumX: CGFloat = 0
             var sumY: CGFloat = 0
             var firstOnKeyTouchKey: TouchKey?
-            var currentKeys = Set<TouchKey>()
-            currentKeys.reserveCapacity(leftTouches.count + rightTouches.count)
+            var currentKeys = TouchTable<Bool>(minimumCapacity: leftTouches.count + rightTouches.count)
             var hasKeyboardAnchor = false
 
             func process(_ touch: OMSTouchData, side: TrackpadSide, bindings: BindingIndex) {
@@ -2058,7 +2132,7 @@ final class ContentViewModel: ObservableObject {
                     hasKeyboardAnchor = true
                     return
                 }
-                currentKeys.insert(touchKey)
+                currentKeys.set(touchKey, true)
                 contactCount += 1
                 let point = CGPoint(
                     x: CGFloat(touch.position.x) * trackpadSize.width,
@@ -2112,7 +2186,7 @@ final class ContentViewModel: ObservableObject {
             if state.touches.count != currentKeys.count {
                 var toRemove: [TouchKey] = []
                 state.touches.forEach { key, _ in
-                    if !currentKeys.contains(key) {
+                    if currentKeys.value(for: key) == nil {
                         toRemove.append(key)
                     }
                 }
@@ -2291,13 +2365,13 @@ final class ContentViewModel: ObservableObject {
             return false
         }
 
-        private func suppressKeyProcessing(for touchKeys: Set<TouchKey>) {
+        private func suppressKeyProcessing(for touchKeys: TouchTable<Bool>) {
             if isTypingGraceActive() {
                 return
             }
-            for touchKey in touchKeys {
+            touchKeys.forEach { touchKey, _ in
                 if momentaryLayerTouches.value(for: touchKey) != nil {
-                    continue
+                    return
                 }
                 disqualifyTouch(touchKey, reason: .intentMouse)
                 toggleTouchStarts.remove(touchKey)
@@ -2933,7 +3007,7 @@ final class ContentViewModel: ObservableObject {
 
         private func maxMomentaryLayer() -> Int? {
             var maxLayer: Int?
-            momentaryLayerTouches.forEach { _, layer in
+            momentaryLayerTouches.forEachLayer { layer in
                 if let current = maxLayer {
                     if layer > current {
                         maxLayer = layer
