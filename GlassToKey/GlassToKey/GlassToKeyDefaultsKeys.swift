@@ -17,4 +17,5 @@ enum GlassToKeyDefaultsKeys {
     static let allowMouseTakeoverDuringTyping = "GlassToKey.allowMouseTakeoverDuringTyping"
     static let layoutPreset = "GlassToKey.layoutPreset"
     static let autoResyncMissingTrackpads = "GlassToKey.autoResyncMissingTrackpads"
+    static let autocorrectEnabled = "GlassToKey.autocorrectEnabled"
 }

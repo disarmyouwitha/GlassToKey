@@ -58,6 +58,11 @@ private final class CGEventKeyDispatcher: @unchecked Sendable, KeyDispatching {
                 ) else {
                     return
                 }
+                AutocorrectEngine.shared.recordDispatchedKey(
+                    code: code,
+                    flags: flags,
+                    keyDown: true
+                )
                 keyDown.flags = flags
                 keyUp.flags = flags
                 keyDown.post(tap: .cghidEventTap)
@@ -86,6 +91,13 @@ private final class CGEventKeyDispatcher: @unchecked Sendable, KeyDispatching {
                     keyDown: keyDown
                 ) else {
                     return
+                }
+                if keyDown {
+                    AutocorrectEngine.shared.recordDispatchedKey(
+                        code: code,
+                        flags: flags,
+                        keyDown: true
+                    )
                 }
                 event.flags = flags
                 event.post(tap: .cghidEventTap)
