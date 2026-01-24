@@ -1213,6 +1213,7 @@ final class ContentViewModel: ObservableObject {
         private var dragCancelDistance: CGFloat = 2.5
         private var forceClickCap: Float = 0
         private var contactFingerCountsBySide = SidePair(left: 0, right: 0)
+        private var tapTraceFrameIndex: UInt64 = 0
         private struct ContactCountCache {
             var actual: Int
             var displayed: Int
@@ -1251,10 +1252,6 @@ final class ContentViewModel: ObservableObject {
         private let signposter = OSSignposter(
             subsystem: "com.kyome.GlassToKey",
             category: "TouchProcessing"
-        )
-        private let keyLogger = Logger(
-            subsystem: "com.kyome.GlassToKey",
-            category: "KeyDiagnostics"
         )
 #endif
 
@@ -1370,6 +1367,9 @@ final class ContentViewModel: ObservableObject {
                 return
             }
             let now = Self.now()
+#if DEBUG
+            tapTraceFrameIndex &+= 1
+#endif
             let allowTypingGlobal = updateIntent(for: frame, now: now)
             processTouches(
                 frame.left,
@@ -1519,17 +1519,26 @@ final class ContentViewModel: ObservableObject {
                     }
                 }
                 if !isTypingEnabled && momentaryLayerTouches.isEmpty {
-                    if let active = removeActiveTouch(for: touchKey) {
+                    let removedActive = removeActiveTouch(for: touchKey)
+                    let removedPending = removePendingTouch(for: touchKey)
+                    if let active = removedActive {
                         if let modifierKey = active.modifierKey {
                             handleModifierUp(modifierKey, binding: active.binding)
                         } else if active.isContinuousKey {
                             stopRepeat(for: touchKey)
                        }
                     }
-                    _ = removePendingTouch(for: touchKey)
+                    #if DEBUG
+                    let traceBinding = removedActive?.binding ?? removedPending?.binding
+                    recordTapTrace(
+                        .disqualified,
+                        touchKey: touchKey,
+                        binding: traceBinding,
+                        reason: .typingDisabled
+                    )
+                    #endif
                     disqualifiedTouches.remove(touchKey)
                     touchInitialContactPoint.remove(touchKey)
-                    logDisqualify(touchKey, reason: .typingDisabled)
                     continue
                 }
 
@@ -1694,21 +1703,46 @@ final class ContentViewModel: ObservableObject {
                     if var pending = removePendingTouch(for: touchKey) {
                         let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
                         pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
+                        var didDispatch = false
                         if intentAllowsTyping {
-                            maybeSendPendingContinuousTap(pending, at: point, now: now)
+                            didDispatch = maybeSendPendingContinuousTap(
+                                pending,
+                                touchKey: touchKey,
+                                at: point,
+                                now: now
+                            )
                         } else if shouldCommitTypingOnRelease(
                             touchKey: touchKey,
                             binding: pending.binding,
                             point: point,
                             side: side
                         ) {
-                            maybeSendPendingContinuousTap(pending, at: point, now: now)
+                            didDispatch = maybeSendPendingContinuousTap(
+                                pending,
+                                touchKey: touchKey,
+                                at: point,
+                                now: now
+                            )
                         }
+                        #if DEBUG
+                        let elapsed = now - pending.startTime
+                        if !didDispatch && elapsed > tapMaxDuration {
+                            recordTapTrace(
+                                .expired,
+                                touchKey: touchKey,
+                                binding: pending.binding,
+                                reason: .timeout
+                            )
+                        } else {
+                            recordTapTrace(.finalized, touchKey: touchKey, binding: pending.binding)
+                        }
+                        #endif
                     }
                     if disqualifiedTouches.remove(touchKey) != nil {
                         continue
                     }
                     if var active = removeActiveTouch(for: touchKey) {
+                        var didDispatch = false
                         let releaseDistanceSquared = distanceSquared(
                             from: releaseStartPoint ?? active.startPoint,
                             to: point
@@ -1737,28 +1771,66 @@ final class ContentViewModel: ObservableObject {
                                     now: now
                                 )
                                 triggerBinding(active.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
+                                didDispatch = true
                             }
                         }
                         endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
                         if guardTriggered {
                             continue
                         }
+                        #if DEBUG
+                        let elapsed = now - active.startTime
+                        if !didDispatch && elapsed > tapMaxDuration {
+                            recordTapTrace(
+                                .expired,
+                                touchKey: touchKey,
+                                binding: active.binding,
+                                reason: .timeout
+                            )
+                        } else {
+                            recordTapTrace(.finalized, touchKey: touchKey, binding: active.binding)
+                        }
+                        #endif
                     }
                 case .notTouching:
                     touchInitialContactPoint.remove(touchKey)
                     if var pending = removePendingTouch(for: touchKey) {
                         let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
                         pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
+                        var didDispatch = false
                         if intentAllowsTyping {
-                            maybeSendPendingContinuousTap(pending, at: point, now: now)
+                            didDispatch = maybeSendPendingContinuousTap(
+                                pending,
+                                touchKey: touchKey,
+                                at: point,
+                                now: now
+                            )
                         } else if shouldCommitTypingOnRelease(
                             touchKey: touchKey,
                             binding: pending.binding,
                             point: point,
                             side: side
                         ) {
-                            maybeSendPendingContinuousTap(pending, at: point, now: now)
+                            didDispatch = maybeSendPendingContinuousTap(
+                                pending,
+                                touchKey: touchKey,
+                                at: point,
+                                now: now
+                            )
                         }
+                        #if DEBUG
+                        let elapsed = now - pending.startTime
+                        if !didDispatch && elapsed > tapMaxDuration {
+                            recordTapTrace(
+                                .expired,
+                                touchKey: touchKey,
+                                binding: pending.binding,
+                                reason: .timeout
+                            )
+                        } else {
+                            recordTapTrace(.finalized, touchKey: touchKey, binding: pending.binding)
+                        }
+                        #endif
                     }
                     if disqualifiedTouches.remove(touchKey) != nil {
                         continue
@@ -1772,6 +1844,19 @@ final class ContentViewModel: ObservableObject {
                             stopRepeat(for: touchKey)
                         }
                         endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
+                        #if DEBUG
+                        let elapsed = now - active.startTime
+                        if elapsed > tapMaxDuration {
+                            recordTapTrace(
+                                .expired,
+                                touchKey: touchKey,
+                                binding: active.binding,
+                                reason: .timeout
+                            )
+                        } else {
+                            recordTapTrace(.finalized, touchKey: touchKey, binding: active.binding)
+                        }
+                        #endif
                     }
                 case .hovering, .lingering:
                     break
@@ -1833,10 +1918,18 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func setActiveTouch(_ touchKey: TouchKey, _ active: ActiveTouch) {
+            #if DEBUG
+            let event: TapTraceEventType = touchStates.value(for: touchKey) == nil ? .created : .updated
+            recordTapTrace(event, touchKey: touchKey, binding: active.binding)
+            #endif
             touchStates.set(touchKey, .active(active))
         }
 
         private func setPendingTouch(_ touchKey: TouchKey, _ pending: PendingTouch) {
+            #if DEBUG
+            let event: TapTraceEventType = touchStates.value(for: touchKey) == nil ? .created : .updated
+            recordTapTrace(event, touchKey: touchKey, binding: pending.binding)
+            #endif
             touchStates.set(touchKey, .pending(pending))
         }
 
@@ -2561,11 +2654,13 @@ final class ContentViewModel: ObservableObject {
             )
         }
 
+        @discardableResult
         private func maybeSendPendingContinuousTap(
             _ pending: PendingTouch,
+            touchKey: TouchKey,
             at point: CGPoint,
             now: TimeInterval
-        ) {
+        ) -> Bool {
             let releaseDistanceSquared = distanceSquared(from: pending.startPoint, to: point)
             guard isContinuousKey(pending.binding),
                   now - pending.startTime <= tapMaxDuration,
@@ -2573,7 +2668,7 @@ final class ContentViewModel: ObservableObject {
                   (!isDragDetectionEnabled
                    || releaseDistanceSquared <= dragCancelDistance * dragCancelDistance),
                   !pending.forceGuardTriggered else {
-                return
+                return false
             }
             let dispatchInfo = makeDispatchInfo(
                 kind: .tap,
@@ -2581,7 +2676,8 @@ final class ContentViewModel: ObservableObject {
                 maxDistanceSquared: pending.maxDistanceSquared,
                 now: now
             )
-            sendKey(binding: pending.binding, dispatchInfo: dispatchInfo)
+            sendKey(binding: pending.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
+            return true
         }
 
         private func triggerBinding(
@@ -2606,14 +2702,16 @@ final class ContentViewModel: ObservableObject {
 #endif
                 extendTypingGrace(for: binding.side, now: Self.now())
                 playHapticIfNeeded(on: binding.side, touchKey: touchKey)
-                logKeyDispatch(
-                    label: binding.label,
-                    code: code,
-                    flags: flags,
-                    kind: dispatchInfo?.kind ?? .continuous,
-                    durationMs: dispatchInfo?.durationMs,
-                    maxDistance: dispatchInfo?.maxDistance
-                )
+                #if DEBUG
+                if let touchKey {
+                    recordTapTrace(
+                        .dispatched,
+                        touchKey: touchKey,
+                        binding: binding,
+                        char: traceCharScalar(from: binding.label)
+                    )
+                }
+                #endif
                 sendKey(code: code, flags: flags, side: binding.side)
             }
         }
@@ -2640,20 +2738,22 @@ final class ContentViewModel: ObservableObject {
             return modifierFlags
         }
 
-        private func sendKey(binding: KeyBinding, dispatchInfo: DispatchInfo? = nil) {
+        private func sendKey(binding: KeyBinding, touchKey: TouchKey?, dispatchInfo: DispatchInfo? = nil) {
             guard case let .key(code, flags) = binding.action else { return }
             #if DEBUG
             onDebugBindingDetected(binding)
 #endif
             extendTypingGrace(for: binding.side, now: Self.now())
-            logKeyDispatch(
-                label: binding.label,
-                code: code,
-                flags: flags,
-                kind: dispatchInfo?.kind ?? .continuous,
-                durationMs: dispatchInfo?.durationMs,
-                maxDistance: dispatchInfo?.maxDistance
-            )
+            #if DEBUG
+            if let touchKey {
+                recordTapTrace(
+                    .dispatched,
+                    touchKey: touchKey,
+                    binding: binding,
+                    char: traceCharScalar(from: binding.label)
+                )
+            }
+            #endif
             sendKey(code: code, flags: flags, side: binding.side)
         }
 
@@ -2835,7 +2935,6 @@ final class ContentViewModel: ObservableObject {
 #if DEBUG
             onDebugBindingDetected(binding)
 #endif
-            logKeyDispatch(label: binding.label, code: code, flags: flags, keyDown: keyDown)
             keyDispatcher.postKey(code: code, flags: flags, keyDown: keyDown)
         }
 
@@ -2918,8 +3017,8 @@ final class ContentViewModel: ObservableObject {
         private func disqualifyTouch(_ touchKey: TouchKey, reason: DisqualifyReason) {
             touchInitialContactPoint.remove(touchKey)
             disqualifiedTouches.set(touchKey, true)
-            if let state = popTouchState(for: touchKey),
-               case let .active(active) = state {
+            let state = popTouchState(for: touchKey)
+            if let state, case let .active(active) = state {
                 if let modifierKey = active.modifierKey, active.modifierEngaged {
                     handleModifierUp(modifierKey, binding: active.binding)
                 } else if active.isContinuousKey {
@@ -2930,7 +3029,23 @@ final class ContentViewModel: ObservableObject {
             if reason == .dragCancelled || reason == .pendingDragCancelled || reason == .forceCapExceeded {
                 enterMouseIntentFromDragCancel()
             }
-            logDisqualify(touchKey, reason: reason)
+            #if DEBUG
+            let binding: KeyBinding?
+            switch state {
+            case let .active(active):
+                binding = active.binding
+            case let .pending(pending):
+                binding = pending.binding
+            case .none:
+                binding = nil
+            }
+            recordTapTrace(
+                .disqualified,
+                touchKey: touchKey,
+                binding: binding,
+                reason: traceReason(for: reason)
+            )
+            #endif
         }
 
         private func enterMouseIntentFromDragCancel() {
@@ -3035,13 +3150,76 @@ final class ContentViewModel: ObservableObject {
             CACurrentMediaTime()
         }
 
-        private func logDisqualify(_ touchKey: TouchKey, reason: DisqualifyReason) {
-            #if DEBUG
-            let deviceIndex = Self.touchKeyDeviceIndex(touchKey)
-            let touchID = Self.touchKeyID(touchKey)
-            keyLogger.debug("disqualify deviceIndex=\(deviceIndex) id=\(touchID) reason=\(reason.rawValue)")
-            #endif
+        #if DEBUG
+        @inline(__always)
+        private func recordTapTrace(
+            _ type: TapTraceEventType,
+            touchKey: TouchKey,
+            binding: KeyBinding?,
+            char: UInt32 = 0,
+            reason: TapTraceReasonCode = .none
+        ) {
+            let keyCell = traceKeyCell(for: binding)
+            let keyCode = traceKeyCode(for: binding)
+            TapTrace.record(
+                type,
+                frame: tapTraceFrameIndex,
+                touchKey: touchKey,
+                keyRow: keyCell.row,
+                keyCol: keyCell.col,
+                keyCode: keyCode,
+                char: char,
+                reason: reason
+            )
         }
+
+        @inline(__always)
+        private func traceKeyCell(for binding: KeyBinding?) -> (row: Int16, col: Int16) {
+            guard let position = binding?.position else { return (-1, -1) }
+            let row = Int16(clamping: position.row)
+            let col = Int16(clamping: position.column)
+            return (row, col)
+        }
+
+        @inline(__always)
+        private func traceCharScalar(from label: String) -> UInt32 {
+            guard label.unicodeScalars.count == 1, let scalar = label.unicodeScalars.first else {
+                return 0
+            }
+            return scalar.value
+        }
+
+        @inline(__always)
+        private func traceKeyCode(for binding: KeyBinding?) -> Int16 {
+            guard let binding else { return -1 }
+            switch binding.action {
+            case let .key(code, _):
+                return Int16(truncatingIfNeeded: code)
+            default:
+                return -1
+            }
+        }
+
+        @inline(__always)
+        private func traceReason(for reason: DisqualifyReason) -> TapTraceReasonCode {
+            switch reason {
+            case .dragCancelled:
+                return .dragCancelled
+            case .pendingDragCancelled:
+                return .pendingDragCancelled
+            case .leftContinuousRect:
+                return .leftContinuousRect
+            case .leftKeyRect, .pendingLeftRect:
+                return .disqualifiedMove
+            case .typingDisabled:
+                return .typingDisabled
+            case .forceCapExceeded:
+                return .forceCapExceeded
+            case .intentMouse:
+                return .intentMouse
+            }
+        }
+        #endif
 
         private func notifyContactCounts() {
             onContactCountChanged(contactFingerCountsBySide)
@@ -3105,35 +3283,6 @@ final class ContentViewModel: ObservableObject {
             )
             contactCountCache[side] = updatedCache
             return displayed
-        }
-
-        private func logKeyDispatch(
-            label: String,
-            code: CGKeyCode,
-            flags: CGEventFlags,
-            keyDown: Bool? = nil,
-            kind: DispatchKind = .continuous,
-            durationMs: Int? = nil,
-            maxDistance: CGFloat? = nil
-        ) {
-            #if DEBUG
-            let shouldLogMetrics = (kind == .tap || kind == .hold)
-                && durationMs != nil
-                && maxDistance != nil
-            if let keyDown {
-                if shouldLogMetrics, let durationMs, let maxDistance {
-                    keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue) keyDown=\(keyDown) kind=\(kind.rawValue) durationMs=\(durationMs) maxDistance=\(maxDistance)")
-                } else {
-                    keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue) keyDown=\(keyDown) kind=\(kind.rawValue)")
-                }
-            } else {
-                if shouldLogMetrics, let durationMs, let maxDistance {
-                    keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue) kind=\(kind.rawValue) durationMs=\(durationMs) maxDistance=\(maxDistance)")
-                } else {
-                    keyLogger.debug("dispatch label=\(label, privacy: .public) code=\(code) flags=\(flags.rawValue) kind=\(kind.rawValue)")
-                }
-            }
-            #endif
         }
 
         private func makeDispatchInfo(

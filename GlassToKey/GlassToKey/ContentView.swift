@@ -5,6 +5,7 @@
 //  Created by Takuto Nakamura on 2024/03/02.
 //
 
+import AppKit
 import Combine
 import OpenMultitouchSupport
 import QuartzCore
@@ -652,6 +653,11 @@ struct ContentView: View {
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var allowMouseTakeoverDuringTyping: Bool
         @State private var typingTuningExpanded = false
+#if DEBUG
+        @State private var tapTraceDumpPath: String?
+        @State private var tapTraceDumpError: String?
+        @State private var tapTraceDumpInProgress = false
+#endif
         let onRefreshDevices: () -> Void
         let onAutoResyncChange: (Bool) -> Void
         let onAddCustomButton: (TrackpadSide) -> Void
@@ -722,9 +728,67 @@ struct ContentView: View {
                         onUpdateKeyMapping: onUpdateKeyMapping
                     )
                 }
+#if DEBUG
+                tapTraceSection
+#endif
             }
             .frame(width: 420)
         }
+
+#if DEBUG
+        private var tapTraceSection: some View {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Diagnostics")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Button(tapTraceDumpInProgress ? "Dumping..." : "Dump Tap Trace") {
+                    dumpTapTrace()
+                }
+                .buttonStyle(.bordered)
+                .disabled(tapTraceDumpInProgress)
+                if let tapTraceDumpPath {
+                    Text("Saved: \(tapTraceDumpPath)")
+                        .font(.caption)
+                        .textSelection(.enabled)
+                }
+                if let tapTraceDumpError {
+                    Text(tapTraceDumpError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.primary.opacity(0.05))
+            )
+        }
+
+        private func dumpTapTrace() {
+            tapTraceDumpInProgress = true
+            tapTraceDumpError = nil
+            let queue = DispatchQueue.global(qos: .utility)
+            queue.async {
+                do {
+                    let url = TapTrace.defaultDumpURL()
+                    try TapTrace.dumpJSONL(to: url)
+                    let path = url.path
+                    DispatchQueue.main.async {
+                        tapTraceDumpPath = path
+                        tapTraceDumpInProgress = false
+                        let pasteboard = NSPasteboard.general
+                        pasteboard.clearContents()
+                        pasteboard.setString(path, forType: .string)
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        tapTraceDumpError = error.localizedDescription
+                        tapTraceDumpInProgress = false
+                    }
+                }
+            }
+        }
+#endif
     }
 
     private struct DevicesSectionView: View {
@@ -1643,18 +1707,6 @@ struct ContentView: View {
             columnRects: [CGRect],
             resolvedIndex: Int?
         ) {
-            #if DEBUG
-            var debugInfo = "Point: \(point)"
-            if let resolvedIndex {
-                debugInfo += " resolvedIndex=\(resolvedIndex)"
-            }
-            debugInfo += " columnRects="
-            let rectStrings = columnRects.enumerated().map { index, rect in
-                "\(index):\(rect)"
-            }
-            debugInfo += rectStrings.joined(separator: ",")
-            print(debugInfo)
-            #endif
         }
     }
 
