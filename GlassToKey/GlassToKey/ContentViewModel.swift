@@ -7,6 +7,7 @@
 
 import Carbon
 import CoreGraphics
+import Darwin
 import Foundation
 import OpenMultitouchSupport
 import QuartzCore
@@ -789,6 +790,7 @@ final class ContentViewModel: ObservableObject {
             case typingDisabled
             case forceCapExceeded
             case intentMouse
+            case offKeyNoSnap
         }
 
         private enum DispatchKind: String {
@@ -1203,6 +1205,10 @@ final class ContentViewModel: ObservableObject {
         private struct BindingIndex {
             let keyGrid: BindingGrid
             let customGrid: BindingGrid
+            let snapBindings: [KeyBinding]
+            let snapCentersX: [Float]
+            let snapCentersY: [Float]
+            let snapRadiusSq: [Float]
         }
 
         private let keyDispatcher: KeyEventDispatcher
@@ -1239,6 +1245,13 @@ final class ContentViewModel: ObservableObject {
         private var holdMinDuration: TimeInterval = 0.2
         private var dragCancelDistance: CGFloat = 2.5
         private var forceClickCap: Float = 0
+        private let snapRadiusFraction: Float = 0.35
+#if DEBUG
+        nonisolated(unsafe) private static var snapAttemptCount: Int64 = 0
+        nonisolated(unsafe) private static var snapAcceptedCount: Int64 = 0
+        nonisolated(unsafe) private static var snapRejectedCount: Int64 = 0
+        nonisolated(unsafe) private static var snapOffKeyCount: Int64 = 0
+#endif
         private var contactFingerCountsBySide = SidePair(left: 0, right: 0)
         private var lastReportedContactCounts = SidePair(left: -1, right: -1)
         private var tapTraceFrameIndex: UInt64 = 0
@@ -1740,7 +1753,9 @@ final class ContentViewModel: ObservableObject {
                     }
                 case .breaking, .leaving:
                     let releaseStartPoint = touchInitialContactPoint.remove(touchKey)
-                    if var pending = removePendingTouch(for: touchKey) {
+                    let removedPending = removePendingTouch(for: touchKey)
+                    let hadPending = removedPending != nil
+                    if var pending = removedPending {
                         let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
                         pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
                         var didDispatch = false
@@ -1781,7 +1796,9 @@ final class ContentViewModel: ObservableObject {
                     if disqualifiedTouches.remove(touchKey) != nil {
                         continue
                     }
-                    if var active = removeActiveTouch(for: touchKey) {
+                    let removedActive = removeActiveTouch(for: touchKey)
+                    let hadActive = removedActive != nil
+                    if var active = removedActive {
                         var didDispatch = false
                         let releaseDistanceSquared = distanceSquared(
                             from: releaseStartPoint ?? active.startPoint,
@@ -1832,9 +1849,27 @@ final class ContentViewModel: ObservableObject {
                         }
                         #endif
                     }
+                    if !hadPending, !hadActive, bindingAtPoint == nil {
+                        if attemptSnapOnRelease(
+                            touchKey: touchKey,
+                            point: point,
+                            bindings: bindings,
+                            intentAllowsTyping: intentAllowsTyping
+                        ) {
+                            continue
+                        }
+                        if shouldAttemptSnap(intentAllowsTyping: intentAllowsTyping) {
+                            disqualifyTouch(touchKey, reason: .offKeyNoSnap)
+                            #if DEBUG
+                            OSAtomicIncrement64Barrier(&Self.snapOffKeyCount)
+                            #endif
+                        }
+                    }
                 case .notTouching:
                     touchInitialContactPoint.remove(touchKey)
-                    if var pending = removePendingTouch(for: touchKey) {
+                    let removedPending = removePendingTouch(for: touchKey)
+                    let hadPending = removedPending != nil
+                    if var pending = removedPending {
                         let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
                         pending.maxDistanceSquared = max(pending.maxDistanceSquared, distanceSquared)
                         var didDispatch = false
@@ -1875,7 +1910,9 @@ final class ContentViewModel: ObservableObject {
                     if disqualifiedTouches.remove(touchKey) != nil {
                         continue
                     }
-                    if var active = removeActiveTouch(for: touchKey) {
+                    let removedActive = removeActiveTouch(for: touchKey)
+                    let hadActive = removedActive != nil
+                    if var active = removedActive {
                         let distanceSquared = distanceSquared(from: active.startPoint, to: point)
                         active.maxDistanceSquared = max(active.maxDistanceSquared, distanceSquared)
                         if let modifierKey = active.modifierKey, active.modifierEngaged {
@@ -1897,6 +1934,22 @@ final class ContentViewModel: ObservableObject {
                             recordTapTrace(.finalized, touchKey: touchKey, binding: active.binding)
                         }
                         #endif
+                    }
+                    if !hadPending, !hadActive, bindingAtPoint == nil {
+                        if attemptSnapOnRelease(
+                            touchKey: touchKey,
+                            point: point,
+                            bindings: bindings,
+                            intentAllowsTyping: intentAllowsTyping
+                        ) {
+                            continue
+                        }
+                        if shouldAttemptSnap(intentAllowsTyping: intentAllowsTyping) {
+                            disqualifyTouch(touchKey, reason: .offKeyNoSnap)
+                            #if DEBUG
+                            OSAtomicIncrement64Barrier(&Self.snapOffKeyCount)
+                            #endif
+                        }
                     }
                 case .hovering, .lingering:
                     break
@@ -2011,6 +2064,25 @@ final class ContentViewModel: ObservableObject {
                 rows: max(4, keyRows),
                 cols: max(4, keyCols)
             )
+            let estimatedKeys = keyRects.reduce(0) { $0 + $1.count }
+            var snapBindings: [KeyBinding] = []
+            var snapCentersX: [Float] = []
+            var snapCentersY: [Float] = []
+            var snapRadiusSq: [Float] = []
+            snapBindings.reserveCapacity(estimatedKeys)
+            snapCentersX.reserveCapacity(estimatedKeys)
+            snapCentersY.reserveCapacity(estimatedKeys)
+            snapRadiusSq.reserveCapacity(estimatedKeys)
+
+            @inline(__always)
+            func appendSnapBinding(_ binding: KeyBinding) {
+                guard case .key = binding.action else { return }
+                snapBindings.append(binding)
+                snapCentersX.append(Float(binding.rect.midX))
+                snapCentersY.append(Float(binding.rect.midY))
+                let radius = Float(min(binding.rect.width, binding.rect.height)) * snapRadiusFraction
+                snapRadiusSq.append(radius * radius)
+            }
 
             let fallbackNormalized = NormalizedRect(x: 0, y: 0, width: 0, height: 0)
             for row in 0..<keyRects.count {
@@ -2031,6 +2103,7 @@ final class ContentViewModel: ObservableObject {
                         continue
                     }
                     keyGrid.insert(binding)
+                    appendSnapBinding(binding)
                 }
             }
 
@@ -2066,7 +2139,11 @@ final class ContentViewModel: ObservableObject {
 
             return BindingIndex(
                 keyGrid: keyGrid,
-                customGrid: customGrid
+                customGrid: customGrid,
+                snapBindings: snapBindings,
+                snapCentersX: snapCentersX,
+                snapCentersY: snapCentersY,
+                snapRadiusSq: snapRadiusSq
             )
         }
 
@@ -2176,6 +2253,87 @@ final class ContentViewModel: ObservableObject {
                 return binding
             }
             return index.customGrid.binding(at: point)
+        }
+
+        @inline(__always)
+        private func shouldAttemptSnap(intentAllowsTyping: Bool) -> Bool {
+            guard intentAllowsTyping else { return false }
+            switch intentState.mode {
+            case .mouseActive, .mouseCandidate, .gestureCandidate:
+                return false
+            default:
+                return true
+            }
+        }
+
+        @inline(__always)
+        private func nearestSnapIndex(to point: CGPoint, in bindings: BindingIndex) -> (Int, Float)? {
+            let count = bindings.snapCentersX.count
+            guard count > 0 else { return nil }
+            let px = Float(point.x)
+            let py = Float(point.y)
+            var bestIndex = -1
+            var bestDistance = Float.greatestFiniteMagnitude
+            for index in 0..<count {
+                let dx = px - bindings.snapCentersX[index]
+                let dy = py - bindings.snapCentersY[index]
+                let distance = dx * dx + dy * dy
+                if distance < bestDistance {
+                    bestDistance = distance
+                    bestIndex = index
+                }
+            }
+            guard bestIndex >= 0 else { return nil }
+            return (bestIndex, bestDistance)
+        }
+
+        private func dispatchSnappedBinding(_ binding: KeyBinding, touchKey: TouchKey) {
+            guard case let .key(code, flags) = binding.action else { return }
+            #if DEBUG
+            onDebugBindingDetected(binding)
+            #endif
+            extendTypingGrace(for: binding.side, now: Self.now())
+            playHapticIfNeeded(on: binding.side, touchKey: touchKey)
+            #if DEBUG
+            recordTapTrace(
+                .dispatched,
+                touchKey: touchKey,
+                binding: binding,
+                char: traceCharScalar(from: binding.label),
+                reason: .snapAccepted
+            )
+            #endif
+            sendKey(code: code, flags: flags, side: binding.side)
+        }
+
+        private func attemptSnapOnRelease(
+            touchKey: TouchKey,
+            point: CGPoint,
+            bindings: BindingIndex,
+            intentAllowsTyping: Bool
+        ) -> Bool {
+            guard shouldAttemptSnap(intentAllowsTyping: intentAllowsTyping) else { return false }
+            #if DEBUG
+            OSAtomicIncrement64Barrier(&Self.snapAttemptCount)
+            #endif
+            guard let (index, distanceSq) = nearestSnapIndex(to: point, in: bindings) else {
+                #if DEBUG
+                OSAtomicIncrement64Barrier(&Self.snapRejectedCount)
+                #endif
+                return false
+            }
+            if distanceSq <= bindings.snapRadiusSq[index] {
+                let binding = bindings.snapBindings[index]
+                dispatchSnappedBinding(binding, touchKey: touchKey)
+                #if DEBUG
+                OSAtomicIncrement64Barrier(&Self.snapAcceptedCount)
+                #endif
+                return true
+            }
+            #if DEBUG
+            OSAtomicIncrement64Barrier(&Self.snapRejectedCount)
+            #endif
+            return false
         }
 
         private static func isContactState(_ state: OMSState) -> Bool {
@@ -3257,6 +3415,8 @@ final class ContentViewModel: ObservableObject {
                 return .forceCapExceeded
             case .intentMouse:
                 return .intentMouse
+            case .offKeyNoSnap:
+                return .offKeyNoSnap
             }
         }
         #endif
@@ -3372,7 +3532,11 @@ final class ContentViewModel: ObservableObject {
             }
             return bindingsCache[side] ?? BindingIndex(
                 keyGrid: BindingGrid(canvasSize: .zero, rows: 1, cols: 1),
-                customGrid: BindingGrid(canvasSize: .zero, rows: 1, cols: 1)
+                customGrid: BindingGrid(canvasSize: .zero, rows: 1, cols: 1),
+                snapBindings: [],
+                snapCentersX: [],
+                snapCentersY: [],
+                snapRadiusSq: []
             )
         }
     }

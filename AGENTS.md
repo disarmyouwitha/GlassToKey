@@ -50,6 +50,7 @@
 - If build fails due to added files, please add them to the project to fix the error.
 - Always write the most performant and efficient code to turn an Apple Magic Trackpad into a keyboard with an emphasis on running in the background as a status app and instant key detection.
 - Always consider re-writes to the Private or Public APIs if there are efficiency gains to be had at a higher level.
+- Do not add allocations, logging, or file I/O to any hot path. If unsure whether a path is hot, assume it is hot.
   
 ## Important notes for next instance of Codex
 - None given.

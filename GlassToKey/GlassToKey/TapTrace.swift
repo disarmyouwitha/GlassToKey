@@ -80,6 +80,8 @@ enum TapTraceReasonCode: UInt8 {
     case pendingDragCancelled = 8
     case leftContinuousRect = 9
     case forceCapExceeded = 10
+    case offKeyNoSnap = 11
+    case snapAccepted = 12
 
     var label: String {
         switch self {
@@ -94,6 +96,8 @@ enum TapTraceReasonCode: UInt8 {
         case .pendingDragCancelled: return "pending_drag_cancelled"
         case .leftContinuousRect: return "left_continuous_rect"
         case .forceCapExceeded: return "force_cap_exceeded"
+        case .offKeyNoSnap: return "off_key_no_snap"
+        case .snapAccepted: return "snap_accepted"
         }
     }
 }
