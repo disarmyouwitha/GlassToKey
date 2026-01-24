@@ -2333,6 +2333,8 @@ final class ContentViewModel: ObservableObject {
             if distanceSq <= bindings.snapRadiusSq[index] {
                 let binding = bindings.snapBindings[index]
                 dispatchSnappedBinding(binding, touchKey: touchKey)
+                // Prevent duplicate snap dispatch on subsequent release states.
+                disqualifiedTouches.set(touchKey, true)
                 #if DEBUG
                 OSAtomicIncrement64Barrier(&Self.snapAcceptedCount)
                 #endif

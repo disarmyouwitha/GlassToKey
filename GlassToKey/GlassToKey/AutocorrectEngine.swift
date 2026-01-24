@@ -14,6 +14,7 @@ final class AutocorrectEngine: @unchecked Sendable {
 
     private static let capacity = 2048
     private static let mask = capacity - 1
+    private static let historyCapacity = 3
 
     nonisolated(unsafe) private static var enabledFlag: Int32 = 0
     nonisolated(unsafe) private static var suppressionCount: Int64 = 0
@@ -29,6 +30,10 @@ final class AutocorrectEngine: @unchecked Sendable {
     private let storage: UnsafeMutableBufferPointer<KeySemanticEvent>
 
     private var wordBuffer: [UInt8] = []
+    private var autocorrectBuffer: [UInt8] = []
+    private var historyBuffers: [[UInt8]] = []
+    private var historyHead = 0
+    private var historyCount = 0
     private let minWordLength = 3
     private let maxWordLength = 64
 
@@ -49,6 +54,11 @@ final class AutocorrectEngine: @unchecked Sendable {
         wakeSource.resume()
 
         wordBuffer.reserveCapacity(maxWordLength)
+        autocorrectBuffer.reserveCapacity(maxWordLength)
+        historyBuffers = Array(repeating: [], count: Self.historyCapacity)
+        for index in 0..<historyBuffers.count {
+            historyBuffers[index].reserveCapacity(maxWordLength)
+        }
     }
 
     func setEnabled(_ enabled: Bool) {
@@ -60,6 +70,8 @@ final class AutocorrectEngine: @unchecked Sendable {
         if !enabled {
             queue.async { [weak self] in
                 self?.wordBuffer.removeAll(keepingCapacity: true)
+                self?.autocorrectBuffer.removeAll(keepingCapacity: true)
+                self?.resetHistory()
             }
         }
     }
@@ -99,6 +111,8 @@ final class AutocorrectEngine: @unchecked Sendable {
         if !isEnabled {
             readIndex = end
             wordBuffer.removeAll(keepingCapacity: true)
+            autocorrectBuffer.removeAll(keepingCapacity: true)
+            resetHistory()
             return
         }
         let pending = end - readIndex
@@ -117,23 +131,40 @@ final class AutocorrectEngine: @unchecked Sendable {
         case .text:
             guard wordBuffer.count < maxWordLength else { return }
             wordBuffer.append(event.ascii)
+            if autocorrectBuffer.count < maxWordLength {
+                autocorrectBuffer.append(event.ascii)
+            }
         case .backspace:
             if !wordBuffer.isEmpty {
                 wordBuffer.removeLast()
+                if !autocorrectBuffer.isEmpty {
+                    autocorrectBuffer.removeLast()
+                }
+            } else {
+                _ = resurrectPreviousWord()
+                autocorrectBuffer.removeAll(keepingCapacity: true)
             }
         case .boundary:
             if !wordBuffer.isEmpty {
-                attemptCorrection(boundaryEvent: event)
+                if autocorrectBuffer.count == wordBuffer.count,
+                   let correctedBytes = attemptCorrection(bytes: autocorrectBuffer, boundaryEvent: event) {
+                    pushHistory(bytes: correctedBytes)
+                } else {
+                    pushHistoryFromCurrent()
+                }
+                wordBuffer.removeAll(keepingCapacity: true)
+                autocorrectBuffer.removeAll(keepingCapacity: true)
             }
-            wordBuffer.removeAll(keepingCapacity: true)
         case .nonText:
             wordBuffer.removeAll(keepingCapacity: true)
+            autocorrectBuffer.removeAll(keepingCapacity: true)
+            resetHistory()
         }
     }
 
-    private func attemptCorrection(boundaryEvent: KeySemanticEvent) {
-        guard shouldConsiderWord(wordBuffer) else { return }
-        guard let word = String(bytes: wordBuffer, encoding: .ascii) else { return }
+    private func attemptCorrection(bytes: [UInt8], boundaryEvent: KeySemanticEvent) -> [UInt8]? {
+        guard shouldConsiderWord(bytes) else { return nil }
+        guard let word = String(bytes: bytes, encoding: .ascii) else { return nil }
         let wordRange = NSRange(location: 0, length: word.utf16.count)
         let language = spellChecker.language(
             forWordRange: wordRange,
@@ -146,25 +177,27 @@ final class AutocorrectEngine: @unchecked Sendable {
             language: language,
             inSpellDocumentWithTag: spellDocumentTag
         ) else {
-            return
+            return nil
         }
-        guard correction != word else { return }
-        guard KeySemanticMapper.canTypeASCII(correction) else { return }
+        guard correction != word else { return nil }
+        guard KeySemanticMapper.canTypeASCII(correction) else { return nil }
 
+        let correctionBytes = [UInt8](correction.utf8)
         let boundaryLength = boundaryEvent.boundaryLength
         if textReplacer.replaceLastWord(
-            wordLength: wordBuffer.count,
+            wordLength: bytes.count,
             boundaryLength: boundaryLength,
             replacement: correction
         ) {
-            return
+            return correctionBytes
         }
 
         fallbackBackspaceRetype(
-            originalWordLength: wordBuffer.count,
+            originalWordLength: bytes.count,
             boundaryEvent: boundaryEvent,
             replacement: correction
         )
+        return correctionBytes
     }
 
     private func shouldConsiderWord(_ bytes: [UInt8]) -> Bool {
@@ -215,5 +248,48 @@ final class AutocorrectEngine: @unchecked Sendable {
         if boundaryLength > 0 {
             KeyEventDispatcher.shared.postKeyStroke(code: boundaryEvent.code, flags: boundaryEvent.flags)
         }
+    }
+
+    @inline(__always)
+    private func resetHistory() {
+        historyHead = 0
+        historyCount = 0
+    }
+
+    @inline(__always)
+    private func pushHistoryFromCurrent() {
+        guard !wordBuffer.isEmpty else { return }
+        let slot = historyHead
+        if !historyBuffers.isEmpty {
+            swap(&wordBuffer, &historyBuffers[slot])
+        }
+        historyHead = (historyHead + 1) % Self.historyCapacity
+        if historyCount < Self.historyCapacity {
+            historyCount += 1
+        }
+    }
+
+    @inline(__always)
+    private func pushHistory(bytes: [UInt8]) {
+        guard !bytes.isEmpty else { return }
+        let slot = historyHead
+        historyBuffers[slot].removeAll(keepingCapacity: true)
+        historyBuffers[slot].append(contentsOf: bytes)
+        historyHead = (historyHead + 1) % Self.historyCapacity
+        if historyCount < Self.historyCapacity {
+            historyCount += 1
+        }
+    }
+
+    @inline(__always)
+    private func resurrectPreviousWord() -> Bool {
+        guard historyCount > 0 else { return false }
+        let lastIndex = (historyHead - 1 + Self.historyCapacity) % Self.historyCapacity
+        if !historyBuffers.isEmpty {
+            swap(&wordBuffer, &historyBuffers[lastIndex])
+        }
+        historyHead = lastIndex
+        historyCount -= 1
+        return true
     }
 }

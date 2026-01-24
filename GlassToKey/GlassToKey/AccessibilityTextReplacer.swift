@@ -90,6 +90,16 @@ final class AccessibilityTextReplacer: @unchecked Sendable {
             return false
         }
 
+        if !verifyReplacement(
+            element: element,
+            targetStart: targetStart,
+            replacement: replacement,
+            originalCaret: originalCaret,
+            startTime: startTime
+        ) {
+            return false
+        }
+
         if boundaryLength > 0 {
             var caretRange = CFRange(
                 location: targetStart + replacement.utf16.count + boundaryLength,
@@ -105,6 +115,77 @@ final class AccessibilityTextReplacer: @unchecked Sendable {
         }
 
         return true
+    }
+
+    private func verifyReplacement(
+        element: AXUIElement,
+        targetStart: Int,
+        replacement: String,
+        originalCaret: CFRange,
+        startTime: UInt64
+    ) -> Bool {
+        if elapsedNs(since: startTime) > maxDurationNs {
+            restoreCaret(element: element, caret: originalCaret)
+            return false
+        }
+
+        if let selectedText = copySelectedText(element: element) {
+            if selectedText == replacement {
+                return true
+            }
+        }
+
+        if let selectedRange = copySelectedRange(element: element),
+           selectedRange.length == 0 {
+            var replaceRange = CFRange(location: targetStart, length: replacement.utf16.count)
+            if let rangeValue = AXValueCreate(.cfRange, &replaceRange) {
+                let setRangeResult = AXUIElementSetAttributeValue(
+                    element,
+                    kAXSelectedTextRangeAttribute as CFString,
+                    rangeValue
+                )
+                if setRangeResult == .success {
+                    if let reselectedText = copySelectedText(element: element),
+                       reselectedText == replacement {
+                        restoreCaret(element: element, caret: originalCaret)
+                        return true
+                    }
+                }
+            }
+        }
+
+        restoreCaret(element: element, caret: originalCaret)
+        return false
+    }
+
+    private func copySelectedText(element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextAttribute as CFString,
+            &value
+        )
+        guard result == .success, let value else { return nil }
+        if CFGetTypeID(value) != CFStringGetTypeID() {
+            return nil
+        }
+        return value as? String
+    }
+
+    private func copySelectedRange(element: AXUIElement) -> CFRange? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextRangeAttribute as CFString,
+            &value
+        )
+        guard result == .success, let value else { return nil }
+        guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        let axRange = value as! AXValue
+        guard AXValueGetType(axRange) == .cfRange else { return nil }
+        var range = CFRange()
+        guard AXValueGetValue(axRange, .cfRange, &range) else { return nil }
+        return range
     }
 
     private func elapsedNs(since start: UInt64) -> UInt64 {
