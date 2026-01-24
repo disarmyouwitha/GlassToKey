@@ -34,18 +34,31 @@ Clicking Edit will allow you to click any Column/Button and set the Action/Hold 
 - Autocorrect: Enables the built-in autocorrect engine for post-key dispatch word replacement.
 
 ## Intent State Machine
-GlassToKey runs a simple intent state machine to decide when touches should be interpreted as typing vs mouse input.
+GlassToKey runs a simple intent state machine to decide when touches should be interpreted as typing vs mouse input. The UI intent badges use these labels: `idle`, `cand`, `typing`, `mouse`, `gest`.
 
-- **Idle**: No active contacts. Any touch that begins on a key enters `keyCandidate`; otherwise it enters `mouseCandidate`.
-- **KeyCandidate**: A short buffer window (fixed at 40ms) watches for mouse-like motion. If the touch stays within thresholds, it becomes `typingCommitted`.
-- **TypingCommitted**: Key dispatches are allowed. Typing Grace keeps this state alive for a short window after a key is released.
-- **MouseCandidate**: Short buffer window (fixed at 40ms) watching for mouse-like motion. If motion exceeds thresholds or the buffer elapses, it becomes `mouseActive`.
-- **MouseActive**: Typing is suppressed while mouse intent is active (unless mouse takeover is disabled).
+```
+           on-key + stable                 buffer elapsed
+      ┌──────────────────────┐         ┌───────────────────┐
+      ▼                      │         ▼                   │
+[idle] → [cand] → [typing] ← [mouse] ← [mouseActive] ← [mouseCandidate]
+  │        │          │           ▲
+  │        │          └─ grace ────┘
+  │        └─ mouse-like motion → [mouseCandidate]
+  └─ 2+ touches in buffer (or 3+ simultaneous) → [gest] ──> [idle]
+```
+
+- **Idle (`idle`)**: No active contacts. Any touch that begins on a key enters `keyCandidate`; otherwise it enters `mouseCandidate`.
+- **KeyCandidate (`cand`)**: A short buffer window (fixed at 40ms) watches for mouse-like motion. If the touch stays within thresholds, it becomes `typingCommitted`.
+- **TypingCommitted (`typing`)**: Key dispatches are allowed. Typing Grace keeps this state alive for a short window after a key is released.
+- **MouseCandidate (`mouse`)**: Short buffer window (fixed at 40ms) watching for mouse-like motion. If motion exceeds thresholds or the buffer elapses, it becomes `mouseActive`.
+- **MouseActive (`mouse`)**: Typing is suppressed while mouse intent is active (unless mouse takeover is disabled).
+- **GestureCandidate (`gest`)**: Multi-finger gesture guard. If 2+ touches begin within the 40ms buffer (or 3+ touches arrive together), typing is suppressed and intent displays as gesture until the contact count drops.
 
 Transitions and notes:
 - **Typing Grace** extends `typingCommitted` after a key dispatch, even if all fingers lift.
 - **Drag Cancel** immediately disqualifies the touch and forces `mouseActive`.
 - **Mouse Takeover** (if enabled) allows mouse intent to interrupt typing before all fingers are lifted.
+- **GestureCandidate** enters when 2+ touches start within the key buffer window (or 3+ simultaneous touches) and exits back to `idle` once fewer than two contacts remain.
 
 ## Diagnostics (Debug Builds)
 - Performance profiling uses `OSSignposter` intervals around touch processing.
