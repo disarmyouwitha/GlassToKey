@@ -29,6 +29,7 @@ Clicking Edit will allow you to click any Column/Button and set the Action/Hold 
 - Typing Grace (ms): Time after a key dispatch to keep typing intent active.
 - Intent Move (mm): Movement threshold before a touch is treated as mouse intent.
 - Intent Velocity (mm/s): Speed threshold before a touch is treated as mouse intent.
+- Snap Radius (%): On release during typing intent, off-key taps will snap to the nearest key center if the release point is within this percent of the key’s smaller dimension.
 - Mouse Takeover: Allow mouse intent to interrupt typing before all fingers are lifted.
 - Autocorrect: Enables the built-in autocorrect engine for post-key dispatch word replacement.
 
