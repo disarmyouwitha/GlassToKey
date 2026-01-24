@@ -50,6 +50,11 @@ struct ContentView: View {
     @State private var testText = ""
     @State private var visualsEnabled = true
     @State private var editModeEnabled = false
+#if DEBUG
+    @State private var tapTraceDumpInProgress = false
+    @State private var tapTraceDumpStatus: String?
+    @State private var tapTraceDumpStatusToken = UUID()
+#endif
     @State private var columnSettings: [ColumnLayoutSettings]
     @State private var leftLayout: ContentViewModel.Layout
     @State private var rightLayout: ContentViewModel.Layout
@@ -376,7 +381,29 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
     private var headerView: some View {
+#if DEBUG
+        HeaderControlsView(
+            editModeEnabled: $editModeEnabled,
+            visualsEnabled: $visualsEnabled,
+            layerToggleBinding: layerToggleBinding,
+            isListening: viewModel.isListening,
+            leftContactCount: viewModel.contactFingerCountsBySide.left,
+            rightContactCount: viewModel.contactFingerCountsBySide.right,
+            intentDisplay: viewModel.intentDisplayBySide.left,
+            tapTraceDumpInProgress: tapTraceDumpInProgress,
+            tapTraceDumpStatus: tapTraceDumpStatus,
+            onDumpTapTrace: dumpTapTrace,
+            onStart: {
+                viewModel.start()
+            },
+            onStop: {
+                viewModel.stop()
+                visualsEnabled = false
+            }
+        )
+#else
         HeaderControlsView(
             editModeEnabled: $editModeEnabled,
             visualsEnabled: $visualsEnabled,
@@ -393,6 +420,7 @@ struct ContentView: View {
                 visualsEnabled = false
             }
         )
+#endif
     }
 
     private var contentRow: some View {
@@ -479,6 +507,11 @@ struct ContentView: View {
         let leftContactCount: Int
         let rightContactCount: Int
         let intentDisplay: ContentViewModel.IntentDisplay
+#if DEBUG
+        let tapTraceDumpInProgress: Bool
+        let tapTraceDumpStatus: String?
+        let onDumpTapTrace: () -> Void
+#endif
         let onStart: () -> Void
         let onStop: () -> Void
 
@@ -496,6 +529,18 @@ struct ContentView: View {
                     }
                 }
                 Spacer()
+#if DEBUG
+                if let tapTraceDumpStatus {
+                    Text(tapTraceDumpStatus)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Button(tapTraceDumpInProgress ? "Dumping..." : "Dump Tap Trace") {
+                    onDumpTapTrace()
+                }
+                .buttonStyle(.bordered)
+                .disabled(tapTraceDumpInProgress)
+#endif
                 Toggle("Edit", isOn: $editModeEnabled)
                     .toggleStyle(SwitchToggleStyle())
                 Toggle("Visuals", isOn: $visualsEnabled)
@@ -662,11 +707,6 @@ struct ContentView: View {
         @Binding var allowMouseTakeoverDuringTyping: Bool
         @Binding var autocorrectEnabled: Bool
         @State private var typingTuningExpanded = false
-#if DEBUG
-        @State private var tapTraceDumpPath: String?
-        @State private var tapTraceDumpError: String?
-        @State private var tapTraceDumpInProgress = false
-#endif
         let onRefreshDevices: () -> Void
         let onAutoResyncChange: (Bool) -> Void
         let onAddCustomButton: (TrackpadSide) -> Void
@@ -738,68 +778,49 @@ struct ContentView: View {
                         onUpdateKeyMapping: onUpdateKeyMapping
                     )
                 }
-#if DEBUG
-                tapTraceSection
-#endif
             }
             .frame(width: 420)
         }
+    }
 
 #if DEBUG
-        private var tapTraceSection: some View {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Diagnostics")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Button(tapTraceDumpInProgress ? "Dumping..." : "Dump Tap Trace") {
-                    dumpTapTrace()
+    private func dumpTapTrace() {
+        tapTraceDumpInProgress = true
+        tapTraceDumpStatus = nil
+        let queue = DispatchQueue.global(qos: .utility)
+        queue.async {
+            do {
+                let url = TapTrace.defaultDumpURL()
+                try TapTrace.dumpJSONL(to: url)
+                let path = url.path
+                DispatchQueue.main.async {
+                    tapTraceDumpInProgress = false
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    pasteboard.setString(path, forType: .string)
+                    showTapTraceStatus("Path copied to clipboard")
                 }
-                .buttonStyle(.bordered)
-                .disabled(tapTraceDumpInProgress)
-                if let tapTraceDumpPath {
-                    Text("Saved: \(tapTraceDumpPath)")
-                        .font(.caption)
-                        .textSelection(.enabled)
-                }
-                if let tapTraceDumpError {
-                    Text(tapTraceDumpError)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-            }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.primary.opacity(0.05))
-            )
-        }
-
-        private func dumpTapTrace() {
-            tapTraceDumpInProgress = true
-            tapTraceDumpError = nil
-            let queue = DispatchQueue.global(qos: .utility)
-            queue.async {
-                do {
-                    let url = TapTrace.defaultDumpURL()
-                    try TapTrace.dumpJSONL(to: url)
-                    let path = url.path
-                    DispatchQueue.main.async {
-                        tapTraceDumpPath = path
-                        tapTraceDumpInProgress = false
-                        let pasteboard = NSPasteboard.general
-                        pasteboard.clearContents()
-                        pasteboard.setString(path, forType: .string)
-                    }
-                } catch {
-                    DispatchQueue.main.async {
-                        tapTraceDumpError = error.localizedDescription
-                        tapTraceDumpInProgress = false
-                    }
+            } catch {
+                DispatchQueue.main.async {
+                    tapTraceDumpInProgress = false
+                    showTapTraceStatus("Dump failed")
+                    NSLog("Tap trace dump failed: %@", error.localizedDescription)
                 }
             }
         }
-#endif
     }
+
+    private func showTapTraceStatus(_ message: String) {
+        tapTraceDumpStatus = message
+        let token = UUID()
+        tapTraceDumpStatusToken = token
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            if tapTraceDumpStatusToken == token {
+                tapTraceDumpStatus = nil
+            }
+        }
+    }
+#endif
 
     private struct DevicesSectionView: View {
         let availableDevices: [OMSDeviceInfo]
