@@ -11,6 +11,7 @@ enum GlassToKeySettings {
     static let intentVelocityThresholdMmPerSec: Double = 50.0
     static let allowMouseTakeoverDuringTyping: Bool = false
     static let autocorrectEnabled: Bool = false
+    static let snapRadiusPercent: Double = 35.0
 
     static func persistedDouble(
         forKey key: String,
@@ -213,6 +214,11 @@ final class GlassToKeyController: ObservableObject {
         let allowMouseTakeoverDuringTyping = defaults.object(
             forKey: GlassToKeyDefaultsKeys.allowMouseTakeoverDuringTyping
         ) as? Bool ?? GlassToKeySettings.allowMouseTakeoverDuringTyping
+        let snapRadiusPercent = GlassToKeySettings.persistedDouble(
+            forKey: GlassToKeyDefaultsKeys.snapRadiusPercent,
+            defaults: defaults,
+            fallback: GlassToKeySettings.snapRadiusPercent
+        )
 
         viewModel.updateHoldThreshold(tapHoldMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragDistance))
@@ -222,6 +228,7 @@ final class GlassToKeyController: ObservableObject {
         viewModel.updateIntentMoveThresholdMm(intentMoveThresholdMm)
         viewModel.updateIntentVelocityThresholdMmPerSec(intentVelocityThresholdMmPerSec)
         viewModel.updateAllowMouseTakeover(allowMouseTakeoverDuringTyping)
+        viewModel.updateSnapRadiusPercent(snapRadiusPercent)
     }
 
     private func legacyColumnSettings(

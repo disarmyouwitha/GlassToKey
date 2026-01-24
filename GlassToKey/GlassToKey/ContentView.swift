@@ -90,6 +90,8 @@ struct ContentView: View {
     private var allowMouseTakeoverDuringTyping = GlassToKeySettings.allowMouseTakeoverDuringTyping
     @AppStorage(GlassToKeyDefaultsKeys.autocorrectEnabled)
     private var autocorrectEnabled = GlassToKeySettings.autocorrectEnabled
+    @AppStorage(GlassToKeyDefaultsKeys.snapRadiusPercent)
+    private var snapRadiusPercentSetting = GlassToKeySettings.snapRadiusPercent
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -106,6 +108,7 @@ struct ContentView: View {
     fileprivate static let typingGraceRange: ClosedRange<Double> = 10.0...1000.0
     fileprivate static let intentMoveThresholdRange: ClosedRange<Double> = 0.5...10.0
     fileprivate static let intentVelocityThresholdRange: ClosedRange<Double> = 10.0...200.0
+    fileprivate static let snapRadiusPercentRange: ClosedRange<Double> = 10.0...80.0
     private static let keyCornerRadius: CGFloat = 6.0
     fileprivate static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -132,6 +135,15 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 1
         formatter.minimum = NSNumber(value: ContentView.rowSpacingPercentRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.rowSpacingPercentRange.upperBound)
+        return formatter
+    }()
+    fileprivate static let snapRadiusPercentFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 1
+        formatter.minimum = NSNumber(value: ContentView.snapRadiusPercentRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.snapRadiusPercentRange.upperBound)
         return formatter
     }()
     fileprivate static let tapHoldDurationFormatter: NumberFormatter = {
@@ -368,6 +380,9 @@ struct ContentView: View {
             .onChange(of: autocorrectEnabled) { newValue in
                 AutocorrectEngine.shared.setEnabled(newValue)
             }
+            .onChange(of: snapRadiusPercentSetting) { newValue in
+                viewModel.updateSnapRadiusPercent(newValue)
+            }
             .onChange(of: storedAutoResyncMissingTrackpads) { newValue in
                 viewModel.setAutoResyncEnabled(newValue)
             }
@@ -471,6 +486,7 @@ struct ContentView: View {
             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
             allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
             autocorrectEnabled: $autocorrectEnabled,
+            snapRadiusPercentSetting: $snapRadiusPercentSetting,
             onRefreshDevices: {
                 viewModel.loadDevices(preserveSelection: true)
             },
@@ -706,6 +722,7 @@ struct ContentView: View {
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var allowMouseTakeoverDuringTyping: Bool
         @Binding var autocorrectEnabled: Bool
+        @Binding var snapRadiusPercentSetting: Double
         @State private var typingTuningExpanded = false
         let onRefreshDevices: () -> Void
         let onAutoResyncChange: (Bool) -> Void
@@ -746,7 +763,8 @@ struct ContentView: View {
                             intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
                             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
                             allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
-                            autocorrectEnabled: $autocorrectEnabled
+                            autocorrectEnabled: $autocorrectEnabled,
+                            snapRadiusPercentSetting: $snapRadiusPercentSetting
                         )
                         .padding(.top, 8)
                     } label: {
@@ -1286,6 +1304,7 @@ struct ContentView: View {
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var allowMouseTakeoverDuringTyping: Bool
         @Binding var autocorrectEnabled: Bool
+        @Binding var snapRadiusPercentSetting: Double
 
         private let labelWidth: CGFloat = 140
         private let valueFieldWidth: CGFloat = 50
@@ -1390,6 +1409,23 @@ struct ContentView: View {
                         value: $intentVelocityThresholdMmPerSecSetting,
                         in: ContentView.intentVelocityThresholdRange,
                         step: 5
+                    )
+                    .frame(minWidth: 120)
+                    .gridCellColumns(2)
+                }
+                GridRow {
+                    Text("Snap Radius (%)")
+                        .frame(width: labelWidth, alignment: .leading)
+                    TextField(
+                        "35",
+                        value: $snapRadiusPercentSetting,
+                        formatter: ContentView.snapRadiusPercentFormatter
+                    )
+                    .frame(width: valueFieldWidth)
+                    Slider(
+                        value: $snapRadiusPercentSetting,
+                        in: ContentView.snapRadiusPercentRange,
+                        step: 1
                     )
                     .frame(minWidth: 120)
                     .gridCellColumns(2)
@@ -2123,6 +2159,7 @@ struct ContentView: View {
         viewModel.updateIntentMoveThresholdMm(intentMoveThresholdMmSetting)
         viewModel.updateIntentVelocityThresholdMmPerSec(intentVelocityThresholdMmPerSecSetting)
         viewModel.updateAllowMouseTakeover(allowMouseTakeoverDuringTyping)
+        viewModel.updateSnapRadiusPercent(snapRadiusPercentSetting)
         viewModel.setTouchSnapshotRecordingEnabled(visualsEnabled)
     }
 

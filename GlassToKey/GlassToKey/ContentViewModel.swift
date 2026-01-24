@@ -725,6 +725,12 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func updateSnapRadiusPercent(_ percent: Double) {
+        Task { [processor] in
+            await processor.updateSnapRadiusPercent(percent)
+        }
+    }
+
     func clearTouchState() {
         Task { [processor] in
             await processor.resetState()
@@ -1245,7 +1251,7 @@ final class ContentViewModel: ObservableObject {
         private var holdMinDuration: TimeInterval = 0.2
         private var dragCancelDistance: CGFloat = 2.5
         private var forceClickCap: Float = 0
-        private let snapRadiusFraction: Float = 0.35
+        private var snapRadiusFraction: Float = 0.35
 #if DEBUG
         nonisolated(unsafe) private static var snapAttemptCount: Int64 = 0
         nonisolated(unsafe) private static var snapAcceptedCount: Int64 = 0
@@ -1408,6 +1414,12 @@ final class ContentViewModel: ObservableObject {
         func updateHapticStrength(_ normalized: Double) {
             let clamped = min(max(normalized, 0.0), 1.0)
             hapticStrength = clamped
+        }
+
+        func updateSnapRadiusPercent(_ percent: Double) {
+            let clamped = min(max(percent, 0.0), 100.0)
+            snapRadiusFraction = Float(clamped / 100.0)
+            invalidateBindingsCache()
         }
 
         func processTouchFrame(_ frame: TouchFrame) {
@@ -1853,12 +1865,11 @@ final class ContentViewModel: ObservableObject {
                         if attemptSnapOnRelease(
                             touchKey: touchKey,
                             point: point,
-                            bindings: bindings,
-                            intentAllowsTyping: intentAllowsTyping
+                            bindings: bindings
                         ) {
                             continue
                         }
-                        if shouldAttemptSnap(intentAllowsTyping: intentAllowsTyping) {
+                        if shouldAttemptSnap() {
                             disqualifyTouch(touchKey, reason: .offKeyNoSnap)
                             #if DEBUG
                             OSAtomicIncrement64Barrier(&Self.snapOffKeyCount)
@@ -1939,12 +1950,11 @@ final class ContentViewModel: ObservableObject {
                         if attemptSnapOnRelease(
                             touchKey: touchKey,
                             point: point,
-                            bindings: bindings,
-                            intentAllowsTyping: intentAllowsTyping
+                            bindings: bindings
                         ) {
                             continue
                         }
-                        if shouldAttemptSnap(intentAllowsTyping: intentAllowsTyping) {
+                        if shouldAttemptSnap() {
                             disqualifyTouch(touchKey, reason: .offKeyNoSnap)
                             #if DEBUG
                             OSAtomicIncrement64Barrier(&Self.snapOffKeyCount)
@@ -2256,13 +2266,12 @@ final class ContentViewModel: ObservableObject {
         }
 
         @inline(__always)
-        private func shouldAttemptSnap(intentAllowsTyping: Bool) -> Bool {
-            guard intentAllowsTyping else { return false }
+        private func shouldAttemptSnap() -> Bool {
             switch intentState.mode {
-            case .mouseActive, .mouseCandidate, .gestureCandidate:
-                return false
-            default:
+            case .typingCommitted, .keyCandidate:
                 return true
+            case .mouseActive, .mouseCandidate, .gestureCandidate, .idle:
+                return false
             }
         }
 
@@ -2309,10 +2318,9 @@ final class ContentViewModel: ObservableObject {
         private func attemptSnapOnRelease(
             touchKey: TouchKey,
             point: CGPoint,
-            bindings: BindingIndex,
-            intentAllowsTyping: Bool
+            bindings: BindingIndex
         ) -> Bool {
-            guard shouldAttemptSnap(intentAllowsTyping: intentAllowsTyping) else { return false }
+            guard shouldAttemptSnap() else { return false }
             #if DEBUG
             OSAtomicIncrement64Barrier(&Self.snapAttemptCount)
             #endif
