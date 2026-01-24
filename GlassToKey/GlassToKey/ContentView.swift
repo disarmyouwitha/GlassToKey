@@ -77,6 +77,8 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.customButtons) private var storedCustomButtonsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.keyMappings) private var storedKeyMappingsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.autoResyncMissingTrackpads) private var storedAutoResyncMissingTrackpads = false
+    @AppStorage(GlassToKeyDefaultsKeys.tapTypeMinHoldMs) private var tapTypeMinHoldMs: Double = GlassToKeySettings.tapTypeMinHoldMs
+    @AppStorage(GlassToKeyDefaultsKeys.tapClickEnabled) private var tapClickEnabled = GlassToKeySettings.tapClickEnabled
     @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = GlassToKeySettings.tapHoldDurationMs
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
     @AppStorage(GlassToKeyDefaultsKeys.forceClickCap) private var forceClickCapSetting: Double = GlassToKeySettings.forceClickCap
@@ -103,6 +105,7 @@ struct ContentView: View {
     fileprivate static let columnOffsetPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.offsetPercentRange
     fileprivate static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
     fileprivate static let dragCancelDistanceRange: ClosedRange<Double> = 1.0...30.0
+    fileprivate static let tapTypeMinHoldRange: ClosedRange<Double> = 0.0...200.0
     fileprivate static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
     fileprivate static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
     fileprivate static let hapticStrengthRange: ClosedRange<Double> = 0.0...100.0
@@ -119,6 +122,15 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 2
         formatter.minimum = NSNumber(value: ContentView.columnScaleRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.columnScaleRange.upperBound)
+        return formatter
+    }()
+    fileprivate static let tapTypeMinHoldFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.minimum = NSNumber(value: ContentView.tapTypeMinHoldRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.tapTypeMinHoldRange.upperBound)
         return formatter
     }()
     fileprivate static let columnOffsetFormatter: NumberFormatter = {
@@ -367,6 +379,12 @@ struct ContentView: View {
             .onChange(of: tapHoldDurationMs) { newValue in
                 viewModel.updateHoldThreshold(newValue / 1000.0)
             }
+            .onChange(of: tapTypeMinHoldMs) { newValue in
+                viewModel.updateTapTypeMinHoldMs(newValue)
+            }
+            .onChange(of: tapClickEnabled) { newValue in
+                viewModel.updateTapClickEnabled(newValue)
+            }
             .onChange(of: dragCancelDistanceSetting) { newValue in
                 viewModel.updateDragCancelDistance(CGFloat(newValue))
             }
@@ -491,6 +509,8 @@ struct ContentView: View {
             buttonSelection: buttonInspectorSelection,
             keySelection: keyInspectorSelection,
             editModeEnabled: editModeEnabled,
+            tapTypeMinHoldMs: $tapTypeMinHoldMs,
+            tapClickEnabled: $tapClickEnabled,
             tapHoldDurationMs: $tapHoldDurationMs,
             dragCancelDistanceSetting: $dragCancelDistanceSetting,
             forceClickCapSetting: $forceClickCapSetting,
@@ -728,6 +748,8 @@ struct ContentView: View {
         let buttonSelection: ButtonInspectorSelection?
         let keySelection: KeyInspectorSelection?
         let editModeEnabled: Bool
+        @Binding var tapTypeMinHoldMs: Double
+        @Binding var tapClickEnabled: Bool
         @Binding var tapHoldDurationMs: Double
         @Binding var dragCancelDistanceSetting: Double
         @Binding var forceClickCapSetting: Double
@@ -771,6 +793,8 @@ struct ContentView: View {
                         isExpanded: $typingTuningExpanded
                     ) {
                         TypingTuningSectionView(
+                            tapTypeMinHoldMs: $tapTypeMinHoldMs,
+                            tapClickEnabled: $tapClickEnabled,
                             tapHoldDurationMs: $tapHoldDurationMs,
                             dragCancelDistanceSetting: $dragCancelDistanceSetting,
                             forceClickCapSetting: $forceClickCapSetting,
@@ -1314,6 +1338,8 @@ struct ContentView: View {
     }
 
     private struct TypingTuningSectionView: View {
+        @Binding var tapTypeMinHoldMs: Double
+        @Binding var tapClickEnabled: Bool
         @Binding var tapHoldDurationMs: Double
         @Binding var dragCancelDistanceSetting: Double
         @Binding var forceClickCapSetting: Double
@@ -1331,6 +1357,23 @@ struct ContentView: View {
 
         var body: some View {
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                GridRow {
+                    Text("Tap/Type (ms)")
+                        .frame(width: labelWidth, alignment: .leading)
+                    TextField(
+                        "100",
+                        value: $tapTypeMinHoldMs,
+                        formatter: ContentView.tapTypeMinHoldFormatter
+                    )
+                    .frame(width: valueFieldWidth)
+                    Slider(
+                        value: $tapTypeMinHoldMs,
+                        in: ContentView.tapTypeMinHoldRange,
+                        step: 5
+                    )
+                    .frame(minWidth: 100)
+                    .gridCellColumns(2)
+                }
                 GridRow {
                     Text("Tap/Hold (ms)")
                         .frame(width: labelWidth, alignment: .leading)
@@ -1490,6 +1533,13 @@ struct ContentView: View {
                     Toggle("", isOn: $allowMouseTakeoverDuringTyping)
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
+                    Text("Tap Click")
+                        .frame(width: labelWidth, alignment: .leading)
+                    Toggle("", isOn: $tapClickEnabled)
+                        .toggleStyle(SwitchToggleStyle())
+                        .labelsHidden()
+                }
+                GridRow {
                     Text("Autocorrect")
                         .frame(width: labelWidth, alignment: .leading)
                     Toggle("", isOn: $autocorrectEnabled)

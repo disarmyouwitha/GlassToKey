@@ -683,6 +683,18 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func updateTapTypeMinHoldMs(_ milliseconds: Double) {
+        Task { [processor] in
+            await processor.updateTapTypeMinHold(milliseconds)
+        }
+    }
+
+    func updateTapClickEnabled(_ enabled: Bool) {
+        Task { [processor] in
+            await processor.updateTapClickEnabled(enabled)
+        }
+    }
+
     func updateDragCancelDistance(_ distance: CGFloat) {
         Task { [processor] in
             await processor.updateDragCancelDistance(distance)
@@ -1263,6 +1275,8 @@ final class ContentViewModel: ObservableObject {
         private var touchInitialContactPoint = TouchTable<CGPoint>()
         private var tapMaxDuration: TimeInterval = 0.2
         private var holdMinDuration: TimeInterval = 0.2
+        private var tapTypeMinHoldSeconds: TimeInterval = 0.1
+        private var tapClickEnabled = true
         private var dragCancelDistance: CGFloat = 2.5
         private var forceClickCap: Float = 0
         private var snapRadiusFraction: Float = 0.35
@@ -1403,6 +1417,18 @@ final class ContentViewModel: ObservableObject {
             let clamped = max(0, seconds)
             holdMinDuration = clamped
             tapMaxDuration = clamped
+        }
+
+        func updateTapTypeMinHold(_ milliseconds: Double) {
+            let clampedMs = max(0, milliseconds)
+            tapTypeMinHoldSeconds = clampedMs / 1000.0
+        }
+
+        func updateTapClickEnabled(_ enabled: Bool) {
+            tapClickEnabled = enabled
+            if !enabled {
+                pendingSingleTap = nil
+            }
         }
 
         func updateDragCancelDistance(_ distance: CGFloat) {
@@ -1868,7 +1894,10 @@ final class ContentViewModel: ObservableObject {
                                 point: point,
                                 side: side
                             ) {
-                                if shouldDispatchTapImmediately(now: now) {
+                                let minHoldSatisfied = !tapClickEnabled
+                                    || tapTypeMinHoldSeconds <= 0
+                                    || (now - active.startTime) >= tapTypeMinHoldSeconds
+                                if shouldDispatchTapImmediately(now: now, minHoldSatisfied: minHoldSatisfied) {
                                     let dispatchInfo = makeDispatchInfo(
                                         kind: .tap,
                                         startTime: active.startTime,
@@ -1877,7 +1906,7 @@ final class ContentViewModel: ObservableObject {
                                     )
                                     triggerBinding(active.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
                                     didDispatch = true
-                                } else if shouldDropSingleTap(now: now) {
+                                } else if shouldDropSingleTap(now: now, minHoldSatisfied: minHoldSatisfied) {
                                     didDispatch = true
                                 } else {
                                     bufferSingleTap(
@@ -2462,6 +2491,7 @@ final class ContentViewModel: ObservableObject {
         ) -> Bool {
             var state = intentState
             let graceActive = isTypingGraceActive(now: now)
+            let mouseGraceActive = isMouseGraceActive(now: now)
 
             var contactCount = 0
             var onKeyCount = 0
@@ -2571,6 +2601,12 @@ final class ContentViewModel: ObservableObject {
                     updateIntentDisplayIfNeeded()
                     return true
                 }
+                if mouseGraceActive {
+                    state.mode = .mouseActive
+                    intentState = state
+                    updateIntentDisplayIfNeeded()
+                    return true
+                }
                 state.mode = .idle
                 typingSequenceConfirmed = false
                 intentState = state
@@ -2613,11 +2649,18 @@ final class ContentViewModel: ObservableObject {
                     updateIntentDisplayIfNeeded()
                     return true
                 }
+                if mouseGraceActive {
+                    state.mode = .mouseCandidate(start: now)
+                    suppressKeyProcessing(for: currentKeys)
+                    allowTyping = false
+                    break
+                }
                 if anyOnKey && !mouseSignal, let touchKey = firstOnKeyTouchKey, let centroid {
                     state.mode = .keyCandidate(start: now, touchKey: touchKey, centroid: centroid)
                     allowTyping = false
                 } else {
                     state.mode = .mouseCandidate(start: now)
+                    extendMouseGrace(now: now)
                     suppressKeyProcessing(for: currentKeys)
                     allowTyping = false
                 }
@@ -2630,6 +2673,7 @@ final class ContentViewModel: ObservableObject {
                 }
                 if mouseSignal {
                     state.mode = .mouseCandidate(start: now)
+                    extendMouseGrace(now: now)
                     allowTyping = false
                 } else if now - start >= intentConfig.keyBufferSeconds {
                     state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
@@ -2659,6 +2703,9 @@ final class ContentViewModel: ObservableObject {
                 }
                 if mouseSignal || now - start >= intentConfig.keyBufferSeconds {
                     state.mode = .mouseActive
+                    if contactCount > 0 {
+                        extendMouseGrace(now: now)
+                    }
                     suppressKeyProcessing(for: currentKeys)
                     allowTyping = false
                 } else {
@@ -2669,15 +2716,13 @@ final class ContentViewModel: ObservableObject {
                     state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
                     allowTyping = true
                 } else {
+                    if contactCount > 0 {
+                        extendMouseGrace(now: now)
+                    }
                     allowTyping = false
                 }
             case .gestureCandidate:
                 allowTyping = false
-            }
-
-            if isMouseMode(state.mode) {
-                extendMouseGrace(now: now)
-                pendingSingleTap = nil
             }
 
             intentState = state
@@ -2780,18 +2825,23 @@ final class ContentViewModel: ObservableObject {
             pendingSingleTap = nil
         }
 
-        private func shouldDispatchTapImmediately(now: TimeInterval) -> Bool {
+        private func shouldDispatchTapImmediately(now: TimeInterval, minHoldSatisfied: Bool) -> Bool {
             if isTypingGraceActive(now: now) {
+                return true
+            }
+            if !tapClickEnabled || minHoldSatisfied {
                 return true
             }
             return typingSequenceConfirmed
         }
 
-        private func shouldDropSingleTap(now: TimeInterval) -> Bool {
-            if isMouseGraceActive(now: now) {
+        private func shouldDropSingleTap(now: TimeInterval, minHoldSatisfied: Bool) -> Bool {
+            if isMouseGraceActive(now: now) && !minHoldSatisfied {
                 return true
             }
-            return singleTapTypingWindowSeconds <= 0
+            return tapClickEnabled
+                && !minHoldSatisfied
+                && singleTapTypingWindowSeconds <= 0
         }
 
         private func bufferSingleTap(
@@ -3023,7 +3073,10 @@ final class ContentViewModel: ObservableObject {
                   !pending.forceGuardTriggered else {
                 return false
             }
-            if shouldDispatchTapImmediately(now: now) {
+            let minHoldSatisfied = !tapClickEnabled
+                || tapTypeMinHoldSeconds <= 0
+                || (now - pending.startTime) >= tapTypeMinHoldSeconds
+            if shouldDispatchTapImmediately(now: now, minHoldSatisfied: minHoldSatisfied) {
                 let dispatchInfo = makeDispatchInfo(
                     kind: .tap,
                     startTime: pending.startTime,
@@ -3033,7 +3086,7 @@ final class ContentViewModel: ObservableObject {
                 sendKey(binding: pending.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
                 return true
             }
-            if shouldDropSingleTap(now: now) {
+            if shouldDropSingleTap(now: now, minHoldSatisfied: minHoldSatisfied) {
                 return true
             }
             bufferSingleTap(

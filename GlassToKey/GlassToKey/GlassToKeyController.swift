@@ -2,6 +2,8 @@ import OpenMultitouchSupport
 import SwiftUI
 
 enum GlassToKeySettings {
+    static let tapTypeMinHoldMs: Double = 100.0
+    static let tapClickEnabled: Bool = true
     static let tapHoldDurationMs: Double = 200.0
     static let dragCancelDistanceMm: Double = 10.0
     static let forceClickCap: Double = 110.0
@@ -182,6 +184,14 @@ final class GlassToKeyController: ObservableObject {
             defaults: defaults,
             fallback: GlassToKeySettings.tapHoldDurationMs
         )
+        let tapTypeMinHoldMs = GlassToKeySettings.persistedDouble(
+            forKey: GlassToKeyDefaultsKeys.tapTypeMinHoldMs,
+            defaults: defaults,
+            fallback: GlassToKeySettings.tapTypeMinHoldMs
+        )
+        let tapClickEnabled = defaults.object(
+            forKey: GlassToKeyDefaultsKeys.tapClickEnabled
+        ) as? Bool ?? GlassToKeySettings.tapClickEnabled
         let dragDistance = GlassToKeySettings.persistedDouble(
             forKey: GlassToKeyDefaultsKeys.dragCancelDistance,
             defaults: defaults,
@@ -227,6 +237,8 @@ final class GlassToKeyController: ObservableObject {
         )
 
         viewModel.updateHoldThreshold(tapHoldMs / 1000.0)
+        viewModel.updateTapTypeMinHoldMs(tapTypeMinHoldMs)
+        viewModel.updateTapClickEnabled(tapClickEnabled)
         viewModel.updateDragCancelDistance(CGFloat(dragDistance))
         viewModel.updateForceClickCap(forceCap)
         viewModel.updateHapticStrength(hapticStrengthPercent / 100.0)

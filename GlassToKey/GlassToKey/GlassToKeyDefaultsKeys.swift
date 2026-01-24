@@ -8,6 +8,8 @@ enum GlassToKeyDefaultsKeys {
     static let customButtons = "GlassToKey.customButtons"
     static let keyMappings = "GlassToKey.keyMappings"
     static let tapHoldDuration = "GlassToKey.tapHoldDuration"
+    static let tapTypeMinHoldMs = "GlassToKey.tapTypeMinHoldMs"
+    static let tapClickEnabled = "GlassToKey.tapClickEnabled"
     static let dragCancelDistance = "GlassToKey.dragCancelDistance"
     static let forceClickCap = "GlassToKey.forceClickCap"
     static let hapticStrength = "GlassToKey.hapticStrength"
