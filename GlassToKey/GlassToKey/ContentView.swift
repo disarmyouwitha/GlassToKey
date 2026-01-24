@@ -108,7 +108,7 @@ struct ContentView: View {
     fileprivate static let typingGraceRange: ClosedRange<Double> = 10.0...1000.0
     fileprivate static let intentMoveThresholdRange: ClosedRange<Double> = 0.5...10.0
     fileprivate static let intentVelocityThresholdRange: ClosedRange<Double> = 10.0...200.0
-    fileprivate static let snapRadiusPercentRange: ClosedRange<Double> = 10.0...125.0
+    fileprivate static let snapRadiusPercentRange: ClosedRange<Double> = 0.0...100.0
     private static let keyCornerRadius: CGFloat = 6.0
     fileprivate static let columnScaleFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -779,22 +779,24 @@ struct ContentView: View {
                     )
                 }
 
-                HStack(alignment: .top, spacing: 12) {
-                    ColumnTuningSectionView(
-                        layoutSelection: layoutSelection,
-                        layoutOption: layoutOption,
-                        selection: columnSelection,
-                        onUpdateColumn: onUpdateColumn
-                    )
-                    ButtonTuningSectionView(
-                        buttonSelection: buttonSelection,
-                        keySelection: keySelection,
-                        onAddCustomButton: onAddCustomButton,
-                        onRemoveCustomButton: onRemoveCustomButton,
-                        onClearTouchState: onClearTouchState,
-                        onUpdateButton: onUpdateButton,
-                        onUpdateKeyMapping: onUpdateKeyMapping
-                    )
+                if editModeEnabled {
+                    HStack(alignment: .top, spacing: 12) {
+                        ColumnTuningSectionView(
+                            layoutSelection: layoutSelection,
+                            layoutOption: layoutOption,
+                            selection: columnSelection,
+                            onUpdateColumn: onUpdateColumn
+                        )
+                        ButtonTuningSectionView(
+                            buttonSelection: buttonSelection,
+                            keySelection: keySelection,
+                            onAddCustomButton: onAddCustomButton,
+                            onRemoveCustomButton: onRemoveCustomButton,
+                            onClearTouchState: onClearTouchState,
+                            onUpdateButton: onUpdateButton,
+                            onUpdateKeyMapping: onUpdateKeyMapping
+                        )
+                    }
                 }
             }
             .frame(width: 420)
@@ -1425,7 +1427,7 @@ struct ContentView: View {
                     Slider(
                         value: $snapRadiusPercentSetting,
                         in: ContentView.snapRadiusPercentRange,
-                        step: 1
+                        step: 10
                     )
                     .frame(minWidth: 120)
                     .gridCellColumns(2)

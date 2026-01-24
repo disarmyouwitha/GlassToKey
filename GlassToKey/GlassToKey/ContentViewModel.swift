@@ -1417,7 +1417,7 @@ final class ContentViewModel: ObservableObject {
         }
 
         func updateSnapRadiusPercent(_ percent: Double) {
-            let clamped = min(max(percent, 0.0), 150.0)
+            let clamped = min(max(percent, 0.0), 100.0)
             snapRadiusFraction = Float(clamped / 100.0)
             invalidateBindingsCache()
         }
