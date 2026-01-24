@@ -84,7 +84,6 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.forceClickCap) private var forceClickCapSetting: Double = GlassToKeySettings.forceClickCap
     @AppStorage(GlassToKeyDefaultsKeys.hapticStrength) private var hapticStrengthSetting: Double = GlassToKeySettings.hapticStrengthPercent
     @AppStorage(GlassToKeyDefaultsKeys.typingGraceMs) private var typingGraceMsSetting: Double = GlassToKeySettings.typingGraceMs
-    @AppStorage(GlassToKeyDefaultsKeys.mouseGraceMs) private var mouseGraceMsSetting: Double = GlassToKeySettings.mouseGraceMs
     @AppStorage(GlassToKeyDefaultsKeys.intentMoveThresholdMm)
     private var intentMoveThresholdMmSetting: Double = GlassToKeySettings.intentMoveThresholdMm
     @AppStorage(GlassToKeyDefaultsKeys.intentVelocityThresholdMmPerSec)
@@ -110,7 +109,6 @@ struct ContentView: View {
     fileprivate static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
     fileprivate static let hapticStrengthRange: ClosedRange<Double> = 0.0...100.0
     fileprivate static let typingGraceRange: ClosedRange<Double> = 10.0...1000.0
-    fileprivate static let mouseGraceRange: ClosedRange<Double> = 0.0...1000.0
     fileprivate static let intentMoveThresholdRange: ClosedRange<Double> = 0.5...10.0
     fileprivate static let intentVelocityThresholdRange: ClosedRange<Double> = 10.0...200.0
     fileprivate static let snapRadiusPercentRange: ClosedRange<Double> = 0.0...100.0
@@ -203,15 +201,6 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 0
         formatter.minimum = NSNumber(value: ContentView.typingGraceRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.typingGraceRange.upperBound)
-        return formatter
-    }()
-    fileprivate static let mouseGraceFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 0
-        formatter.minimum = NSNumber(value: ContentView.mouseGraceRange.lowerBound)
-        formatter.maximum = NSNumber(value: ContentView.mouseGraceRange.upperBound)
         return formatter
     }()
     fileprivate static let intentMoveThresholdFormatter: NumberFormatter = {
@@ -397,9 +386,6 @@ struct ContentView: View {
             .onChange(of: typingGraceMsSetting) { newValue in
                 viewModel.updateTypingGraceMs(newValue)
             }
-            .onChange(of: mouseGraceMsSetting) { newValue in
-                viewModel.updateMouseGraceMs(newValue)
-            }
             .onChange(of: intentMoveThresholdMmSetting) { newValue in
                 viewModel.updateIntentMoveThresholdMm(newValue)
             }
@@ -516,7 +502,6 @@ struct ContentView: View {
             forceClickCapSetting: $forceClickCapSetting,
             hapticStrengthSetting: $hapticStrengthSetting,
             typingGraceMsSetting: $typingGraceMsSetting,
-            mouseGraceMsSetting: $mouseGraceMsSetting,
             intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
             allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
@@ -755,7 +740,6 @@ struct ContentView: View {
         @Binding var forceClickCapSetting: Double
         @Binding var hapticStrengthSetting: Double
         @Binding var typingGraceMsSetting: Double
-        @Binding var mouseGraceMsSetting: Double
         @Binding var intentMoveThresholdMmSetting: Double
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var allowMouseTakeoverDuringTyping: Bool
@@ -800,7 +784,6 @@ struct ContentView: View {
                             forceClickCapSetting: $forceClickCapSetting,
                             hapticStrengthSetting: $hapticStrengthSetting,
                             typingGraceMsSetting: $typingGraceMsSetting,
-                            mouseGraceMsSetting: $mouseGraceMsSetting,
                             intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
                             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
                             allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
@@ -1345,7 +1328,6 @@ struct ContentView: View {
         @Binding var forceClickCapSetting: Double
         @Binding var hapticStrengthSetting: Double
         @Binding var typingGraceMsSetting: Double
-        @Binding var mouseGraceMsSetting: Double
         @Binding var intentMoveThresholdMmSetting: Double
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var allowMouseTakeoverDuringTyping: Bool
@@ -1437,23 +1419,6 @@ struct ContentView: View {
                     Slider(
                         value: $typingGraceMsSetting,
                         in: ContentView.typingGraceRange,
-                        step: 10
-                    )
-                    .frame(minWidth: 120)
-                    .gridCellColumns(2)
-                }
-                GridRow {
-                    Text("Mouse Grace (ms)")
-                        .frame(width: labelWidth, alignment: .leading)
-                    TextField(
-                        "300",
-                        value: $mouseGraceMsSetting,
-                        formatter: ContentView.mouseGraceFormatter
-                    )
-                    .frame(width: valueFieldWidth)
-                    Slider(
-                        value: $mouseGraceMsSetting,
-                        in: ContentView.mouseGraceRange,
                         step: 10
                     )
                     .frame(minWidth: 120)

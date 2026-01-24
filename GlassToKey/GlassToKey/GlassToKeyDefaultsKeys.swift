@@ -14,7 +14,6 @@ enum GlassToKeyDefaultsKeys {
     static let forceClickCap = "GlassToKey.forceClickCap"
     static let hapticStrength = "GlassToKey.hapticStrength"
     static let typingGraceMs = "GlassToKey.typingGraceMs"
-    static let mouseGraceMs = "GlassToKey.mouseGraceMs"
     static let intentMoveThresholdMm = "GlassToKey.intentMoveThresholdMm"
     static let intentVelocityThresholdMmPerSec = "GlassToKey.intentVelocityThresholdMmPerSec"
     static let allowMouseTakeoverDuringTyping = "GlassToKey.allowMouseTakeoverDuringTyping"
