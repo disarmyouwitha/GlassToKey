@@ -1,15 +1,11 @@
 ## TODO
-- split app - root(?) lean status bar app for keyboard logic (for calling into Karabiner-driverkit?) + Config (doesn't dispatch keys, just detects rects for highlight, etc. Keymapping, tweak configs.)
-- *Swallow Tap-To-Click while typing.
-- nsspellchecker & AX replace (Text prediction&replacement)
+- *Swallow Tap-To-Click while typing: key for enable/disable mouse click CGEventTapCreate?? finger tap, don't send keys.
 - (Optional Install, CGEventFallback): Use Karabiner-DriverKit-VirtualHIDDevice to send keys!
 - normalize % to px??
-- REMOVE: LeftRect
-- key for enable/disable mouse click CGEventTapCreate?? finger tap, don't send keys.
 - trackpad battery level?
 ###
 - random quote above textbox
-- any vestigial code? legacyColumnSettings, etc..
+- any vestigial code? 
 ###
 - Is the key matrix the most efficient? lets look deeper! How about KeyDispatch? And is key hit detection as clean as $it could be?
 - analyze custom button code vs key matrix detection, is it less efficient? If so can we fix?
@@ -18,5 +14,4 @@
 - Have Codex refactor the GUI for effiency
 - Have Codex redesign the GUI for looks, keeping efficiency
 ###
-- Can we stop using % in the GUI for x, y, width,height and use like PX or something that is based on its logical position and size?
 - "Auto" set column x,y based on finger splay "4 finger touch" snapshot

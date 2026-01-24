@@ -23,7 +23,7 @@ final class AccessibilityTextReplacer: @unchecked Sendable {
         )
         guard focusedResult == .success, let focused = focusedValue else { return false }
         guard CFGetTypeID(focused) == AXUIElementGetTypeID() else { return false }
-        let element = unsafeBitCast(focused, to: AXUIElement.self)
+        let element = unsafeDowncast(focused as AnyObject, to: AXUIElement.self)
 
         var pid: pid_t = 0
         let pidResult = AXUIElementGetPid(element, &pid)
