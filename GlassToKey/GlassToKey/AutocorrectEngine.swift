@@ -29,6 +29,7 @@ final class AutocorrectEngine: @unchecked Sendable {
     private let storage: UnsafeMutableBufferPointer<KeySemanticEvent>
 
     private var wordBuffer: [UInt8] = []
+    private var wordHadBackspaceEdit = false
     private let minWordLength = 3
     private let maxWordLength = 64
 
@@ -99,6 +100,7 @@ final class AutocorrectEngine: @unchecked Sendable {
         if !isEnabled {
             readIndex = end
             wordBuffer.removeAll(keepingCapacity: true)
+            wordHadBackspaceEdit = false
             return
         }
         let pending = end - readIndex
@@ -121,13 +123,16 @@ final class AutocorrectEngine: @unchecked Sendable {
             if !wordBuffer.isEmpty {
                 wordBuffer.removeLast()
             }
+            wordHadBackspaceEdit = true
         case .boundary:
-            if !wordBuffer.isEmpty {
+            if !wordBuffer.isEmpty && !wordHadBackspaceEdit {
                 attemptCorrection(boundaryEvent: event)
             }
             wordBuffer.removeAll(keepingCapacity: true)
+            wordHadBackspaceEdit = false
         case .nonText:
             wordBuffer.removeAll(keepingCapacity: true)
+            wordHadBackspaceEdit = false
         }
     }
 
