@@ -837,6 +837,153 @@ final class ContentViewModel: ObservableObject {
             case active(ActiveTouch)
         }
 
+        private struct TouchTable<Value> {
+            private enum SlotState: UInt8 {
+                case empty = 0
+                case occupied = 1
+                case tombstone = 2
+            }
+
+            private var keys: [TouchKey]
+            private var values: [Value?]
+            private var states: [SlotState]
+            private(set) var count: Int
+            private var tombstones: Int
+
+            init(minimumCapacity: Int = 16) {
+                let capacity = max(16, TouchTable.nextPowerOfTwo(minimumCapacity))
+                keys = Array(repeating: 0, count: capacity)
+                values = Array(repeating: nil, count: capacity)
+                states = Array(repeating: .empty, count: capacity)
+                count = 0
+                tombstones = 0
+            }
+
+            var isEmpty: Bool { count == 0 }
+
+            mutating func removeAll(keepingCapacity: Bool = true) {
+                if keepingCapacity {
+                    for index in states.indices {
+                        states[index] = .empty
+                        values[index] = nil
+                    }
+                    count = 0
+                    tombstones = 0
+                } else {
+                    self = TouchTable(minimumCapacity: 16)
+                }
+            }
+
+            func value(for key: TouchKey) -> Value? {
+                guard let index = findIndex(for: key) else { return nil }
+                return values[index]
+            }
+
+            mutating func set(_ key: TouchKey, _ value: Value) {
+                ensureCapacity(for: count + 1)
+                let capacityMask = keys.count - 1
+                var index = TouchTable.hashIndex(for: key, mask: capacityMask)
+                var firstTombstone: Int?
+                while true {
+                    switch states[index] {
+                    case .empty:
+                        let insertIndex = firstTombstone ?? index
+                        keys[insertIndex] = key
+                        values[insertIndex] = value
+                        states[insertIndex] = .occupied
+                        count += 1
+                        if firstTombstone != nil {
+                            tombstones -= 1
+                        }
+                        return
+                    case .occupied:
+                        if keys[index] == key {
+                            values[index] = value
+                            return
+                        }
+                    case .tombstone:
+                        if firstTombstone == nil {
+                            firstTombstone = index
+                        }
+                    }
+                    index = (index + 1) & capacityMask
+                }
+            }
+
+            @discardableResult
+            mutating func remove(_ key: TouchKey) -> Value? {
+                guard let index = findIndex(for: key) else { return nil }
+                let value = values[index]
+                values[index] = nil
+                states[index] = .tombstone
+                count -= 1
+                tombstones += 1
+                return value
+            }
+
+            func forEach(_ body: (TouchKey, Value) -> Void) {
+                for index in states.indices where states[index] == .occupied {
+                    if let value = values[index] {
+                        body(keys[index], value)
+                    }
+                }
+            }
+
+            private mutating func ensureCapacity(for desiredCount: Int) {
+                let capacity = keys.count
+                if desiredCount * 2 < capacity && (desiredCount + tombstones) * 2 < capacity {
+                    return
+                }
+                rehash(to: capacity * 2)
+            }
+
+            private mutating func rehash(to newCapacity: Int) {
+                var newTable = TouchTable(minimumCapacity: newCapacity)
+                for index in states.indices where states[index] == .occupied {
+                    if let value = values[index] {
+                        newTable.set(keys[index], value)
+                    }
+                }
+                self = newTable
+            }
+
+            private func findIndex(for key: TouchKey) -> Int? {
+                let capacityMask = keys.count - 1
+                var index = TouchTable.hashIndex(for: key, mask: capacityMask)
+                while true {
+                    switch states[index] {
+                    case .empty:
+                        return nil
+                    case .occupied:
+                        if keys[index] == key {
+                            return index
+                        }
+                    case .tombstone:
+                        break
+                    }
+                    index = (index + 1) & capacityMask
+                }
+            }
+
+            private static func nextPowerOfTwo(_ value: Int) -> Int {
+                var result = 1
+                while result < value {
+                    result <<= 1
+                }
+                return result
+            }
+
+            private static func hashIndex(for key: TouchKey, mask: Int) -> Int {
+                var x = key
+                x ^= x >> 33
+                x &*= 0xff51afd7ed558ccd
+                x ^= x >> 33
+                x &*= 0xc4ceb9fe1a85ec53
+                x ^= x >> 33
+                return Int(truncatingIfNeeded: x) & mask
+            }
+        }
+
         private struct BindingGrid {
             private let rows: Int
             private let cols: Int
@@ -952,7 +1099,7 @@ final class ContentViewModel: ObservableObject {
         private var customButtons: [CustomButton] = []
         private var customButtonsByLayerAndSide: [Int: [TrackpadSide: [CustomButton]]] = [:]
         private var customKeyMappingsByLayer: LayeredKeyMappings = [:]
-        private var touchStates: [TouchKey: TouchState] = [:]
+        private var touchStates = TouchTable<TouchState>()
         private var disqualifiedTouches: Set<TouchKey> = []
         private var leftShiftTouchCount = 0
         private var controlTouchCount = 0
@@ -995,7 +1142,7 @@ final class ContentViewModel: ObservableObject {
         private var hapticStrength: Double = 0
         private struct IntentState {
             var mode: IntentMode = .idle
-            var touches: [TouchKey: IntentTouchInfo] = [:]
+            var touches = TouchTable<IntentTouchInfo>()
             var lastContactCount = 0
         }
 
@@ -1579,7 +1726,7 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func activeTouch(for touchKey: TouchKey) -> ActiveTouch? {
-            guard let state = touchStates[touchKey],
+            guard let state = touchStates.value(for: touchKey),
                   case let .active(active) = state else {
                 return nil
             }
@@ -1587,7 +1734,7 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func pendingTouch(for touchKey: TouchKey) -> PendingTouch? {
-            guard let state = touchStates[touchKey],
+            guard let state = touchStates.value(for: touchKey),
                   case let .pending(pending) = state else {
                 return nil
             }
@@ -1595,33 +1742,33 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func setActiveTouch(_ touchKey: TouchKey, _ active: ActiveTouch) {
-            touchStates[touchKey] = .active(active)
+            touchStates.set(touchKey, .active(active))
         }
 
         private func setPendingTouch(_ touchKey: TouchKey, _ pending: PendingTouch) {
-            touchStates[touchKey] = .pending(pending)
+            touchStates.set(touchKey, .pending(pending))
         }
 
         private func removeActiveTouch(for touchKey: TouchKey) -> ActiveTouch? {
-            guard let state = touchStates[touchKey],
+            guard let state = touchStates.value(for: touchKey),
                   case let .active(active) = state else {
                 return nil
             }
-            touchStates.removeValue(forKey: touchKey)
+            touchStates.remove(touchKey)
             return active
         }
 
         private func removePendingTouch(for touchKey: TouchKey) -> PendingTouch? {
-            guard let state = touchStates[touchKey],
+            guard let state = touchStates.value(for: touchKey),
                   case let .pending(pending) = state else {
                 return nil
             }
-            touchStates.removeValue(forKey: touchKey)
+            touchStates.remove(touchKey)
             return pending
         }
 
         private func popTouchState(for touchKey: TouchKey) -> TouchState? {
-            touchStates.removeValue(forKey: touchKey)
+            touchStates.remove(touchKey)
         }
 
         private func makeBindings(
@@ -1918,7 +2065,7 @@ final class ContentViewModel: ObservableObject {
                     offKeyCount += 1
                 }
 
-                if var info = state.touches[touchKey] {
+                if var info = state.touches.value(for: touchKey) {
                     let distanceSq = distanceSquared(from: info.startPoint, to: point)
                     info.maxDistanceSquared = max(info.maxDistanceSquared, distanceSq)
                     maxDistanceSquared = max(maxDistanceSquared, info.maxDistanceSquared)
@@ -1927,15 +2074,15 @@ final class ContentViewModel: ObservableObject {
                     maxVelocity = max(maxVelocity, velocity)
                     info.lastPoint = point
                     info.lastTime = now
-                    state.touches[touchKey] = info
+                    state.touches.set(touchKey, info)
                 } else {
-                    state.touches[touchKey] = IntentTouchInfo(
+                    state.touches.set(touchKey, IntentTouchInfo(
                         startPoint: point,
                         startTime: now,
                         lastPoint: point,
                         lastTime: now,
                         maxDistanceSquared: 0
-                    )
+                    ))
                 }
             }
 
@@ -1947,8 +2094,14 @@ final class ContentViewModel: ObservableObject {
             }
 
             if state.touches.count != currentKeys.count {
-                for key in state.touches.keys where !currentKeys.contains(key) {
-                    state.touches.removeValue(forKey: key)
+                var toRemove: [TouchKey] = []
+                state.touches.forEach { key, _ in
+                    if !currentKeys.contains(key) {
+                        toRemove.append(key)
+                    }
+                }
+                for key in toRemove {
+                    state.touches.remove(key)
                 }
             }
 
@@ -2148,7 +2301,7 @@ final class ContentViewModel: ObservableObject {
             }
             let moveThreshold = intentConfig.moveThresholdMm * mmUnitsPerMillimeter()
             let moveThresholdSquared = moveThreshold * moveThreshold
-            let maxDistanceSquared = state.touches[touchKey]?.maxDistanceSquared ?? 0
+            let maxDistanceSquared = state.touches.value(for: touchKey)?.maxDistanceSquared ?? 0
             guard maxDistanceSquared <= moveThresholdSquared else { return false }
             guard binding.rect.contains(point),
                   initialContactPointIsInsideBinding(touchKey, binding: binding) else {
@@ -2649,9 +2802,11 @@ final class ContentViewModel: ObservableObject {
                 postKey(binding: commandBinding, keyDown: false)
                 commandTouchCount = 0
             }
-            let activeTouchKeys = touchStates.compactMap { key, state in
-                if case .active = state { return key }
-                return nil
+            var activeTouchKeys: [TouchKey] = []
+            touchStates.forEach { key, state in
+                if case .active = state {
+                    activeTouchKeys.append(key)
+                }
             }
             for touchKey in activeTouchKeys {
                 stopRepeat(for: touchKey)
@@ -2795,10 +2950,15 @@ final class ContentViewModel: ObservableObject {
         ) -> TimeInterval? {
             if contactCount >= 3 {
                 guard previousContactCount != 2 else { return nil }
-                let startTimes = state.touches.values.map { $0.startTime }
-                guard startTimes.count >= 3,
-                      let minTime = startTimes.min(),
-                      let maxTime = startTimes.max(),
+                var minTime = TimeInterval.greatestFiniteMagnitude
+                var maxTime: TimeInterval = 0
+                var count = 0
+                state.touches.forEach { _, info in
+                    count += 1
+                    minTime = min(minTime, info.startTime)
+                    maxTime = max(maxTime, info.startTime)
+                }
+                guard count >= 3,
                       maxTime - minTime <= intentConfig.keyBufferSeconds else {
                     return nil
                 }
@@ -2808,10 +2968,15 @@ final class ContentViewModel: ObservableObject {
                   previousContactCount <= 1 else {
                 return nil
             }
-            let startTimes = state.touches.values.map { $0.startTime }
-            guard startTimes.count >= 2,
-                  let minTime = startTimes.min(),
-                  let maxTime = startTimes.max(),
+            var minTime = TimeInterval.greatestFiniteMagnitude
+            var maxTime: TimeInterval = 0
+            var count = 0
+            state.touches.forEach { _, info in
+                count += 1
+                minTime = min(minTime, info.startTime)
+                maxTime = max(maxTime, info.startTime)
+            }
+            guard count >= 2,
                   maxTime - minTime <= intentConfig.keyBufferSeconds else {
                 return nil
             }
