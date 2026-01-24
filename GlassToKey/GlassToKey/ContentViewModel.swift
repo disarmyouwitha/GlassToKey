@@ -254,6 +254,10 @@ final class ContentViewModel: ObservableObject {
     private let manager = OMSManager.shared
     private var task: Task<Void, Never>?
     private let processor: TouchProcessor
+    nonisolated private let typingIntentLock = OSAllocatedUnfairLock<Bool>(uncheckedState: false)
+    private lazy var mouseClickSuppressor = MouseClickSuppressor(shouldSuppress: { [weak self] in
+        self?.typingIntentLock.withLockUnchecked { $0 } ?? false
+    })
 
     init() {
         let holder = ContinuationHolder()
@@ -321,6 +325,7 @@ final class ContentViewModel: ObservableObject {
     }
 
     func onAppear() {
+        mouseClickSuppressor.start()
         let snapshotLock = touchSnapshotLock
         let selectionLock = deviceSelectionLock
         let recordingLock = snapshotRecordingLock
@@ -370,6 +375,7 @@ final class ContentViewModel: ObservableObject {
     }
 
     func onDisappear() {
+        mouseClickSuppressor.stop()
         task?.cancel()
         stop()
     }
@@ -786,6 +792,8 @@ final class ContentViewModel: ObservableObject {
     }
 
     private func publishIntentDisplayIfNeeded(_ display: SidePair<IntentDisplay>) {
+        let isTyping = display.left == .typing || display.right == .typing
+        typingIntentLock.withLockUnchecked { $0 = isTyping }
         guard uiStatusVisualsEnabled else { return }
         guard display != intentDisplayBySide else { return }
         intentDisplayBySide = display
