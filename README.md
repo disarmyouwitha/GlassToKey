@@ -47,8 +47,8 @@ Transitions and notes:
 - **Mouse Takeover** (if enabled) allows mouse intent to interrupt typing before all fingers are lifted.
 
 ## Diagnostics (Debug Builds)
-- Logs include key dispatches and disqualification reasons (drag cancelled, typing disabled, etc.)
 - Performance profiling uses `OSSignposter` intervals around touch processing.
+- The debug build also emits `InputFrame` / `SnapshotUpdate` events and per-side `ProcessTouches` intervals so you can trace how a raw frame becomes a dispatched keystroke.
 
 ---
 

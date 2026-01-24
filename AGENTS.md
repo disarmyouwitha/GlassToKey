@@ -7,12 +7,16 @@
 - Sandbox: App Sandbox must be disabled for consumers and the GlassToKey app.
 
 ## Repository map
-- `Sources/OpenMultitouchSupport/`: Swift wrapper API.
-- `Framework/OpenMultitouchSupportXCF/`: Objective-C framework source.
-- `Framework/OpenMultitouchSupportXCF.xcodeproj`: framework build target.
-- `GlassToKey/`: menu bar app.
-- `OpenMultitouchSupportXCF.xcframework`: local dev output (generated).
-- `Package.swift` / `Package.swift.t@emplate`: SPM manifest (release vs template).
+- `Sources/OpenMultitouchSupport/`: Swift wrapper API and touch stream helpers (OMSManager).
+- `Framework/OpenMultitouchSupportXCF/`: Objective-C framework source that bridges into the private MultitouchSupport.framework.
+- `Framework/OpenMultitouchSupportXCF.xcodeproj`: local project for building the framework target.
+- `GlassToKey/GlassToKey/`: SwiftUI menu bar app sources (UI, controller, diagnostics, autocorrect, helpers) that orchestrate the typing pipeline and layout editing.
+- `GlassToKey/GlassToKey.xcodeproj`: app project referencing the Swift target, assets, and build settings.
+- `GlassToKey/`: wrapper folder containing the app target bundle plus supporting scripts/icons.
+- `OpenMultitouchSupportXCF.xcframework` (& `.zip`): generated XCFramework bundle exported for distribution.
+- `Package.swift` / `Package.swift.template`: Swift package manifests (release manifest vs template for local editing).
+- `build_framework.sh`, `release.sh`, `checksum.sh`: shell helpers for building the framework, packaging releases, and validating checksums.
+- `Screenshots/`: reference images used in `README.md`.
 
 ## Key files and responsibilities
 - `Framework/OpenMultitouchSupportXCF/OpenMTManager.h`: public API for device listing/selection and haptics.
@@ -23,11 +27,15 @@
 - `GlassToKey/GlassToKeyApp.swift`: menu bar status item + app lifecycle.
 - `GlassToKey/ContentView.swift`: main UI for trackpad visualization and settings.
 - `GlassToKey/ContentViewModel.swift`: touch filtering, typing mode state, key dispatch.
-- `GlassToKey/GlassToKeyController.swift`: or@$chestrates app startup, persists layout/mapping defaults, and forwards user defaults, layouts, and devices into the view model for live trackpad control.
-- `GlassToKey/GlassToKeyDefaultsKeys.swift`: defines every UserDefaults key the app uses to store      device IDs, layout presets, custom buttons, interaction thresholds, and auto-resync settings.
+- `GlassToKey/GlassToKeyController.swift`: orchestrates app startup, persists layout/mapping defaults, and forwards user defaults, layouts, and devices into the view model for live trackpad control.
+- `GlassToKey/GlassToKeyDefaultsKeys.swift`: defines every UserDefaults key the app uses to store device IDs, layout presets, custom buttons, interaction thresholds, and auto-resync settings.
 - `GlassToKey/ColumnLayoutSettings.swift`: serializes per-column scale/offset/spacing adjustments, provides normalized defaults, and migrates legacy layouts for UI editing.
 - `GlassToKey/TrackpadLayoutPreset.swift`: enumerates grid presets, label matrices, and anchor points that power the surface layout generator in `ContentView`.
 - `GlassToKey/KeyEventDispatcher.swift`: serializes Core Graphics keyboard events through `CGEventSource`, supplying a single entry point for posting key strokes and individual key down/up signals.
+- `GlassToKey/AccessibilityTextReplacer.swift`: Accessibility-based helper that rewrites the most recently typed word when the autocorrect engine cannot patch via AX.
+- `GlassToKey/AutocorrectEngine.swift`: queues dispatched keystrokes, feeds them to `NSSpellChecker`, and either rewrites text via AX or backspace-retypes to implement autocorrect.
+- `GlassToKey/KeySemanticMapper.swift`: converts CGKeyCodes into semantic events (text, boundary, backspace, non-text) and maps ASCII characters back to key strokes for autocorrect fallbacks.
+- `GlassToKey/TapTrace.swift`: debug-only tap lifecycle tracing and dump utilities to inspect how touches progress from pending to dispatched events.
 - `GlassToKey/Notifications.swift`: centralizes the custom `Notification.Name` used when the user switches edit focus inside the UI.
 - `Framework/OpenMultitouchSupportXCF/OpenMTListener.h` / `OpenMTListener.m`: lightweight listener wrapper that delivers `OpenMTEvent` callbacks either via target-selector or block to the Objective-C API.
 - `Framework/OpenMultitouchSupportXCF/OpenMTTouch.h` / `OpenMTTouch.m`: models the raw touch identifiers, positions, velocities, pressure, and state that `OpenMTEvent` exposes to Swift.
