@@ -348,7 +348,6 @@
             MTDeviceStart(deviceRef, 0);
         }
     } @catch (NSException *exception) {
-        NSLog(@"Failed Start Handling Multitouch Events");
     }
 }
 
@@ -366,7 +365,6 @@
         }
         [self clearDeviceRefs];
     } @catch (NSException *exception) {
-        NSLog(@"Failed Stop Handling Multitouch Events");
     }
 }
 
@@ -489,7 +487,6 @@
     if (err || deviceID == 0) {
         return 0;
     }
-    NSLog(@"ℹ️ Primary device ID for actuator: 0x%llx", deviceID);
     return deviceID;
 }
 
@@ -500,12 +497,10 @@
     const kern_return_t result = IOServiceGetMatchingServices(kIOMainPortDefault, matchingRef, &iterator);
     
     if (result != KERN_SUCCESS) {
-        NSLog(@"❌ Failed to get matching services: 0x%x", result);
         return 0;
     }
     
     UInt64 selectedDeviceID = 0;
-    NSString *selectedDeviceName = nil;
     io_service_t service = IO_OBJECT_NULL;
     
     while ((service = IOIteratorNext(iterator)) != IO_OBJECT_NULL) {
@@ -518,18 +513,13 @@
         }
         
         NSDictionary *properties = (__bridge_transfer NSDictionary *)propertiesRef;
-        NSLog(@"🔍 Found multitouch device: %@", properties[@"Product"]);
         
         NSNumber *actuationSupported = properties[@"ActuationSupported"];
         if (actuationSupported.boolValue) {
             NSNumber *multitouchID = properties[@"Multitouch ID"];
             selectedDeviceID = multitouchID.unsignedLongLongValue;
-            selectedDeviceName = properties[@"Product"];
-            NSLog(@"✅ Found actuation-supported trackpad: %@ (ID: 0x%llx)", selectedDeviceName, selectedDeviceID);
             IOObjectRelease(service);
             break;
-        } else {
-            NSLog(@"⏭️ Skipping device %@ (ActuationSupported: %@)", properties[@"Product"], actuationSupported);
         }
         
         IOObjectRelease(service);
@@ -560,20 +550,17 @@
         multitouchDeviceID = [self findActuationSupportedTrackpadDeviceID];
     }
     if (multitouchDeviceID == 0) {
-        NSLog(@"❌ Failed to find any actuation-supported trackpad device");
         return NO;
     }
     // Create actuator from device ID (HapticKey approach)
     CFTypeRef actuatorRef = MTActuatorCreateFromDeviceID(multitouchDeviceID);
     if (!actuatorRef) {
-        NSLog(@"❌ Failed to create MTActuator from device ID");
         return NO;
     }
 
     // Open the actuator (HapticKey approach)
     IOReturn openResult = MTActuatorOpen(actuatorRef);
     if (openResult != kIOReturnSuccess) {
-        NSLog(@"❌ Failed to open MTActuator: 0x%x", openResult);
         CFRelease(actuatorRef);
         return NO;
     }

@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         disableVisuals()
         controller.viewModel.setTouchSnapshotRecordingEnabled(false)
+        controller.viewModel.setStatusVisualsEnabled(false)
         controller.viewModel.clearVisualCaches()
         window.delegate = nil
         window.contentView = nil
