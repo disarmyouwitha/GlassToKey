@@ -1320,6 +1320,13 @@ struct ContentView: View {
         private let labelWidth: CGFloat = 140
         private let valueFieldWidth: CGFloat = 50
 
+        private var snapRadiusEnabledBinding: Binding<Bool> {
+            Binding(
+                get: { snapRadiusPercentSetting > 0 },
+                set: { snapRadiusPercentSetting = $0 ? 100.0 : 0.0 }
+            )
+        }
+
         var body: some View {
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
                 GridRow {
@@ -1425,23 +1432,6 @@ struct ContentView: View {
                     .gridCellColumns(2)
                 }
                 GridRow {
-                    Text("Snap Radius (%)")
-                        .frame(width: labelWidth, alignment: .leading)
-                    TextField(
-                        "35",
-                        value: $snapRadiusPercentSetting,
-                        formatter: ContentView.snapRadiusPercentFormatter
-                    )
-                    .frame(width: valueFieldWidth)
-                    Slider(
-                        value: $snapRadiusPercentSetting,
-                        in: ContentView.snapRadiusPercentRange,
-                        step: 10
-                    )
-                    .frame(minWidth: 120)
-                    .gridCellColumns(2)
-                }
-                GridRow {
                     Text("Haptic Strength (%)")
                         .frame(width: labelWidth, alignment: .leading)
                     TextField(
@@ -1471,13 +1461,16 @@ struct ContentView: View {
                         .labelsHidden()
                 }
                 GridRow {
+                    Text("Snap Radius")
+                        .frame(width: labelWidth, alignment: .leading)
+                    Toggle("", isOn: snapRadiusEnabledBinding)
+                        .toggleStyle(SwitchToggleStyle())
+                        .labelsHidden()
                     Text("Mouse Takeover")
                         .frame(width: labelWidth, alignment: .leading)
                     Toggle("", isOn: $allowMouseTakeoverDuringTyping)
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
-                    Spacer()
-                        .gridCellColumns(2)
                 }
             }
         }
