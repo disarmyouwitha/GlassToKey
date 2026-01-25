@@ -382,6 +382,9 @@ struct ContentView: View {
             .onChange(of: autocorrectEnabled) { newValue in
                 AutocorrectEngine.shared.setEnabled(newValue)
             }
+            .onChange(of: tapClickEnabled) { newValue in
+                viewModel.updateTapClickEnabled(newValue)
+            }
             .onChange(of: snapRadiusPercentSetting) { newValue in
                 viewModel.updateSnapRadiusPercent(newValue)
             }

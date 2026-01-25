@@ -731,6 +731,12 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func updateTapClickEnabled(_ enabled: Bool) {
+        Task { [processor] in
+            await processor.updateTapClickEnabled(enabled)
+        }
+    }
+
     func clearTouchState() {
         Task { [processor] in
             await processor.resetState()
@@ -1292,6 +1298,7 @@ final class ContentViewModel: ObservableObject {
         private var intentDisplayBySide = SidePair(left: IntentDisplay.idle, right: .idle)
         private var intentConfig = IntentConfig()
         private var allowMouseTakeoverDuringTyping = false
+        private var tapClickEnabled = false
         private var typingGraceDeadline: TimeInterval?
         private var typingGraceTask: Task<Void, Never>?
 
@@ -1420,6 +1427,10 @@ final class ContentViewModel: ObservableObject {
             let clamped = min(max(percent, 0.0), 100.0)
             snapRadiusFraction = Float(clamped / 100.0)
             invalidateBindingsCache()
+        }
+
+        func updateTapClickEnabled(_ enabled: Bool) {
+            tapClickEnabled = enabled
         }
 
         func processTouchFrame(_ frame: TouchFrame) {
@@ -2425,6 +2436,7 @@ final class ContentViewModel: ObservableObject {
             var firstOnKeyTouchKey: TouchKey?
             var currentKeys = TouchTable<Bool>(minimumCapacity: leftTouches.count + rightTouches.count)
             var hasKeyboardAnchor = false
+            var twoFingerTapDetected = false
 
             func process(_ touch: OMSTouchData, side: TrackpadSide, bindings: BindingIndex) {
                 guard Self.isIntentContactState(touch.state) else { return }
@@ -2484,6 +2496,17 @@ final class ContentViewModel: ObservableObject {
                 process(touch, side: .right, bindings: rightBindings)
             }
 
+            if tapClickEnabled,
+               currentKeys.count == 0,
+               state.touches.count == 2,
+               shouldTriggerTwoFingerTapClick(
+                state: state.touches,
+                now: now,
+                moveThresholdSquared: moveThresholdSquared
+               ) {
+                twoFingerTapDetected = true
+            }
+
             if state.touches.count != currentKeys.count {
                 var toRemove: [TouchKey] = []
                 state.touches.forEach { key, _ in
@@ -2517,6 +2540,9 @@ final class ContentViewModel: ObservableObject {
 
             guard contactCount > 0 else {
                 state.touches.removeAll()
+                if twoFingerTapDetected {
+                    keyDispatcher.postLeftClick()
+                }
                 if graceActive {
                     state.mode = .typingCommitted(untilAllUp: true)
                     intentState = state
@@ -2629,6 +2655,34 @@ final class ContentViewModel: ObservableObject {
             intentState = state
             updateIntentDisplayIfNeeded()
             return allowTyping
+        }
+
+        private func shouldTriggerTwoFingerTapClick(
+            state: TouchTable<IntentTouchInfo>,
+            now: TimeInterval,
+            moveThresholdSquared: CGFloat
+        ) -> Bool {
+            if state.count != 2 {
+                return false
+            }
+            var maxDuration: TimeInterval = 0
+            var maxDistanceSquared: CGFloat = 0
+            state.forEach { _, info in
+                let duration = now - info.startTime
+                if duration > maxDuration {
+                    maxDuration = duration
+                }
+                if info.maxDistanceSquared > maxDistanceSquared {
+                    maxDistanceSquared = info.maxDistanceSquared
+                }
+            }
+            if maxDuration > tapMaxDuration {
+                return false
+            }
+            if maxDistanceSquared > moveThresholdSquared {
+                return false
+            }
+            return true
         }
 
         private func updateIntentDisplayIfNeeded() {
