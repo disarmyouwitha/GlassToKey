@@ -256,7 +256,7 @@ final class ContentViewModel: ObservableObject {
     private let processor: TouchProcessor
     nonisolated private let intentDisplayLock = OSAllocatedUnfairLock<IntentDisplay>(uncheckedState: .idle)
     private lazy var mouseClickSuppressor = MouseClickSuppressor(shouldSuppress: { [weak self] in
-        (self?.intentDisplayLock.withLockUnchecked { $0 } ?? .idle) != .mouse
+        (self?.intentDisplayLock.withLockUnchecked { $0 } ?? .idle) == .typing
     })
 
     init() {

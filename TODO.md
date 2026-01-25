@@ -1,5 +1,5 @@
 ## TODO
-- sonetimes correction buffer is off by one? "ooptionally"
+- codex resume 019bf1e9-995c-7900-af9e-30073b995a08
 - *Swallow Tap-To-Click while typing: key for enable/disable mouse click CGEventTapCreate?? finger tap, don't send keys.
 - (Optional Install, CGEventFallback): Use Karabiner-DriverKit-VirtualHIDDevice to send keys!
 - normalize % to px??
