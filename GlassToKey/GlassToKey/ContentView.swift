@@ -1327,6 +1327,51 @@ struct ContentView: View {
             )
         }
 
+        private enum HapticStrengthStep: Int, CaseIterable {
+            case off = 0
+            case weak
+            case medium
+            case strong
+
+            var percent: Double {
+                switch self {
+                case .off: return 0.0
+                case .weak: return 40.0
+                case .medium: return 60.0
+                case .strong: return 100.0
+                }
+            }
+
+            var label: String {
+                switch self {
+                case .off: return "Off"
+                case .weak: return "Weak"
+                case .medium: return "Medium"
+                case .strong: return "Strong"
+                }
+            }
+
+            static func nearest(to percent: Double) -> Self {
+                allCases.min(by: { abs($0.percent - percent) < abs($1.percent - percent) })
+                    ?? .off
+            }
+        }
+
+        private var currentHapticStrengthStep: HapticStrengthStep {
+            HapticStrengthStep.nearest(to: hapticStrengthSetting)
+        }
+
+        private var hapticStrengthIndexBinding: Binding<Double> {
+            Binding(
+                get: { Double(currentHapticStrengthStep.rawValue) },
+                set: { newValue in
+                    let index = Int(newValue.rounded())
+                    let step = HapticStrengthStep(rawValue: index) ?? .off
+                    hapticStrengthSetting = step.percent
+                }
+            )
+        }
+
         var body: some View {
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
                 GridRow {
@@ -1432,17 +1477,13 @@ struct ContentView: View {
                     .gridCellColumns(2)
                 }
                 GridRow {
-                    Text("Haptic Strength (%)")
+                    Text("Haptic Strength")
                         .frame(width: labelWidth, alignment: .leading)
-                    TextField(
-                        "70",
-                        value: $hapticStrengthSetting,
-                        formatter: ContentView.hapticStrengthFormatter
-                    )
-                    .frame(width: valueFieldWidth)
+                    Text(currentHapticStrengthStep.label)
+                        .frame(width: valueFieldWidth, alignment: .leading)
                     Slider(
-                        value: $hapticStrengthSetting,
-                        in: ContentView.hapticStrengthRange,
+                        value: hapticStrengthIndexBinding,
+                        in: 0...Double(HapticStrengthStep.allCases.count - 1),
                         step: 1
                     )
                     .frame(minWidth: 120)
