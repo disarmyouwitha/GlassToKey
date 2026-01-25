@@ -1301,10 +1301,11 @@ final class ContentViewModel: ObservableObject {
         private var tapClickEnabled = false
         private var typingGraceDeadline: TimeInterval?
         private var typingGraceTask: Task<Void, Never>?
-        private struct TwoFingerTapCandidate {
+        private struct TapCandidate {
             let deadline: TimeInterval
         }
-        private var twoFingerTapCandidate: TwoFingerTapCandidate?
+        private var twoFingerTapCandidate: TapCandidate?
+        private var threeFingerTapCandidate: TapCandidate?
 
         struct StatusSnapshot: Sendable {
             let contactCounts: SidePair<Int>
@@ -2441,6 +2442,7 @@ final class ContentViewModel: ObservableObject {
             var currentKeys = TouchTable<Bool>(minimumCapacity: leftTouches.count + rightTouches.count)
             var hasKeyboardAnchor = false
             var twoFingerTapDetected = false
+            var threeFingerTapDetected = false
             let staggerWindow = max(intentConfig.keyBufferSeconds, contactCountHoldDuration)
 
             func process(_ touch: OMSTouchData, side: TrackpadSide, bindings: BindingIndex) {
@@ -2504,22 +2506,51 @@ final class ContentViewModel: ObservableObject {
             if let candidate = twoFingerTapCandidate, now > candidate.deadline {
                 twoFingerTapCandidate = nil
             }
+            if let candidate = threeFingerTapCandidate, now > candidate.deadline {
+                threeFingerTapCandidate = nil
+            }
 
             if tapClickEnabled {
-                if currentKeys.count == 1,
-                   state.touches.count == 2,
-                   shouldTriggerTwoFingerTapClick(
+                if currentKeys.count == 2,
+                   state.touches.count == 3,
+                   shouldTriggerTapClick(
                     state: state.touches,
                     now: now,
-                    moveThresholdSquared: moveThresholdSquared
+                    moveThresholdSquared: moveThresholdSquared,
+                    fingerCount: 3
                    ) {
-                    twoFingerTapCandidate = TwoFingerTapCandidate(deadline: now + staggerWindow)
+                    threeFingerTapCandidate = TapCandidate(deadline: now + staggerWindow)
                 } else if currentKeys.count == 0,
-                          state.touches.count == 2,
-                          shouldTriggerTwoFingerTapClick(
+                          state.touches.count == 3,
+                          shouldTriggerTapClick(
                             state: state.touches,
                             now: now,
-                            moveThresholdSquared: moveThresholdSquared
+                            moveThresholdSquared: moveThresholdSquared,
+                            fingerCount: 3
+                          ) {
+                    threeFingerTapDetected = true
+                    threeFingerTapCandidate = nil
+                } else if currentKeys.count == 0,
+                          let candidate = threeFingerTapCandidate,
+                          now <= candidate.deadline {
+                    threeFingerTapDetected = true
+                    threeFingerTapCandidate = nil
+                } else if currentKeys.count == 1,
+                          state.touches.count == 2,
+                          shouldTriggerTapClick(
+                            state: state.touches,
+                            now: now,
+                            moveThresholdSquared: moveThresholdSquared,
+                            fingerCount: 2
+                          ) {
+                    twoFingerTapCandidate = TapCandidate(deadline: now + staggerWindow)
+                } else if currentKeys.count == 0,
+                          state.touches.count == 2,
+                          shouldTriggerTapClick(
+                            state: state.touches,
+                            now: now,
+                            moveThresholdSquared: moveThresholdSquared,
+                            fingerCount: 2
                           ) {
                     twoFingerTapDetected = true
                     twoFingerTapCandidate = nil
@@ -2564,7 +2595,9 @@ final class ContentViewModel: ObservableObject {
 
             guard contactCount > 0 else {
                 state.touches.removeAll()
-                if twoFingerTapDetected {
+                if threeFingerTapDetected {
+                    keyDispatcher.postRightClick()
+                } else if twoFingerTapDetected {
                     keyDispatcher.postLeftClick()
                 }
                 if graceActive {
@@ -2681,12 +2714,13 @@ final class ContentViewModel: ObservableObject {
             return allowTyping
         }
 
-        private func shouldTriggerTwoFingerTapClick(
+        private func shouldTriggerTapClick(
             state: TouchTable<IntentTouchInfo>,
             now: TimeInterval,
-            moveThresholdSquared: CGFloat
+            moveThresholdSquared: CGFloat,
+            fingerCount: Int
         ) -> Bool {
-            if state.count != 2 {
+            if state.count != fingerCount {
                 return false
             }
             var maxDuration: TimeInterval = 0
