@@ -2281,12 +2281,17 @@ final class ContentViewModel: ObservableObject {
             return index.customGrid.binding(at: point)
         }
 
+        private var isSnapRadiusEnabled: Bool {
+            snapRadiusFraction > 0
+        }
+
         @inline(__always)
         private func shouldAttemptSnap() -> Bool {
+            guard isSnapRadiusEnabled else { return false }
             switch intentState.mode {
-            case .typingCommitted, .keyCandidate:
+            case .typingCommitted, .keyCandidate, .mouseCandidate, .gestureCandidate, .idle:
                 return true
-            case .mouseActive, .mouseCandidate, .gestureCandidate, .idle:
+            case .mouseActive:
                 return false
             }
         }

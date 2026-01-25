@@ -86,8 +86,6 @@ struct ContentView: View {
     private var intentMoveThresholdMmSetting: Double = GlassToKeySettings.intentMoveThresholdMm
     @AppStorage(GlassToKeyDefaultsKeys.intentVelocityThresholdMmPerSec)
     private var intentVelocityThresholdMmPerSecSetting: Double = GlassToKeySettings.intentVelocityThresholdMmPerSec
-    @AppStorage(GlassToKeyDefaultsKeys.allowMouseTakeoverDuringTyping)
-    private var allowMouseTakeoverDuringTyping = GlassToKeySettings.allowMouseTakeoverDuringTyping
     @AppStorage(GlassToKeyDefaultsKeys.autocorrectEnabled)
     private var autocorrectEnabled = GlassToKeySettings.autocorrectEnabled
     @AppStorage(GlassToKeyDefaultsKeys.tapClickEnabled)
@@ -376,9 +374,6 @@ struct ContentView: View {
             .onChange(of: intentVelocityThresholdMmPerSecSetting) { newValue in
                 viewModel.updateIntentVelocityThresholdMmPerSec(newValue)
             }
-            .onChange(of: allowMouseTakeoverDuringTyping) { newValue in
-                viewModel.updateAllowMouseTakeover(newValue)
-            }
             .onChange(of: autocorrectEnabled) { newValue in
                 AutocorrectEngine.shared.setEnabled(newValue)
             }
@@ -489,7 +484,6 @@ struct ContentView: View {
             typingGraceMsSetting: $typingGraceMsSetting,
             intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
-            allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
             autocorrectEnabled: $autocorrectEnabled,
             tapClickEnabled: $tapClickEnabled,
             snapRadiusPercentSetting: $snapRadiusPercentSetting,
@@ -726,7 +720,6 @@ struct ContentView: View {
         @Binding var typingGraceMsSetting: Double
         @Binding var intentMoveThresholdMmSetting: Double
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
-        @Binding var allowMouseTakeoverDuringTyping: Bool
         @Binding var autocorrectEnabled: Bool
         @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
@@ -769,7 +762,6 @@ struct ContentView: View {
                             typingGraceMsSetting: $typingGraceMsSetting,
                             intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
                             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
-                            allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
                             autocorrectEnabled: $autocorrectEnabled,
                             tapClickEnabled: $tapClickEnabled,
                             snapRadiusPercentSetting: $snapRadiusPercentSetting
@@ -1312,7 +1304,6 @@ struct ContentView: View {
         @Binding var typingGraceMsSetting: Double
         @Binding var intentMoveThresholdMmSetting: Double
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
-        @Binding var allowMouseTakeoverDuringTyping: Bool
         @Binding var autocorrectEnabled: Bool
         @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
@@ -1507,11 +1498,8 @@ struct ContentView: View {
                     Toggle("", isOn: snapRadiusEnabledBinding)
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
-                    Text("Mouse Takeover")
-                        .frame(width: labelWidth, alignment: .leading)
-                    Toggle("", isOn: $allowMouseTakeoverDuringTyping)
-                        .toggleStyle(SwitchToggleStyle())
-                        .labelsHidden()
+                    Spacer()
+                        .gridCellColumns(2)
                 }
             }
         }
@@ -2212,7 +2200,7 @@ struct ContentView: View {
         viewModel.updateTypingGraceMs(typingGraceMsSetting)
         viewModel.updateIntentMoveThresholdMm(intentMoveThresholdMmSetting)
         viewModel.updateIntentVelocityThresholdMmPerSec(intentVelocityThresholdMmPerSecSetting)
-        viewModel.updateAllowMouseTakeover(allowMouseTakeoverDuringTyping)
+        viewModel.updateAllowMouseTakeover(true)
         viewModel.updateSnapRadiusPercent(snapRadiusPercentSetting)
         viewModel.setTouchSnapshotRecordingEnabled(visualsEnabled)
     }
