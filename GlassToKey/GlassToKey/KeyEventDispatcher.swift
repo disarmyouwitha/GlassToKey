@@ -135,7 +135,6 @@ private final class CGEventKeyDispatcher: @unchecked Sendable, KeyDispatching {
                 }
                 mouseDown.post(tap: .cghidEventTap)
                 mouseUp.post(tap: .cghidEventTap)
-                NSLog("GlassToKey left click sent")
             }
         }
     }
