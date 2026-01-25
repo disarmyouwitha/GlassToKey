@@ -90,6 +90,8 @@ struct ContentView: View {
     private var allowMouseTakeoverDuringTyping = GlassToKeySettings.allowMouseTakeoverDuringTyping
     @AppStorage(GlassToKeyDefaultsKeys.autocorrectEnabled)
     private var autocorrectEnabled = GlassToKeySettings.autocorrectEnabled
+    @AppStorage(GlassToKeyDefaultsKeys.tapClickEnabled)
+    private var tapClickEnabled = GlassToKeySettings.tapClickEnabled
     @AppStorage(GlassToKeyDefaultsKeys.snapRadiusPercent)
     private var snapRadiusPercentSetting = GlassToKeySettings.snapRadiusPercent
     static let trackpadWidthMM: CGFloat = 160.0
@@ -486,6 +488,7 @@ struct ContentView: View {
             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
             allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
             autocorrectEnabled: $autocorrectEnabled,
+            tapClickEnabled: $tapClickEnabled,
             snapRadiusPercentSetting: $snapRadiusPercentSetting,
             onRefreshDevices: {
                 viewModel.loadDevices(preserveSelection: true)
@@ -722,6 +725,7 @@ struct ContentView: View {
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var allowMouseTakeoverDuringTyping: Bool
         @Binding var autocorrectEnabled: Bool
+        @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
         @State private var typingTuningExpanded = true
         let onRefreshDevices: () -> Void
@@ -764,6 +768,7 @@ struct ContentView: View {
                             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
                             allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
                             autocorrectEnabled: $autocorrectEnabled,
+                            tapClickEnabled: $tapClickEnabled,
                             snapRadiusPercentSetting: $snapRadiusPercentSetting
                         )
                         .padding(.top, 8)
@@ -1306,6 +1311,7 @@ struct ContentView: View {
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var allowMouseTakeoverDuringTyping: Bool
         @Binding var autocorrectEnabled: Bool
+        @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
 
         private let labelWidth: CGFloat = 140
@@ -1455,11 +1461,20 @@ struct ContentView: View {
                     Toggle("", isOn: $allowMouseTakeoverDuringTyping)
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
+                    Text("Tap Click")
+                        .frame(width: labelWidth, alignment: .leading)
+                    Toggle("", isOn: $tapClickEnabled)
+                        .toggleStyle(SwitchToggleStyle())
+                        .labelsHidden()
+                }
+                GridRow {
                     Text("Autocorrect")
                         .frame(width: labelWidth, alignment: .leading)
                     Toggle("", isOn: $autocorrectEnabled)
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
+                    Spacer()
+                        .gridCellColumns(2)
                 }
             }
         }

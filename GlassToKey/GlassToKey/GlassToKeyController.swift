@@ -11,6 +11,7 @@ enum GlassToKeySettings {
     static let intentVelocityThresholdMmPerSec: Double = 50.0
     static let allowMouseTakeoverDuringTyping: Bool = false
     static let autocorrectEnabled: Bool = false
+    static let tapClickEnabled: Bool = false
     static let snapRadiusPercent: Double = 35.0
 
     static func persistedDouble(
