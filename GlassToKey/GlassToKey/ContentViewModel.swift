@@ -254,9 +254,9 @@ final class ContentViewModel: ObservableObject {
     private let manager = OMSManager.shared
     private var task: Task<Void, Never>?
     private let processor: TouchProcessor
-    nonisolated private let typingIntentLock = OSAllocatedUnfairLock<Bool>(uncheckedState: false)
+    nonisolated private let intentDisplayLock = OSAllocatedUnfairLock<IntentDisplay>(uncheckedState: .idle)
     private lazy var mouseClickSuppressor = MouseClickSuppressor(shouldSuppress: { [weak self] in
-        self?.typingIntentLock.withLockUnchecked { $0 } ?? false
+        (self?.intentDisplayLock.withLockUnchecked { $0 } ?? .idle) != .mouse
     })
 
     init() {
@@ -792,8 +792,8 @@ final class ContentViewModel: ObservableObject {
     }
 
     private func publishIntentDisplayIfNeeded(_ display: SidePair<IntentDisplay>) {
-        let isTyping = display.left == .typing || display.right == .typing
-        typingIntentLock.withLockUnchecked { $0 = isTyping }
+        let consolidated: IntentDisplay = display.left == display.right ? display.left : display.left
+        intentDisplayLock.withLockUnchecked { $0 = consolidated }
         guard uiStatusVisualsEnabled else { return }
         guard display != intentDisplayBySide else { return }
         intentDisplayBySide = display
