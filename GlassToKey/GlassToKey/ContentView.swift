@@ -562,11 +562,11 @@ struct ContentView: View {
                 Toggle("Visuals", isOn: $visualsEnabled)
                     .toggleStyle(SwitchToggleStyle())
                 HStack(spacing: 6) {
-                    Text("Layer 0")
+                    Text("Layer0")
                     Toggle("", isOn: layerToggleBinding)
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
-                    Text("Layer 1")
+                    Text("Layer1")
                 }
                 if isListening {
                     Button("Stop") {

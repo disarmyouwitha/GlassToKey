@@ -803,6 +803,7 @@ final class ContentViewModel: ObservableObject {
             case forceCapExceeded
             case intentMouse
             case offKeyNoSnap
+            case momentaryLayerCancelled
         }
 
         private enum DispatchKind: String {
@@ -867,6 +868,7 @@ final class ContentViewModel: ObservableObject {
 
         private struct ActiveTouch {
             let binding: KeyBinding
+            let layer: Int
             let startTime: TimeInterval
             let startPoint: CGPoint
             let modifierKey: ModifierKey?
@@ -882,6 +884,7 @@ final class ContentViewModel: ObservableObject {
         }
         private struct PendingTouch {
             let binding: KeyBinding
+            let layer: Int
             let startTime: TimeInterval
             let startPoint: CGPoint
             var maxDistanceSquared: CGFloat
@@ -1252,6 +1255,7 @@ final class ContentViewModel: ObservableObject {
         private var toggleTouchStarts = TouchTable<TimeInterval>()
         private var layerToggleTouchStarts = TouchTable<Int>()
         private var momentaryLayerTouches = MomentaryLayerTouches()
+        private var lastMomentaryLayer: Int?
         private var touchInitialContactPoint = TouchTable<CGPoint>()
         private var tapMaxDuration: TimeInterval = 0.2
         private var holdMinDuration: TimeInterval = 0.2
@@ -1694,6 +1698,7 @@ final class ContentViewModel: ObservableObject {
                             }
                             let active = ActiveTouch(
                                 binding: pending.binding,
+                                layer: pending.layer,
                                 startTime: pending.startTime,
                                 startPoint: pending.startPoint,
                                 modifierKey: modifierKey,
@@ -1744,6 +1749,7 @@ final class ContentViewModel: ObservableObject {
                                 touchKey,
                                 PendingTouch(
                                     binding: binding,
+                                    layer: activeLayer,
                                     startTime: now,
                                     startPoint: point,
                                     maxDistanceSquared: 0,
@@ -1755,6 +1761,7 @@ final class ContentViewModel: ObservableObject {
                         } else {
                             let active = ActiveTouch(
                                     binding: binding,
+                                    layer: activeLayer,
                                     startTime: now,
                                     startPoint: point,
                                     modifierKey: modifierKey,
@@ -2289,9 +2296,9 @@ final class ContentViewModel: ObservableObject {
         private func shouldAttemptSnap() -> Bool {
             guard isSnapRadiusEnabled else { return false }
             switch intentState.mode {
-            case .typingCommitted, .keyCandidate, .mouseCandidate, .gestureCandidate, .idle:
+            case .typingCommitted, .keyCandidate:
                 return true
-            case .mouseActive:
+            case .mouseActive, .mouseCandidate, .gestureCandidate, .idle:
                 return false
             }
         }
@@ -3437,11 +3444,17 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func updateActiveLayer() {
-            let resolvedLayer = maxMomentaryLayer() ?? persistentLayer
+            let previousMomentaryLayer = lastMomentaryLayer
+            let currentMomentaryLayer = maxMomentaryLayer()
+            let resolvedLayer = currentMomentaryLayer ?? persistentLayer
             if activeLayer != resolvedLayer {
                 activeLayer = resolvedLayer
                 invalidateBindingsCache()
                 onActiveLayerChanged(resolvedLayer)
+            }
+            lastMomentaryLayer = currentMomentaryLayer
+            if previousMomentaryLayer != nil, currentMomentaryLayer == nil {
+                releaseTouchesFromMomentaryLayer(previousMomentaryLayer!)
             }
         }
 
@@ -3457,6 +3470,26 @@ final class ContentViewModel: ObservableObject {
                 }
             }
             return maxLayer
+        }
+
+        private func releaseTouchesFromMomentaryLayer(_ layer: Int) {
+            guard layer != persistentLayer else { return }
+            var toDisqualify: [TouchKey] = []
+            touchStates.forEach { key, state in
+                let stateLayer: Int
+                switch state {
+                case let .active(active):
+                    stateLayer = active.layer
+                case let .pending(pending):
+                    stateLayer = pending.layer
+                }
+                if stateLayer == layer {
+                    toDisqualify.append(key)
+                }
+            }
+            for key in toDisqualify {
+                disqualifyTouch(key, reason: .momentaryLayerCancelled)
+            }
         }
 
         private func endMomentaryHoldIfNeeded(_ binding: KeyBinding?, touchKey: TouchKey) {
@@ -3544,6 +3577,8 @@ final class ContentViewModel: ObservableObject {
                 return .intentMouse
             case .offKeyNoSnap:
                 return .offKeyNoSnap
+            case .momentaryLayerCancelled:
+                return .momentaryLayerCancelled
             }
         }
         #endif

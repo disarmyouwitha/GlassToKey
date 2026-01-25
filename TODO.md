@@ -1,7 +1,8 @@
 ## TODO 
 - 2-finger double tap for double-click!
-- blood god
-- (Optional Install, CGEventFallback): Use Karabiner-DriverKit-VirtualHIDDevice to send keys!
+- can we expose the slider for when something becomes a double-click?
+- take screenshot for transparent stickers
+- (Optional Install, CGEventFallback): Use Karabiner-DriverKit-VirtualHIDDevice to send keys!m
 - normalize % to px??
 ###
 - any vestigial code?  
