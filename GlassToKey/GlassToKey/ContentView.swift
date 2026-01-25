@@ -90,6 +90,8 @@ struct ContentView: View {
     private var allowMouseTakeoverDuringTyping = GlassToKeySettings.allowMouseTakeoverDuringTyping
     @AppStorage(GlassToKeyDefaultsKeys.autocorrectEnabled)
     private var autocorrectEnabled = GlassToKeySettings.autocorrectEnabled
+    @AppStorage(GlassToKeyDefaultsKeys.tapClickEnabled)
+    private var tapClickEnabled = GlassToKeySettings.tapClickEnabled
     @AppStorage(GlassToKeyDefaultsKeys.snapRadiusPercent)
     private var snapRadiusPercentSetting = GlassToKeySettings.snapRadiusPercent
     static let trackpadWidthMM: CGFloat = 160.0
@@ -105,7 +107,7 @@ struct ContentView: View {
     fileprivate static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
     fileprivate static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
     fileprivate static let hapticStrengthRange: ClosedRange<Double> = 0.0...100.0
-    fileprivate static let typingGraceRange: ClosedRange<Double> = 10.0...1000.0
+    fileprivate static let typingGraceRange: ClosedRange<Double> = 0.0...2000.0
     fileprivate static let intentMoveThresholdRange: ClosedRange<Double> = 0.5...10.0
     fileprivate static let intentVelocityThresholdRange: ClosedRange<Double> = 10.0...200.0
     fileprivate static let snapRadiusPercentRange: ClosedRange<Double> = 0.0...100.0
@@ -380,6 +382,9 @@ struct ContentView: View {
             .onChange(of: autocorrectEnabled) { newValue in
                 AutocorrectEngine.shared.setEnabled(newValue)
             }
+            .onChange(of: tapClickEnabled) { newValue in
+                viewModel.updateTapClickEnabled(newValue)
+            }
             .onChange(of: snapRadiusPercentSetting) { newValue in
                 viewModel.updateSnapRadiusPercent(newValue)
             }
@@ -486,6 +491,7 @@ struct ContentView: View {
             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
             allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
             autocorrectEnabled: $autocorrectEnabled,
+            tapClickEnabled: $tapClickEnabled,
             snapRadiusPercentSetting: $snapRadiusPercentSetting,
             onRefreshDevices: {
                 viewModel.loadDevices(preserveSelection: true)
@@ -722,6 +728,7 @@ struct ContentView: View {
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var allowMouseTakeoverDuringTyping: Bool
         @Binding var autocorrectEnabled: Bool
+        @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
         @State private var typingTuningExpanded = true
         let onRefreshDevices: () -> Void
@@ -764,6 +771,7 @@ struct ContentView: View {
                             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
                             allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
                             autocorrectEnabled: $autocorrectEnabled,
+                            tapClickEnabled: $tapClickEnabled,
                             snapRadiusPercentSetting: $snapRadiusPercentSetting
                         )
                         .padding(.top, 8)
@@ -1306,6 +1314,7 @@ struct ContentView: View {
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var allowMouseTakeoverDuringTyping: Bool
         @Binding var autocorrectEnabled: Bool
+        @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
 
         private let labelWidth: CGFloat = 140
@@ -1376,7 +1385,7 @@ struct ContentView: View {
                     Slider(
                         value: $typingGraceMsSetting,
                         in: ContentView.typingGraceRange,
-                        step: 10
+                        step: 100
                     )
                     .frame(minWidth: 120)
                     .gridCellColumns(2)
@@ -1450,16 +1459,25 @@ struct ContentView: View {
                     .gridCellColumns(2)
                 }
                 GridRow {
-                    Text("Mouse Takeover")
-                        .frame(width: labelWidth, alignment: .leading)
-                    Toggle("", isOn: $allowMouseTakeoverDuringTyping)
-                        .toggleStyle(SwitchToggleStyle())
-                        .labelsHidden()
                     Text("Autocorrect")
                         .frame(width: labelWidth, alignment: .leading)
                     Toggle("", isOn: $autocorrectEnabled)
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
+                    Text("Tap Click")
+                        .frame(width: labelWidth, alignment: .leading)
+                    Toggle("", isOn: $tapClickEnabled)
+                        .toggleStyle(SwitchToggleStyle())
+                        .labelsHidden()
+                }
+                GridRow {
+                    Text("Mouse Takeover")
+                        .frame(width: labelWidth, alignment: .leading)
+                    Toggle("", isOn: $allowMouseTakeoverDuringTyping)
+                        .toggleStyle(SwitchToggleStyle())
+                        .labelsHidden()
+                    Spacer()
+                        .gridCellColumns(2)
                 }
             }
         }

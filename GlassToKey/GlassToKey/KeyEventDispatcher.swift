@@ -18,11 +18,21 @@ final class KeyEventDispatcher: @unchecked Sendable {
     func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool, token: RepeatToken? = nil) {
         dispatcher.postKey(code: code, flags: flags, keyDown: keyDown, token: token)
     }
+
+    func postLeftClick() {
+        dispatcher.postLeftClick()
+    }
+
+    func postRightClick() {
+        dispatcher.postRightClick()
+    }
 }
 
 private protocol KeyDispatching: Sendable {
     func postKeyStroke(code: CGKeyCode, flags: CGEventFlags, token: RepeatToken?)
     func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool, token: RepeatToken?)
+    func postLeftClick()
+    func postRightClick()
 }
 
 private final class CGEventKeyDispatcher: @unchecked Sendable, KeyDispatching {
@@ -101,6 +111,64 @@ private final class CGEventKeyDispatcher: @unchecked Sendable, KeyDispatching {
                 }
                 event.flags = flags
                 event.post(tap: .cghidEventTap)
+            }
+        }
+    }
+
+    func postLeftClick() {
+        queue.async { [self] in
+            autoreleasepool {
+                guard let source = self.eventSource
+                    ?? CGEventSource(stateID: .hidSystemState) else {
+                    return
+                }
+                self.eventSource = source
+                let location = CGEvent(source: nil)?.location ?? .zero
+                guard let mouseDown = CGEvent(
+                    mouseEventSource: source,
+                    mouseType: .leftMouseDown,
+                    mouseCursorPosition: location,
+                    mouseButton: .left
+                ),
+                let mouseUp = CGEvent(
+                    mouseEventSource: source,
+                    mouseType: .leftMouseUp,
+                    mouseCursorPosition: location,
+                    mouseButton: .left
+                ) else {
+                    return
+                }
+                mouseDown.post(tap: .cghidEventTap)
+                mouseUp.post(tap: .cghidEventTap)
+            }
+        }
+    }
+
+    func postRightClick() {
+        queue.async { [self] in
+            autoreleasepool {
+                guard let source = self.eventSource
+                    ?? CGEventSource(stateID: .hidSystemState) else {
+                    return
+                }
+                self.eventSource = source
+                let location = CGEvent(source: nil)?.location ?? .zero
+                guard let mouseDown = CGEvent(
+                    mouseEventSource: source,
+                    mouseType: .rightMouseDown,
+                    mouseCursorPosition: location,
+                    mouseButton: .right
+                ),
+                let mouseUp = CGEvent(
+                    mouseEventSource: source,
+                    mouseType: .rightMouseUp,
+                    mouseCursorPosition: location,
+                    mouseButton: .right
+                ) else {
+                    return
+                }
+                mouseDown.post(tap: .cghidEventTap)
+                mouseUp.post(tap: .cghidEventTap)
             }
         }
     }

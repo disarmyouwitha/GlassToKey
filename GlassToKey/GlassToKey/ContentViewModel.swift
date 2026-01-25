@@ -731,6 +731,12 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func updateTapClickEnabled(_ enabled: Bool) {
+        Task { [processor] in
+            await processor.updateTapClickEnabled(enabled)
+        }
+    }
+
     func clearTouchState() {
         Task { [processor] in
             await processor.resetState()
@@ -1292,8 +1298,14 @@ final class ContentViewModel: ObservableObject {
         private var intentDisplayBySide = SidePair(left: IntentDisplay.idle, right: .idle)
         private var intentConfig = IntentConfig()
         private var allowMouseTakeoverDuringTyping = false
+        private var tapClickEnabled = false
         private var typingGraceDeadline: TimeInterval?
         private var typingGraceTask: Task<Void, Never>?
+        private struct TapCandidate {
+            let deadline: TimeInterval
+        }
+        private var twoFingerTapCandidate: TapCandidate?
+        private var threeFingerTapCandidate: TapCandidate?
 
         struct StatusSnapshot: Sendable {
             let contactCounts: SidePair<Int>
@@ -1420,6 +1432,10 @@ final class ContentViewModel: ObservableObject {
             let clamped = min(max(percent, 0.0), 100.0)
             snapRadiusFraction = Float(clamped / 100.0)
             invalidateBindingsCache()
+        }
+
+        func updateTapClickEnabled(_ enabled: Bool) {
+            tapClickEnabled = enabled
         }
 
         func processTouchFrame(_ frame: TouchFrame) {
@@ -2425,6 +2441,9 @@ final class ContentViewModel: ObservableObject {
             var firstOnKeyTouchKey: TouchKey?
             var currentKeys = TouchTable<Bool>(minimumCapacity: leftTouches.count + rightTouches.count)
             var hasKeyboardAnchor = false
+            var twoFingerTapDetected = false
+            var threeFingerTapDetected = false
+            let staggerWindow = max(intentConfig.keyBufferSeconds, contactCountHoldDuration)
 
             func process(_ touch: OMSTouchData, side: TrackpadSide, bindings: BindingIndex) {
                 guard Self.isIntentContactState(touch.state) else { return }
@@ -2484,6 +2503,65 @@ final class ContentViewModel: ObservableObject {
                 process(touch, side: .right, bindings: rightBindings)
             }
 
+            if let candidate = twoFingerTapCandidate, now > candidate.deadline {
+                twoFingerTapCandidate = nil
+            }
+            if let candidate = threeFingerTapCandidate, now > candidate.deadline {
+                threeFingerTapCandidate = nil
+            }
+
+            if tapClickEnabled {
+                if currentKeys.count == 2,
+                   state.touches.count == 3,
+                   shouldTriggerTapClick(
+                    state: state.touches,
+                    now: now,
+                    moveThresholdSquared: moveThresholdSquared,
+                    fingerCount: 3
+                   ) {
+                    threeFingerTapCandidate = TapCandidate(deadline: now + staggerWindow)
+                } else if currentKeys.count == 0,
+                          state.touches.count == 3,
+                          shouldTriggerTapClick(
+                            state: state.touches,
+                            now: now,
+                            moveThresholdSquared: moveThresholdSquared,
+                            fingerCount: 3
+                          ) {
+                    threeFingerTapDetected = true
+                    threeFingerTapCandidate = nil
+                } else if currentKeys.count == 0,
+                          let candidate = threeFingerTapCandidate,
+                          now <= candidate.deadline {
+                    threeFingerTapDetected = true
+                    threeFingerTapCandidate = nil
+                } else if currentKeys.count == 1,
+                          state.touches.count == 2,
+                          shouldTriggerTapClick(
+                            state: state.touches,
+                            now: now,
+                            moveThresholdSquared: moveThresholdSquared,
+                            fingerCount: 2
+                          ) {
+                    twoFingerTapCandidate = TapCandidate(deadline: now + staggerWindow)
+                } else if currentKeys.count == 0,
+                          state.touches.count == 2,
+                          shouldTriggerTapClick(
+                            state: state.touches,
+                            now: now,
+                            moveThresholdSquared: moveThresholdSquared,
+                            fingerCount: 2
+                          ) {
+                    twoFingerTapDetected = true
+                    twoFingerTapCandidate = nil
+                } else if currentKeys.count == 0,
+                          let candidate = twoFingerTapCandidate,
+                          now <= candidate.deadline {
+                    twoFingerTapDetected = true
+                    twoFingerTapCandidate = nil
+                }
+            }
+
             if state.touches.count != currentKeys.count {
                 var toRemove: [TouchKey] = []
                 state.touches.forEach { key, _ in
@@ -2517,6 +2595,11 @@ final class ContentViewModel: ObservableObject {
 
             guard contactCount > 0 else {
                 state.touches.removeAll()
+                if threeFingerTapDetected {
+                    keyDispatcher.postRightClick()
+                } else if twoFingerTapDetected {
+                    keyDispatcher.postLeftClick()
+                }
                 if graceActive {
                     state.mode = .typingCommitted(untilAllUp: true)
                     intentState = state
@@ -2629,6 +2712,35 @@ final class ContentViewModel: ObservableObject {
             intentState = state
             updateIntentDisplayIfNeeded()
             return allowTyping
+        }
+
+        private func shouldTriggerTapClick(
+            state: TouchTable<IntentTouchInfo>,
+            now: TimeInterval,
+            moveThresholdSquared: CGFloat,
+            fingerCount: Int
+        ) -> Bool {
+            if state.count != fingerCount {
+                return false
+            }
+            var maxDuration: TimeInterval = 0
+            var maxDistanceSquared: CGFloat = 0
+            state.forEach { _, info in
+                let duration = now - info.startTime
+                if duration > maxDuration {
+                    maxDuration = duration
+                }
+                if info.maxDistanceSquared > maxDistanceSquared {
+                    maxDistanceSquared = info.maxDistanceSquared
+                }
+            }
+            if maxDuration > tapMaxDuration {
+                return false
+            }
+            if maxDistanceSquared > moveThresholdSquared {
+                return false
+            }
+            return true
         }
 
         private func updateIntentDisplayIfNeeded() {
