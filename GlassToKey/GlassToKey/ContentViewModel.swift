@@ -1306,6 +1306,9 @@ final class ContentViewModel: ObservableObject {
         private var tapClickEnabled = false
         private var typingGraceDeadline: TimeInterval?
         private var typingGraceTask: Task<Void, Never>?
+        private var doubleTapDeadline: TimeInterval?
+        private var awaitingSecondTap = false
+        private let doubleTapWindow: TimeInterval = 0.28
         private struct TapCandidate {
             let deadline: TimeInterval
         }
@@ -2529,6 +2532,10 @@ final class ContentViewModel: ObservableObject {
             if let candidate = threeFingerTapCandidate, now > candidate.deadline {
                 threeFingerTapCandidate = nil
             }
+            if let deadline = doubleTapDeadline, now > deadline {
+                doubleTapDeadline = nil
+                awaitingSecondTap = false
+            }
 
             if tapClickEnabled {
                 if currentKeys.count == 2,
@@ -2613,12 +2620,21 @@ final class ContentViewModel: ObservableObject {
                 || (secondFingerAppeared && anyOffKey)
                 || centroidMoved
 
+            let wasTwoFingerTapDetected = twoFingerTapDetected
             guard contactCount > 0 else {
                 state.touches.removeAll()
                 if threeFingerTapDetected {
                     keyDispatcher.postRightClick()
-                } else if twoFingerTapDetected {
-                    keyDispatcher.postLeftClick()
+                } else if wasTwoFingerTapDetected {
+                    if awaitingSecondTap, let deadline = doubleTapDeadline, now <= deadline {
+                        keyDispatcher.postLeftClick(clickCount: 2)
+                        awaitingSecondTap = false
+                        doubleTapDeadline = nil
+                    } else {
+                        keyDispatcher.postLeftClick()
+                        awaitingSecondTap = true
+                        doubleTapDeadline = now + doubleTapWindow
+                    }
                 }
                 if graceActive {
                     state.mode = .typingCommitted(untilAllUp: true)
