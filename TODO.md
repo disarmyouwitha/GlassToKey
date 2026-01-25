@@ -1,5 +1,6 @@
-## TODO
-- sonetimes correction buffer is off by one? "ooptionally"
+## TODO 
+- 2-finger double tap for double-click!
+- blood god
 - (Optional Install, CGEventFallback): Use Karabiner-DriverKit-VirtualHIDDevice to send keys!
 - normalize % to px??
 ###

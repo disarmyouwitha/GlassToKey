@@ -1459,9 +1459,9 @@ struct ContentView: View {
                     .gridCellColumns(2)
                 }
                 GridRow {
-                    Text("Mouse Takeover")
+                    Text("Autocorrect")
                         .frame(width: labelWidth, alignment: .leading)
-                    Toggle("", isOn: $allowMouseTakeoverDuringTyping)
+                    Toggle("", isOn: $autocorrectEnabled)
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
                     Text("Tap Click")
@@ -1471,9 +1471,9 @@ struct ContentView: View {
                         .labelsHidden()
                 }
                 GridRow {
-                    Text("Autocorrect")
+                    Text("Mouse Takeover")
                         .frame(width: labelWidth, alignment: .leading)
-                    Toggle("", isOn: $autocorrectEnabled)
+                    Toggle("", isOn: $allowMouseTakeoverDuringTyping)
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
                     Spacer()
