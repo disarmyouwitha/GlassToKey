@@ -102,7 +102,7 @@ struct ContentView: View {
     fileprivate static let columnOffsetPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.offsetPercentRange
     fileprivate static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
     fileprivate static let dragCancelDistanceRange: ClosedRange<Double> = 1.0...30.0
-    fileprivate static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
+    fileprivate static let tapHoldDurationRange: ClosedRange<Double> = 50.0...500.0
     fileprivate static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
     fileprivate static let hapticStrengthRange: ClosedRange<Double> = 0.0...100.0
     fileprivate static let typingGraceRange: ClosedRange<Double> = 0.0...2000.0
@@ -1400,7 +1400,7 @@ struct ContentView: View {
                     .gridCellColumns(2)
                 }
                 GridRow {
-                    Text("Drag Cancel (mm)")
+                    Text("Tap/Drag (ms)")
                         .frame(width: labelWidth, alignment: .leading)
                     TextField(
                         "1",
@@ -1412,23 +1412,6 @@ struct ContentView: View {
                         value: $dragCancelDistanceSetting,
                         in: ContentView.dragCancelDistanceRange,
                         step: 1
-                    )
-                    .frame(minWidth: 120)
-                    .gridCellColumns(2)
-                }
-                GridRow {
-                    Text("Typing Grace (ms)")
-                        .frame(width: labelWidth, alignment: .leading)
-                    TextField(
-                        "120",
-                        value: $typingGraceMsSetting,
-                        formatter: ContentView.typingGraceFormatter
-                    )
-                    .frame(width: valueFieldWidth)
-                    Slider(
-                        value: $typingGraceMsSetting,
-                        in: ContentView.typingGraceRange,
-                        step: 100
                     )
                     .frame(minWidth: 120)
                     .gridCellColumns(2)
@@ -1463,6 +1446,23 @@ struct ContentView: View {
                         value: $intentVelocityThresholdMmPerSecSetting,
                         in: ContentView.intentVelocityThresholdRange,
                         step: 5
+                    )
+                    .frame(minWidth: 120)
+                    .gridCellColumns(2)
+                }
+                GridRow {
+                    Text("Typing Grace (ms)")
+                        .frame(width: labelWidth, alignment: .leading)
+                    TextField(
+                        "120",
+                        value: $typingGraceMsSetting,
+                        formatter: ContentView.typingGraceFormatter
+                    )
+                    .frame(width: valueFieldWidth)
+                    Slider(
+                        value: $typingGraceMsSetting,
+                        in: ContentView.typingGraceRange,
+                        step: 100
                     )
                     .frame(minWidth: 120)
                     .gridCellColumns(2)
