@@ -875,6 +875,7 @@ final class ContentViewModel: ObservableObject {
             let isContinuousKey: Bool
             let holdBinding: KeyBinding?
             var didHold: Bool
+            var holdRepeatActive: Bool = false
             var maxDistanceSquared: CGFloat
             let initialPressure: Float
             var forceEntryTime: TimeInterval?
@@ -1609,7 +1610,7 @@ final class ContentViewModel: ObservableObject {
                     if let active = removedActive {
                         if let modifierKey = active.modifierKey {
                             handleModifierUp(modifierKey, binding: active.binding)
-                        } else if active.isContinuousKey {
+                        } else if active.holdRepeatActive {
                             stopRepeat(for: touchKey)
                        }
                     }
@@ -1650,9 +1651,7 @@ final class ContentViewModel: ObservableObject {
 
                         if intentAllowsTyping,
                            active.modifierKey == nil,
-                           !active.isContinuousKey,
                            !active.didHold,
-                           let holdBinding = active.holdBinding,
                            now - active.startTime >= holdMinDuration,
                            (!isDragDetectionEnabled || active.maxDistanceSquared <= dragCancelDistanceSquared),
                            initialContactPointIsInsideBinding(touchKey, binding: active.binding) {
@@ -1662,9 +1661,24 @@ final class ContentViewModel: ObservableObject {
                                 maxDistanceSquared: active.maxDistanceSquared,
                                 now: now
                             )
-                            triggerBinding(holdBinding, touchKey: touchKey, dispatchInfo: dispatchInfo)
-                            active.didHold = true
-                            setActiveTouch(touchKey, active)
+                            var updated = active
+                            if active.isContinuousKey {
+                                triggerBinding(active.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
+                                startRepeat(for: touchKey, binding: active.binding)
+                                updated.holdRepeatActive = true
+                            } else if let holdBinding = active.holdBinding {
+                                triggerBinding(holdBinding, touchKey: touchKey, dispatchInfo: dispatchInfo)
+                                if isContinuousKey(holdBinding) {
+                                    startRepeat(for: touchKey, binding: holdBinding)
+                                    updated.holdRepeatActive = true
+                                } else {
+                                    updated.holdRepeatActive = false
+                                }
+                            } else {
+                                updated.holdRepeatActive = false
+                            }
+                            updated.didHold = true
+                            setActiveTouch(touchKey, updated)
                         }
                     } else if var pending = pendingTouch(for: touchKey) {
                         let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
@@ -1717,9 +1731,6 @@ final class ContentViewModel: ObservableObject {
                                 var updated = active
                                 updated.modifierEngaged = true
                                 setActiveTouch(touchKey, updated)
-                            } else if isContinuousKey {
-                                triggerBinding(pending.binding, touchKey: touchKey)
-                                startRepeat(for: touchKey, binding: pending.binding)
                             }
                         } else if isDragDetectionEnabled {
                             _ = removePendingTouch(for: touchKey)
@@ -1780,9 +1791,6 @@ final class ContentViewModel: ObservableObject {
                                 var updated = active
                                 updated.modifierEngaged = true
                                 setActiveTouch(touchKey, updated)
-                            } else if allowNow, isContinuousKey {
-                                triggerBinding(binding, touchKey: touchKey)
-                                startRepeat(for: touchKey, binding: binding)
                             }
                         }
                     }
@@ -1843,7 +1851,7 @@ final class ContentViewModel: ObservableObject {
                         let guardTriggered = active.forceGuardTriggered
                         if let modifierKey = active.modifierKey, active.modifierEngaged {
                             handleModifierUp(modifierKey, binding: active.binding)
-                        } else if active.isContinuousKey {
+                        } else if active.holdRepeatActive {
                             stopRepeat(for: touchKey)
                         } else if !guardTriggered,
                                   !active.didHold,
@@ -1951,7 +1959,7 @@ final class ContentViewModel: ObservableObject {
                         active.maxDistanceSquared = max(active.maxDistanceSquared, distanceSquared)
                         if let modifierKey = active.modifierKey, active.modifierEngaged {
                             handleModifierUp(modifierKey, binding: active.binding)
-                        } else if active.isContinuousKey {
+                        } else if active.holdRepeatActive {
                             stopRepeat(for: touchKey)
                         }
                         endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
@@ -3353,7 +3361,7 @@ final class ContentViewModel: ObservableObject {
             if let state, case let .active(active) = state {
                 if let modifierKey = active.modifierKey, active.modifierEngaged {
                     handleModifierUp(modifierKey, binding: active.binding)
-                } else if active.isContinuousKey {
+                } else if active.holdRepeatActive {
                     stopRepeat(for: touchKey)
                 }
                 endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
@@ -4021,6 +4029,7 @@ enum KeyActionCatalog {
         "9": (CGKeyCode(kVK_ANSI_9), []),
         "0": (CGKeyCode(kVK_ANSI_0), []),
         "-": (CGKeyCode(kVK_ANSI_Minus), []),
+        "—": (CGKeyCode(kVK_ANSI_Minus), [.maskShift, .maskAlternate]),
         "=": (CGKeyCode(kVK_ANSI_Equal), []),
         "Q": (CGKeyCode(kVK_ANSI_Q), []),
         "W": (CGKeyCode(kVK_ANSI_W), []),
