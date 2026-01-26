@@ -1,5 +1,4 @@
 ## TODO
-- (Optional Install, CGEventFallback):
 - Use Karabiner-DriverKit-VirtualHIDDevice to send keys!
 ###
 
