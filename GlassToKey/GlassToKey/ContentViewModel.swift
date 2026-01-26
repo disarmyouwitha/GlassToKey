@@ -1318,6 +1318,15 @@ final class ContentViewModel: ObservableObject {
             var active: Bool = false
         }
         private var chordShiftState = SidePair(left: ChordShiftState(), right: ChordShiftState())
+        private var chordShiftLastContactTime = SidePair(left: TimeInterval(0), right: TimeInterval(0))
+        private var chordShiftKeyDown = false
+        #if DEBUG
+        private static let chordShiftLogger = Logger(
+            subsystem: "com.kyome.GlassToKey",
+            category: "ChordShift"
+        )
+        private var chordShiftLogged = false
+        #endif
 
         struct StatusSnapshot: Sendable {
             let contactCounts: SidePair<Int>
@@ -1467,6 +1476,7 @@ final class ContentViewModel: ObservableObject {
             let rightContactCount = contactCount(in: frame.right)
             updateChordShift(for: .left, contactCount: leftContactCount, now: now)
             updateChordShift(for: .right, contactCount: rightContactCount, now: now)
+            updateChordShiftKeyState()
             let allowTypingGlobal = updateIntent(for: frame, now: now)
             let allowTypingLeft = allowTypingGlobal || isChordShiftActive(on: .right)
             let allowTypingRight = allowTypingGlobal || isChordShiftActive(on: .left)
@@ -2429,9 +2439,18 @@ final class ContentViewModel: ObservableObject {
             }
         }
 
+        private static func isChordShiftContactState(_ state: OMSState) -> Bool {
+            switch state {
+            case .starting, .making, .touching, .breaking, .leaving, .lingering:
+                return true
+            default:
+                return false
+            }
+        }
+
         private func contactCount(in touches: [OMSTouchData]) -> Int {
             var count = 0
-            for touch in touches where Self.isContactState(touch.state) {
+            for touch in touches where Self.isChordShiftContactState(touch.state) {
                 count += 1
             }
             return count
@@ -2439,21 +2458,58 @@ final class ContentViewModel: ObservableObject {
 
         private func updateChordShift(for side: TrackpadSide, contactCount: Int, now: TimeInterval) {
             var state = chordShiftState[side]
+            let wasActive = state.active
+            if contactCount > 0 {
+                chordShiftLastContactTime[side] = now
+            }
             if state.active {
                 if contactCount == 0 {
-                    state.active = false
+                    let elapsed = now - chordShiftLastContactTime[side]
+                    if elapsed >= contactCountHoldDuration {
+                        state.active = false
+                    }
                 }
                 chordShiftState[side] = state
+                #if DEBUG
+                if wasActive && !state.active {
+                    Self.chordShiftLogger.debug("ChordShift off (\(side.rawValue, privacy: .public)) contacts=\(contactCount)")
+                }
+                #endif
                 return
             }
             if contactCount >= 4 {
                 state.active = true
             }
             chordShiftState[side] = state
+            #if DEBUG
+            if !wasActive && state.active {
+                chordShiftLogged = false
+                Self.chordShiftLogger.debug("ChordShift on (\(side.rawValue, privacy: .public)) contacts=\(contactCount)")
+            }
+            #endif
         }
 
         private func isChordShiftActive(on side: TrackpadSide) -> Bool {
             chordShiftState[side].active
+        }
+
+        private func updateChordShiftKeyState() {
+            let shouldBeDown = chordShiftState[.left].active || chordShiftState[.right].active
+            guard shouldBeDown != chordShiftKeyDown else { return }
+            chordShiftKeyDown = shouldBeDown
+            let shiftBinding = KeyBinding(
+                rect: .zero,
+                normalizedRect: NormalizedRect(x: 0, y: 0, width: 0, height: 0),
+                label: "Shift",
+                action: .key(code: CGKeyCode(kVK_Shift), flags: []),
+                position: nil,
+                side: .left,
+                holdAction: nil
+            )
+            postKey(binding: shiftBinding, keyDown: shouldBeDown)
+            #if DEBUG
+            Self.chordShiftLogger.debug("ChordShift key \(shouldBeDown ? "down" : "up", privacy: .public)")
+            #endif
         }
 
         private func updateIntent(for frame: TouchFrame, now: TimeInterval) -> Bool {
@@ -3151,6 +3207,14 @@ final class ContentViewModel: ObservableObject {
             guard case let .key(code, flags) = binding.action else { return }
             #if DEBUG
             onDebugBindingDetected(binding)
+            if !chordShiftLogged,
+               (chordShiftState[.left].active || chordShiftState[.right].active) {
+                chordShiftLogged = true
+                let combinedFlags = flags.union(currentModifierFlags())
+                Self.chordShiftLogger.debug(
+                    "ChordShift dispatch label=\(binding.label, privacy: .public) code=\(Int(code)) flags=\(combinedFlags.rawValue)"
+                )
+            }
 #endif
             extendTypingGrace(for: binding.side, now: Self.now())
             #if DEBUG
@@ -3350,6 +3414,19 @@ final class ContentViewModel: ObservableObject {
         private func releaseHeldKeys() {
             chordShiftState[.left] = ChordShiftState()
             chordShiftState[.right] = ChordShiftState()
+            if chordShiftKeyDown {
+                let shiftBinding = KeyBinding(
+                    rect: .zero,
+                    normalizedRect: NormalizedRect(x: 0, y: 0, width: 0, height: 0),
+                    label: "Shift",
+                    action: .key(code: CGKeyCode(kVK_Shift), flags: []),
+                    position: nil,
+                    side: .left,
+                    holdAction: nil
+                )
+                postKey(binding: shiftBinding, keyDown: false)
+                chordShiftKeyDown = false
+            }
             if leftShiftTouchCount > 0 {
                 let shiftBinding = KeyBinding(
                     rect: .zero,
