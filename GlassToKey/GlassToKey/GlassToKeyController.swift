@@ -13,6 +13,7 @@ enum GlassToKeySettings {
     static let tapClickEnabled: Bool = true
     static let snapRadiusPercent: Double = 35.0
     static let chordalShiftEnabled: Bool = true
+    static let keyboardOutputBackend: KeyboardOutputBackend = .cgevent
 
     static func persistedDouble(
         forKey key: String,
@@ -105,6 +106,12 @@ final class GlassToKeyController: ObservableObject {
         viewModel.updateKeyMappings(keyMappings)
 
         applySavedInteractionSettings()
+        let backendPreference = KeyboardOutputBackend(
+            rawValue: UserDefaults.standard.string(
+                forKey: GlassToKeyDefaultsKeys.keyboardOutputBackend
+            ) ?? ""
+        ) ?? GlassToKeySettings.keyboardOutputBackend
+        KeyEventDispatcher.shared.configureBackend(preference: backendPreference)
         let autocorrectEnabled = UserDefaults.standard.bool(
             forKey: GlassToKeyDefaultsKeys.autocorrectEnabled
         )

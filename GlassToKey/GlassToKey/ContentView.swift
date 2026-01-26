@@ -77,6 +77,8 @@ struct ContentView: View {
     @AppStorage(GlassToKeyDefaultsKeys.customButtons) private var storedCustomButtonsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.keyMappings) private var storedKeyMappingsData = Data()
     @AppStorage(GlassToKeyDefaultsKeys.autoResyncMissingTrackpads) private var storedAutoResyncMissingTrackpads = false
+    @AppStorage(GlassToKeyDefaultsKeys.keyboardOutputBackend)
+    private var storedKeyboardOutputBackend = KeyboardOutputBackend.cgevent.rawValue
     @AppStorage(GlassToKeyDefaultsKeys.tapHoldDuration) private var tapHoldDurationMs: Double = GlassToKeySettings.tapHoldDurationMs
     @AppStorage(GlassToKeyDefaultsKeys.dragCancelDistance) private var dragCancelDistanceSetting: Double = GlassToKeySettings.dragCancelDistanceMm
     @AppStorage(GlassToKeyDefaultsKeys.forceClickCap) private var forceClickCapSetting: Double = GlassToKeySettings.forceClickCap
@@ -94,6 +96,7 @@ struct ContentView: View {
     private var snapRadiusPercentSetting = GlassToKeySettings.snapRadiusPercent
     @AppStorage(GlassToKeyDefaultsKeys.chordalShiftEnabled)
     private var chordalShiftEnabled = GlassToKeySettings.chordalShiftEnabled
+    @ObservedObject private var keyboardOutputStatus = KeyboardOutputStatusCenter.shared
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -232,6 +235,16 @@ struct ContentView: View {
         Binding(
             get: { layoutOption },
             set: { handleLayoutOptionChange($0) }
+        )
+    }
+    private var keyboardOutputBinding: Binding<KeyboardOutputBackend> {
+        Binding(
+            get: {
+                KeyboardOutputBackend(rawValue: storedKeyboardOutputBackend) ?? .cgevent
+            },
+            set: { newValue in
+                storedKeyboardOutputBackend = newValue.rawValue
+            }
         )
     }
 
@@ -391,6 +404,10 @@ struct ContentView: View {
             .onChange(of: storedAutoResyncMissingTrackpads) { newValue in
                 viewModel.setAutoResyncEnabled(newValue)
             }
+            .onChange(of: storedKeyboardOutputBackend) { newValue in
+                let preference = KeyboardOutputBackend(rawValue: newValue) ?? .cgevent
+                KeyEventDispatcher.shared.configureBackend(preference: preference)
+            }
     }
 
     @ViewBuilder
@@ -482,6 +499,8 @@ struct ContentView: View {
             buttonSelection: buttonInspectorSelection,
             keySelection: keyInspectorSelection,
             editModeEnabled: editModeEnabled,
+            keyboardOutputPreference: keyboardOutputBinding,
+            keyboardStatus: keyboardOutputStatus.status,
             tapHoldDurationMs: $tapHoldDurationMs,
             dragCancelDistanceSetting: $dragCancelDistanceSetting,
             forceClickCapSetting: $forceClickCapSetting,
@@ -495,6 +514,12 @@ struct ContentView: View {
             chordalShiftEnabled: $chordalShiftEnabled,
             onRefreshDevices: {
                 viewModel.loadDevices(preserveSelection: true)
+            },
+            onOpenKeyboardOutputGuide: {
+                openKarabinerGuide()
+            },
+            onRecheckKeyboardOutput: {
+                KeyEventDispatcher.shared.refreshBackendStatus()
             },
             onAutoResyncChange: { newValue in
                 storedAutoResyncMissingTrackpads = newValue
@@ -720,6 +745,8 @@ struct ContentView: View {
         let buttonSelection: ButtonInspectorSelection?
         let keySelection: KeyInspectorSelection?
         let editModeEnabled: Bool
+        @Binding var keyboardOutputPreference: KeyboardOutputBackend
+        let keyboardStatus: KeyboardBackendStatus
         @Binding var tapHoldDurationMs: Double
         @Binding var dragCancelDistanceSetting: Double
         @Binding var forceClickCapSetting: Double
@@ -733,6 +760,8 @@ struct ContentView: View {
         @Binding var chordalShiftEnabled: Bool
         @State private var typingTuningExpanded = true
         let onRefreshDevices: () -> Void
+        let onOpenKeyboardOutputGuide: () -> Void
+        let onRecheckKeyboardOutput: () -> Void
         let onAutoResyncChange: (Bool) -> Void
         let onAddCustomButton: (TrackpadSide) -> Void
         let onRemoveCustomButton: (UUID) -> Void
@@ -757,6 +786,13 @@ struct ContentView: View {
                     },
                     onAutoResyncChange: onAutoResyncChange,
                     onRefresh: onRefreshDevices
+                )
+
+                KeyboardOutputSectionView(
+                    backendPreference: $keyboardOutputPreference,
+                    status: keyboardStatus,
+                    onOpenGuide: onOpenKeyboardOutputGuide,
+                    onRecheck: onRecheckKeyboardOutput
                 )
 
                 if !editModeEnabled {
@@ -812,6 +848,15 @@ struct ContentView: View {
             }
             .frame(width: 420)
         }
+    }
+
+    private func openKarabinerGuide() {
+        guard let url = URL(
+            string: "https://github.com/pqrs-org/Karabiner-DriverKit-VirtualHIDDevice"
+        ) else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
 #if DEBUG
@@ -930,6 +975,87 @@ struct ContentView: View {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.primary.opacity(0.05))
             )
+        }
+    }
+
+    private struct KeyboardOutputSectionView: View {
+        @Binding var backendPreference: KeyboardOutputBackend
+        let status: KeyboardBackendStatus
+        let onOpenGuide: () -> Void
+        let onRecheck: () -> Void
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Keyboard Output")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Picker("Output", selection: $backendPreference) {
+                    ForEach(KeyboardOutputBackend.allCases) { backend in
+                        Text(backend.displayName).tag(backend)
+                    }
+                }
+                .pickerStyle(MenuPickerStyle())
+                statusRow(label: "Installed", value: yesNo(status.virtualHID.isInstalled))
+                statusRow(label: "Activated", value: activationLabel(status.virtualHID.activationState))
+                statusRow(label: "Daemon reachable", value: reachabilityLabel(status.virtualHID.reachability))
+                statusRow(label: "Currently using", value: status.activeBackend.displayName)
+                if let lastError = status.lastError ?? status.virtualHID.lastError {
+                    statusRow(label: "Last error", value: lastError)
+                }
+                HStack {
+                    Button("Open Install Guide") {
+                        onOpenGuide()
+                    }
+                    .buttonStyle(.bordered)
+                    Button("Recheck VirtualHID Status") {
+                        onRecheck()
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.primary.opacity(0.05))
+            )
+        }
+
+        private func statusRow(label: String, value: String) -> some View {
+            HStack {
+                Text(label)
+                Spacer()
+                Text(value)
+                    .foregroundStyle(.secondary)
+            }
+            .font(.caption)
+        }
+
+        private func yesNo(_ value: Bool) -> String {
+            value ? "Yes" : "No"
+        }
+
+        private func activationLabel(_ value: VirtualHIDActivationState) -> String {
+            switch value {
+            case .unknown:
+                return "Unknown"
+            case .active:
+                return "Yes"
+            case .inactive:
+                return "No"
+            }
+        }
+
+        private func reachabilityLabel(_ value: VirtualHIDReachability) -> String {
+            switch value {
+            case .unknown:
+                return "Unknown"
+            case .reachable:
+                return "Yes"
+            case .unreachable:
+                return "No"
+            case .permissionDenied:
+                return "Permission denied"
+            }
         }
     }
 
@@ -2204,6 +2330,10 @@ struct ContentView: View {
         visualsEnabled = storedVisualsEnabled
         viewModel.setStatusVisualsEnabled(visualsEnabled)
         AutocorrectEngine.shared.setEnabled(autocorrectEnabled)
+        let backendPreference = KeyboardOutputBackend(
+            rawValue: storedKeyboardOutputBackend
+        ) ?? .cgevent
+        KeyEventDispatcher.shared.configureBackend(preference: backendPreference)
         let resolvedLayout = TrackpadLayoutPreset(rawValue: storedLayoutPreset) ?? .sixByThree
         layoutOption = resolvedLayout
         selectedColumn = nil

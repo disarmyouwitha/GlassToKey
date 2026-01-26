@@ -5,10 +5,26 @@ import Foundation
 final class KeyEventDispatcher: @unchecked Sendable {
     static let shared = KeyEventDispatcher()
 
-    private let dispatcher: KeyDispatching
+    private let configurationQueue = DispatchQueue(
+        label: "com.kyome.GlassToKey.KeyDispatch.Configuration"
+    )
+    private let statusCenter = KeyboardOutputStatusCenter.shared
+    private let cgeventDispatcher: CGEventKeyDispatcher
+    private let virtualHIDDispatcher: VirtualHIDKeyDispatcher
+    private var dispatcher: KeyDispatching
+    private var backendStatus: KeyboardBackendStatus
 
     private init() {
-        dispatcher = CGEventKeyDispatcher()
+        cgeventDispatcher = CGEventKeyDispatcher()
+        backendStatus = KeyboardBackendStatus.initial()
+        virtualHIDDispatcher = VirtualHIDKeyDispatcher(
+            client: VirtualHIDClient(),
+            onFailure: { [weak self] error in
+                self?.handleVirtualHIDFailure(error)
+            }
+        )
+        dispatcher = cgeventDispatcher
+        statusCenter.update(backendStatus)
     }
 
     func postKeyStroke(code: CGKeyCode, flags: CGEventFlags, token: RepeatToken? = nil) {
@@ -26,9 +42,91 @@ final class KeyEventDispatcher: @unchecked Sendable {
     func postRightClick() {
         dispatcher.postRightClick()
     }
+
+    func configureBackend(preference: KeyboardOutputBackend) {
+        configurationQueue.async { [weak self] in
+            self?.applyBackendPreference(preference)
+        }
+    }
+
+    func refreshBackendStatus() {
+        configurationQueue.async { [weak self] in
+            guard let self else { return }
+            self.applyBackendPreference(self.backendStatus.preference)
+        }
+    }
+
+    private func applyBackendPreference(_ preference: KeyboardOutputBackend) {
+        let clientAvailable = VirtualHIDClient.isAvailable
+        var virtualStatus = VirtualHIDHealthChecker.check()
+        if preference == .virtualhid && !clientAvailable && virtualStatus.lastError == nil {
+            virtualStatus.lastError = "VirtualHID helper not configured"
+        }
+        let shouldUseVirtual = preference == .virtualhid
+            && virtualStatus.isHealthy
+            && clientAvailable
+        let newBackend: KeyboardOutputBackend = shouldUseVirtual ? .virtualhid : .cgevent
+        let previousBackend = backendStatus.activeBackend
+        dispatcher = shouldUseVirtual ? virtualHIDDispatcher : cgeventDispatcher
+
+        let resolvedLastError: String?
+        if preference == .cgevent {
+            resolvedLastError = nil
+        } else if shouldUseVirtual {
+            resolvedLastError = nil
+        } else {
+            resolvedLastError = backendStatus.lastError
+        }
+        let newStatus = KeyboardBackendStatus(
+            preference: preference,
+            activeBackend: newBackend,
+            virtualHID: virtualStatus,
+            lastError: resolvedLastError
+        )
+        backendStatus = newStatus
+        publishStatus(newStatus, previousBackend: previousBackend)
+    }
+
+    private func handleVirtualHIDFailure(_ error: VirtualHIDError) {
+        configurationQueue.async { [weak self] in
+            guard let self else { return }
+            guard backendStatus.activeBackend == .virtualhid else { return }
+            dispatcher = cgeventDispatcher
+            var virtualStatus = backendStatus.virtualHID
+            virtualStatus.reachability = .unreachable
+            virtualStatus.lastError = error.message
+            let updated = KeyboardBackendStatus(
+                preference: backendStatus.preference,
+                activeBackend: .cgevent,
+                virtualHID: virtualStatus,
+                lastError: error.message
+            )
+            let previousBackend = backendStatus.activeBackend
+            backendStatus = updated
+            publishStatus(updated, previousBackend: previousBackend)
+        }
+    }
+
+    private func publishStatus(
+        _ status: KeyboardBackendStatus,
+        previousBackend: KeyboardOutputBackend
+    ) {
+        if previousBackend != status.activeBackend {
+#if DEBUG
+            NSLog(
+                "Keyboard output backend switched: %@ -> %@",
+                previousBackend.rawValue,
+                status.activeBackend.rawValue
+            )
+#endif
+        }
+        DispatchQueue.main.async { [statusCenter] in
+            statusCenter.update(status)
+        }
+    }
 }
 
-private protocol KeyDispatching: Sendable {
+protocol KeyDispatching: Sendable {
     func postKeyStroke(code: CGKeyCode, flags: CGEventFlags, token: RepeatToken?)
     func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool, token: RepeatToken?)
     func postLeftClick(clickCount: Int)
