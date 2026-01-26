@@ -511,7 +511,8 @@ struct ContentView: View {
             },
             onUpdateKeyMapping: { key, update in
                 updateKeyMappingAndSelection(key: key, update: update)
-            }
+            },
+            onRestoreDefaults: restoreTypingTuningDefaults
         )
     }
 
@@ -732,6 +733,7 @@ struct ContentView: View {
         let onUpdateColumn: (Int, (inout ColumnLayoutSettings) -> Void) -> Void
         let onUpdateButton: (UUID, (inout CustomButton) -> Void) -> Void
         let onUpdateKeyMapping: (SelectedGridKey, (inout KeyMapping) -> Void) -> Void
+        let onRestoreDefaults: () -> Void
 
         var body: some View {
             VStack(alignment: .leading, spacing: 14) {
@@ -764,7 +766,8 @@ struct ContentView: View {
                             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
                             autocorrectEnabled: $autocorrectEnabled,
                             tapClickEnabled: $tapClickEnabled,
-                            snapRadiusPercentSetting: $snapRadiusPercentSetting
+                            snapRadiusPercentSetting: $snapRadiusPercentSetting,
+                            onRestoreDefaults: onRestoreDefaults
                         )
                         .padding(.top, 8)
                     } label: {
@@ -1307,6 +1310,7 @@ struct ContentView: View {
         @Binding var autocorrectEnabled: Bool
         @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
+        let onRestoreDefaults: () -> Void
 
         private let labelWidth: CGFloat = 140
         private let valueFieldWidth: CGFloat = 50
@@ -1364,10 +1368,11 @@ struct ContentView: View {
         }
 
         var body: some View {
-            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
-                GridRow {
-                    Text("Tap/Hold (ms)")
-                        .frame(width: labelWidth, alignment: .leading)
+            VStack(spacing: 8) {
+                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                    GridRow {
+                        Text("Tap/Hold (ms)")
+                            .frame(width: labelWidth, alignment: .leading)
                     TextField(
                         "200",
                         value: $tapHoldDurationMs,
@@ -1492,19 +1497,24 @@ struct ContentView: View {
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
                 }
-                GridRow {
-                    Text("Snap Radius")
-                        .frame(width: labelWidth, alignment: .leading)
-                    Toggle("", isOn: snapRadiusEnabledBinding)
-                        .toggleStyle(SwitchToggleStyle())
-                        .labelsHidden()
-                    Spacer()
-                        .gridCellColumns(2)
+                    GridRow {
+                        Text("Snap Radius")
+                            .frame(width: labelWidth, alignment: .leading)
+                        Toggle("", isOn: snapRadiusEnabledBinding)
+                            .toggleStyle(SwitchToggleStyle())
+                            .labelsHidden()
+                        Button("Restore Defaults") {
+                            onRestoreDefaults()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Spacer()
+                            .gridCellColumns(1)
+                    }
                 }
             }
         }
-    }
 
+    }
 
     private struct TrackpadDeckView: View {
         @ObservedObject var viewModel: ContentViewModel
@@ -2203,6 +2213,19 @@ struct ContentView: View {
         viewModel.updateAllowMouseTakeover(true)
         viewModel.updateSnapRadiusPercent(snapRadiusPercentSetting)
         viewModel.setTouchSnapshotRecordingEnabled(visualsEnabled)
+    }
+
+    private func restoreTypingTuningDefaults() {
+        tapHoldDurationMs = GlassToKeySettings.tapHoldDurationMs
+        dragCancelDistanceSetting = GlassToKeySettings.dragCancelDistanceMm
+        forceClickCapSetting = GlassToKeySettings.forceClickCap
+        hapticStrengthSetting = GlassToKeySettings.hapticStrengthPercent
+        typingGraceMsSetting = GlassToKeySettings.typingGraceMs
+        intentMoveThresholdMmSetting = GlassToKeySettings.intentMoveThresholdMm
+        intentVelocityThresholdMmPerSecSetting = GlassToKeySettings.intentVelocityThresholdMmPerSec
+        autocorrectEnabled = GlassToKeySettings.autocorrectEnabled
+        tapClickEnabled = GlassToKeySettings.tapClickEnabled
+        snapRadiusPercentSetting = GlassToKeySettings.snapRadiusPercent
     }
 
     private func saveSettings() {

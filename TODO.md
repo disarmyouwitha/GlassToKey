@@ -1,9 +1,9 @@
-## TODO 
-- 2-finger double tap for double-click!
+## TODO
+- 4 finger tap chord click shift
 - Mouse Grace (ms) where it stays in mouse state for X ms after last mouse event. no typing allowed but gestures yes!
-- can we expose the slider for when something becomes a double-click?n
+- can we expose the slider for when click becomes double click?
 - take screenshot for transparent stickers
-- (Optional Install, CGEventFallback): Use Karabiner-DriverKit-VirtualHIDDevice to send keys!m
+- (Optional Install, CGEventFallback): Use Karabiner-DriverKit-VirtualHIDDevice to send keys!
 - normalize % to px??
 ###
 - any vestigial code?  
