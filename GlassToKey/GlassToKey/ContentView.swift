@@ -406,6 +406,9 @@ struct ContentView: View {
             }
             .onChange(of: storedKeyboardOutputBackend) { newValue in
                 let preference = KeyboardOutputBackend(rawValue: newValue) ?? .cgevent
+                if preference == .virtualhid {
+                    attemptVirtualHIDInstall()
+                }
                 KeyEventDispatcher.shared.configureBackend(preference: preference)
             }
     }
@@ -857,6 +860,21 @@ struct ContentView: View {
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    private func attemptVirtualHIDInstall() {
+        VirtualHIDHelperInstaller.installIfNeeded { ok, error in
+            if !ok {
+#if DEBUG
+                if let error {
+                    NSLog("VirtualHID helper install failed: %@", error)
+                } else {
+                    NSLog("VirtualHID helper install failed")
+                }
+#endif
+            }
+            KeyEventDispatcher.shared.refreshBackendStatus()
+        }
     }
 
 #if DEBUG

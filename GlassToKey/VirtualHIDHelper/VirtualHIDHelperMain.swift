@@ -48,8 +48,13 @@ final class VirtualHIDHelper: NSObject, NSXPCListenerDelegate, VirtualHIDXPCServ
     }
 }
 
-let helper = VirtualHIDHelper()
-let listener = NSXPCListener(machServiceName: VirtualHIDHelperMachServiceName)
-listener.delegate = helper
-listener.resume()
-RunLoop.current.run()
+@main
+struct VirtualHIDHelperMain {
+    static func main() {
+        let helper = VirtualHIDHelper()
+        let listener = NSXPCListener(machServiceName: VirtualHIDHelperMachServiceName)
+        listener.delegate = helper
+        listener.resume()
+        RunLoop.current.run()
+    }
+}

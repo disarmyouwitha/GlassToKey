@@ -16,5 +16,13 @@
 - "Auto" set column x,y based on finger splay "4 finger touch" snapsMetro.
 
 
-# Karabiner stuck, help!
+# Karabiner:
+
+## activate
+/Applications/.Karabiner-VirtualHIDDevice-Manager.app/Contents/MacOS/Karabiner-VirtualHIDDevice-Manager activate
+
+## run daemon: 
+sudo '/Library/Application Support/org.pqrs/Karabiner-DriverKit-VirtualHIDDevice/Applications/Karabiner-VirtualHIDDevice-Daemon.app/Contents/MacOS/Karabiner-VirtualHIDDevice-Daemon'
+
+## stuck, help!
 sudo launchctl kickstart -k system/org.pqrs.vhid 
