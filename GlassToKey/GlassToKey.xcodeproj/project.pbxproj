@@ -15,6 +15,12 @@
 		F1A2B3C4D5E6F7890123456A /* KeyboardOutputBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F78901234567 /* KeyboardOutputBackend.swift */; };
 		F1A2B3C4D5E6F7890123456B /* VirtualHIDHealthChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F78901234568 /* VirtualHIDHealthChecker.swift */; };
 		F1A2B3C4D5E6F7890123456C /* VirtualHIDKeyDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F78901234569 /* VirtualHIDKeyDispatcher.swift */; };
+		F1A2B3C4D5E6F78901234580 /* VirtualHIDXPCProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F78901234570 /* VirtualHIDXPCProtocol.swift */; };
+		F1A2B3C4D5E6F78901234581 /* VirtualHIDXPCClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F78901234571 /* VirtualHIDXPCClient.swift */; };
+		F1A2B3C4D5E6F78901234582 /* VirtualHIDHelper.plist in Resources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F78901234572 /* VirtualHIDHelper.plist */; };
+		F1A2B3C4D5E6F78901234583 /* VirtualHIDXPCProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F78901234570 /* VirtualHIDXPCProtocol.swift */; };
+		F1A2B3C4D5E6F78901234584 /* VirtualHIDHelperMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F78901234573 /* VirtualHIDHelperMain.swift */; };
+		F1A2B3C4D5E6F78901234586 /* VirtualHIDDaemonClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F78901234585 /* VirtualHIDDaemonClient.swift */; };
 		77292A882B931953001CA3F6 /* GlassToKeyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77292A872B931953001CA3F6 /* GlassToKeyApp.swift */; };
 		77292A8A2B931953001CA3F6 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77292A892B931953001CA3F6 /* ContentView.swift */; };
 		77292A8C2B931954001CA3F6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 77292A8B2B931954001CA3F6 /* Assets.xcassets */; };
@@ -32,6 +38,12 @@
 		5A1C2D3E4F5061728394A5B9 /* KeySemanticMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeySemanticMapper.swift; sourceTree = "<group>"; };
 		31AB052B2F14DA2600EEE33E /* ColumnLayoutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnLayoutSettings.swift; sourceTree = "<group>"; };
 		E0B1C2D3E4F5678901234567 /* KeyEventDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyEventDispatcher.swift; sourceTree = "<group>"; };
+		F1A2B3C4D5E6F78901234570 /* VirtualHIDXPCProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualHIDXPCProtocol.swift; sourceTree = "<group>"; };
+		F1A2B3C4D5E6F78901234571 /* VirtualHIDXPCClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualHIDXPCClient.swift; sourceTree = "<group>"; };
+		F1A2B3C4D5E6F78901234572 /* VirtualHIDHelper.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = VirtualHIDHelper.plist; sourceTree = "<group>"; };
+		F1A2B3C4D5E6F78901234573 /* VirtualHIDHelperMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualHIDHelperMain.swift; sourceTree = "<group>"; };
+		F1A2B3C4D5E6F78901234585 /* VirtualHIDDaemonClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualHIDDaemonClient.swift; sourceTree = "<group>"; };
+		F1A2B3C4D5E6F78901234574 /* VirtualHIDHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; path = VirtualHIDHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		F1A2B3C4D5E6F78901234567 /* KeyboardOutputBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardOutputBackend.swift; sourceTree = "<group>"; };
 		F1A2B3C4D5E6F78901234568 /* VirtualHIDHealthChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualHIDHealthChecker.swift; sourceTree = "<group>"; };
 		F1A2B3C4D5E6F78901234569 /* VirtualHIDKeyDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualHIDKeyDispatcher.swift; sourceTree = "<group>"; };
@@ -56,6 +68,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F1A2B3C4D5E6F78901234593 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -64,6 +83,7 @@
 			children = (
 				77292A962B931C84001CA3F6 /* OpenMultitouchSupport */,
 				77292A862B931953001CA3F6 /* GlassToKey */,
+				F1A2B3C4D5E6F78901234575 /* VirtualHIDHelper */,
 				77292A852B931953001CA3F6 /* Products */,
 				77292A992B931D7A001CA3F6 /* Frameworks */,
 			);
@@ -73,6 +93,7 @@
 			isa = PBXGroup;
 			children = (
 				77292A842B931953001CA3F6 /* GlassToKey.app */,
+				F1A2B3C4D5E6F78901234574 /* VirtualHIDHelper */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -91,6 +112,9 @@
 				77292A972B931D60001CA3F6 /* ContentViewModel.swift */,
 				B5E3C9A41F3B7D2200A1B2C3 /* TapTrace.swift */,
 				E0B1C2D3E4F5678901234567 /* KeyEventDispatcher.swift */,
+				F1A2B3C4D5E6F78901234570 /* VirtualHIDXPCProtocol.swift */,
+				F1A2B3C4D5E6F78901234571 /* VirtualHIDXPCClient.swift */,
+				F1A2B3C4D5E6F78901234572 /* VirtualHIDHelper.plist */,
 				F1A2B3C4D5E6F78901234567 /* KeyboardOutputBackend.swift */,
 				F1A2B3C4D5E6F78901234568 /* VirtualHIDHealthChecker.swift */,
 				F1A2B3C4D5E6F78901234569 /* VirtualHIDKeyDispatcher.swift */,
@@ -98,6 +122,15 @@
 				31AB052B2F14DA2600EEE33E /* ColumnLayoutSettings.swift */,
 			);
 			path = GlassToKey;
+			sourceTree = "<group>";
+		};
+		F1A2B3C4D5E6F78901234575 /* VirtualHIDHelper */ = {
+			isa = PBXGroup;
+			children = (
+				F1A2B3C4D5E6F78901234585 /* VirtualHIDDaemonClient.swift */,
+				F1A2B3C4D5E6F78901234573 /* VirtualHIDHelperMain.swift */,
+			);
+			path = VirtualHIDHelper;
 			sourceTree = "<group>";
 		};
 		77292A992B931D7A001CA3F6 /* Frameworks */ = {
@@ -109,7 +142,7 @@
 		};
 /* End PBXGroup section */
 
-/* Begin PBXNativeTarget section */
+	/* Begin PBXNativeTarget section */
 		77292A832B931953001CA3F6 /* GlassToKey */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 77292A932B931954001CA3F6 /* Build configuration list for PBXNativeTarget "GlassToKey" */;
@@ -130,7 +163,23 @@
 			productReference = 77292A842B931953001CA3F6 /* GlassToKey.app */;
 			productType = "com.apple.product-type.application";
 		};
-/* End PBXNativeTarget section */
+		F1A2B3C4D5E6F78901234590 /* VirtualHIDHelper */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F1A2B3C4D5E6F78901234594 /* Build configuration list for PBXNativeTarget "VirtualHIDHelper" */;
+			buildPhases = (
+				F1A2B3C4D5E6F78901234591 /* Sources */,
+				F1A2B3C4D5E6F78901234593 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = VirtualHIDHelper;
+			productName = VirtualHIDHelper;
+			productReference = F1A2B3C4D5E6F78901234574 /* VirtualHIDHelper */;
+			productType = "com.apple.product-type.tool";
+		};
+	/* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
 		77292A7C2B931953001CA3F6 /* Project object */ = {
@@ -141,6 +190,9 @@
 				LastUpgradeCheck = 1620;
 				TargetAttributes = {
 					77292A832B931953001CA3F6 = {
+						CreatedOnToolsVersion = 15.2;
+					};
+					F1A2B3C4D5E6F78901234590 = {
 						CreatedOnToolsVersion = 15.2;
 					};
 				};
@@ -159,6 +211,7 @@
 			projectRoot = "";
 			targets = (
 				77292A832B931953001CA3F6 /* GlassToKey */,
+				F1A2B3C4D5E6F78901234590 /* VirtualHIDHelper */,
 			);
 		};
 /* End PBXProject section */
@@ -169,6 +222,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				77292A8C2B931954001CA3F6 /* Assets.xcassets in Resources */,
+				F1A2B3C4D5E6F78901234582 /* VirtualHIDHelper.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -186,6 +240,8 @@
 				77292A882B931953001CA3F6 /* GlassToKeyApp.swift in Sources */,
 				A1B2C3D4E5F6A7B8C9D0E1F4 /* GlassToKeyController.swift in Sources */,
 				E0B1C2D3E4F5678901234568 /* KeyEventDispatcher.swift in Sources */,
+				F1A2B3C4D5E6F78901234580 /* VirtualHIDXPCProtocol.swift in Sources */,
+				F1A2B3C4D5E6F78901234581 /* VirtualHIDXPCClient.swift in Sources */,
 				F1A2B3C4D5E6F7890123456A /* KeyboardOutputBackend.swift in Sources */,
 				5A1C2D3E4F5061728394A5BA /* KeySemanticMapper.swift in Sources */,
 				D1E2F3A4B5C6D7E8F9012346 /* TrackpadLayoutPreset.swift in Sources */,
@@ -194,6 +250,16 @@
 				31AB052C2F14DA2600EEE33E /* ColumnLayoutSettings.swift in Sources */,
 				A1B2C3D4E5F6A7B8C9D0E1F5 /* GlassToKeyDefaultsKeys.swift in Sources */,
 				B5E3C9A51F3B7D2200A1B2C3 /* TapTrace.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F1A2B3C4D5E6F78901234591 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F1A2B3C4D5E6F78901234583 /* VirtualHIDXPCProtocol.swift in Sources */,
+				F1A2B3C4D5E6F78901234586 /* VirtualHIDDaemonClient.swift in Sources */,
+				F1A2B3C4D5E6F78901234584 /* VirtualHIDHelperMain.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -370,6 +436,32 @@
 			};
 			name = Release;
 		};
+		F1A2B3C4D5E6F78901234595 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = N9XQZJR4EP;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.5;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kyome.GlassToKey.VirtualHIDHelper;
+				PRODUCT_NAME = VirtualHIDHelper;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		F1A2B3C4D5E6F78901234596 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = N9XQZJR4EP;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.5;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kyome.GlassToKey.VirtualHIDHelper;
+				PRODUCT_NAME = VirtualHIDHelper;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -387,6 +479,15 @@
 			buildConfigurations = (
 				77292A942B931954001CA3F6 /* Debug */,
 				77292A952B931954001CA3F6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F1A2B3C4D5E6F78901234594 /* Build configuration list for PBXNativeTarget "VirtualHIDHelper" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F1A2B3C4D5E6F78901234595 /* Debug */,
+				F1A2B3C4D5E6F78901234596 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

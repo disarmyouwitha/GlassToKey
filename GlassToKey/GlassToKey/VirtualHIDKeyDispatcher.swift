@@ -16,21 +16,42 @@ enum VirtualHIDError: Error {
 }
 
 final class VirtualHIDClient: @unchecked Sendable {
-    static var isAvailable: Bool { false }
+    static var isAvailable: Bool {
+        VirtualHIDXPCClient.shared.currentAvailability()
+    }
+
+    static var lastError: String? {
+        VirtualHIDXPCClient.shared.currentError()
+    }
+
+    static func refreshAvailability() {
+        VirtualHIDXPCClient.shared.refreshAvailability()
+    }
 
     func sendKeyStroke(
         code: CGKeyCode,
-        flags: CGEventFlags
-    ) -> Result<Void, VirtualHIDError> {
-        .failure(.unsupported)
+        flags: CGEventFlags,
+        completion: @escaping @Sendable (Result<Void, VirtualHIDError>) -> Void
+    ) {
+        VirtualHIDXPCClient.shared.sendKeyStroke(
+            code: Int(code),
+            flags: flags.rawValue,
+            completion: completion
+        )
     }
 
     func sendKey(
         code: CGKeyCode,
         flags: CGEventFlags,
-        keyDown: Bool
-    ) -> Result<Void, VirtualHIDError> {
-        .failure(.unsupported)
+        keyDown: Bool,
+        completion: @escaping @Sendable (Result<Void, VirtualHIDError>) -> Void
+    ) {
+        VirtualHIDXPCClient.shared.sendKey(
+            code: Int(code),
+            flags: flags.rawValue,
+            keyDown: keyDown,
+            completion: completion
+        )
     }
 }
 
@@ -55,11 +76,13 @@ final class VirtualHIDKeyDispatcher: @unchecked Sendable, KeyDispatching {
             if let token, !token.isActive {
                 return
             }
-            if case .failure(let error) = client.sendKeyStroke(
+            client.sendKeyStroke(
                 code: code,
                 flags: flags
-            ) {
-                onFailure(error)
+            ) { [weak self] result in
+                if case .failure(let error) = result {
+                    self?.onFailure(error)
+                }
             }
         }
     }
@@ -69,12 +92,14 @@ final class VirtualHIDKeyDispatcher: @unchecked Sendable, KeyDispatching {
             if let token, !token.isActive {
                 return
             }
-            if case .failure(let error) = client.sendKey(
+            client.sendKey(
                 code: code,
                 flags: flags,
                 keyDown: keyDown
-            ) {
-                onFailure(error)
+            ) { [weak self] result in
+                if case .failure(let error) = result {
+                    self?.onFailure(error)
+                }
             }
         }
     }

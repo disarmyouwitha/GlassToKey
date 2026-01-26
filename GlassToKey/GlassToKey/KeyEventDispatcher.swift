@@ -8,23 +8,25 @@ final class KeyEventDispatcher: @unchecked Sendable {
     private let configurationQueue = DispatchQueue(
         label: "com.kyome.GlassToKey.KeyDispatch.Configuration"
     )
-    private let statusCenter = KeyboardOutputStatusCenter.shared
     private let cgeventDispatcher: CGEventKeyDispatcher
-    private let virtualHIDDispatcher: VirtualHIDKeyDispatcher
+    private lazy var virtualHIDDispatcher: VirtualHIDKeyDispatcher = {
+        VirtualHIDKeyDispatcher(
+            client: VirtualHIDClient(),
+            onFailure: { [weak self] error in
+                self?.handleVirtualHIDFailure(error)
+            }
+        )
+    }()
     private var dispatcher: KeyDispatching
     private var backendStatus: KeyboardBackendStatus
 
     private init() {
         cgeventDispatcher = CGEventKeyDispatcher()
         backendStatus = KeyboardBackendStatus.initial()
-        virtualHIDDispatcher = VirtualHIDKeyDispatcher(
-            client: VirtualHIDClient(),
-            onFailure: { [weak self] error in
-                self?.handleVirtualHIDFailure(error)
-            }
-        )
         dispatcher = cgeventDispatcher
-        statusCenter.update(backendStatus)
+        DispatchQueue.main.async {
+            KeyboardOutputStatusCenter.shared.update(self.backendStatus)
+        }
     }
 
     func postKeyStroke(code: CGKeyCode, flags: CGEventFlags, token: RepeatToken? = nil) {
@@ -57,10 +59,11 @@ final class KeyEventDispatcher: @unchecked Sendable {
     }
 
     private func applyBackendPreference(_ preference: KeyboardOutputBackend) {
+        VirtualHIDClient.refreshAvailability()
         let clientAvailable = VirtualHIDClient.isAvailable
         var virtualStatus = VirtualHIDHealthChecker.check()
         if preference == .virtualhid && !clientAvailable && virtualStatus.lastError == nil {
-            virtualStatus.lastError = "VirtualHID helper not configured"
+            virtualStatus.lastError = VirtualHIDClient.lastError ?? "VirtualHID helper unavailable"
         }
         let shouldUseVirtual = preference == .virtualhid
             && virtualStatus.isHealthy
@@ -120,8 +123,8 @@ final class KeyEventDispatcher: @unchecked Sendable {
             )
 #endif
         }
-        DispatchQueue.main.async { [statusCenter] in
-            statusCenter.update(status)
+        DispatchQueue.main.async {
+            KeyboardOutputStatusCenter.shared.update(status)
         }
     }
 }
