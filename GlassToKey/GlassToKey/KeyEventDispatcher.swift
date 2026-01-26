@@ -19,8 +19,8 @@ final class KeyEventDispatcher: @unchecked Sendable {
         dispatcher.postKey(code: code, flags: flags, keyDown: keyDown, token: token)
     }
 
-    func postLeftClick() {
-        dispatcher.postLeftClick()
+    func postLeftClick(clickCount: Int = 1) {
+        dispatcher.postLeftClick(clickCount: clickCount)
     }
 
     func postRightClick() {
@@ -31,7 +31,7 @@ final class KeyEventDispatcher: @unchecked Sendable {
 private protocol KeyDispatching: Sendable {
     func postKeyStroke(code: CGKeyCode, flags: CGEventFlags, token: RepeatToken?)
     func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool, token: RepeatToken?)
-    func postLeftClick()
+    func postLeftClick(clickCount: Int)
     func postRightClick()
 }
 
@@ -115,7 +115,7 @@ private final class CGEventKeyDispatcher: @unchecked Sendable, KeyDispatching {
         }
     }
 
-    func postLeftClick() {
+    func postLeftClick(clickCount: Int) {
         queue.async { [self] in
             autoreleasepool {
                 guard let source = self.eventSource
@@ -138,6 +138,9 @@ private final class CGEventKeyDispatcher: @unchecked Sendable, KeyDispatching {
                 ) else {
                     return
                 }
+                let clampedCount = max(1, clickCount)
+                mouseDown.setIntegerValueField(.mouseEventClickState, value: Int64(clampedCount))
+                mouseUp.setIntegerValueField(.mouseEventClickState, value: Int64(clampedCount))
                 mouseDown.post(tap: .cghidEventTap)
                 mouseUp.post(tap: .cghidEventTap)
             }

@@ -86,8 +86,6 @@ struct ContentView: View {
     private var intentMoveThresholdMmSetting: Double = GlassToKeySettings.intentMoveThresholdMm
     @AppStorage(GlassToKeyDefaultsKeys.intentVelocityThresholdMmPerSec)
     private var intentVelocityThresholdMmPerSecSetting: Double = GlassToKeySettings.intentVelocityThresholdMmPerSec
-    @AppStorage(GlassToKeyDefaultsKeys.allowMouseTakeoverDuringTyping)
-    private var allowMouseTakeoverDuringTyping = GlassToKeySettings.allowMouseTakeoverDuringTyping
     @AppStorage(GlassToKeyDefaultsKeys.autocorrectEnabled)
     private var autocorrectEnabled = GlassToKeySettings.autocorrectEnabled
     @AppStorage(GlassToKeyDefaultsKeys.tapClickEnabled)
@@ -104,7 +102,7 @@ struct ContentView: View {
     fileprivate static let columnOffsetPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.offsetPercentRange
     fileprivate static let rowSpacingPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.rowSpacingPercentRange
     fileprivate static let dragCancelDistanceRange: ClosedRange<Double> = 1.0...30.0
-    fileprivate static let tapHoldDurationRange: ClosedRange<Double> = 50.0...600.0
+    fileprivate static let tapHoldDurationRange: ClosedRange<Double> = 50.0...500.0
     fileprivate static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
     fileprivate static let hapticStrengthRange: ClosedRange<Double> = 0.0...100.0
     fileprivate static let typingGraceRange: ClosedRange<Double> = 0.0...2000.0
@@ -376,9 +374,6 @@ struct ContentView: View {
             .onChange(of: intentVelocityThresholdMmPerSecSetting) { newValue in
                 viewModel.updateIntentVelocityThresholdMmPerSec(newValue)
             }
-            .onChange(of: allowMouseTakeoverDuringTyping) { newValue in
-                viewModel.updateAllowMouseTakeover(newValue)
-            }
             .onChange(of: autocorrectEnabled) { newValue in
                 AutocorrectEngine.shared.setEnabled(newValue)
             }
@@ -489,7 +484,6 @@ struct ContentView: View {
             typingGraceMsSetting: $typingGraceMsSetting,
             intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
-            allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
             autocorrectEnabled: $autocorrectEnabled,
             tapClickEnabled: $tapClickEnabled,
             snapRadiusPercentSetting: $snapRadiusPercentSetting,
@@ -568,11 +562,11 @@ struct ContentView: View {
                 Toggle("Visuals", isOn: $visualsEnabled)
                     .toggleStyle(SwitchToggleStyle())
                 HStack(spacing: 6) {
-                    Text("Layer 0")
+                    Text("Layer0")
                     Toggle("", isOn: layerToggleBinding)
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
-                    Text("Layer 1")
+                    Text("Layer1")
                 }
                 if isListening {
                     Button("Stop") {
@@ -726,7 +720,6 @@ struct ContentView: View {
         @Binding var typingGraceMsSetting: Double
         @Binding var intentMoveThresholdMmSetting: Double
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
-        @Binding var allowMouseTakeoverDuringTyping: Bool
         @Binding var autocorrectEnabled: Bool
         @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
@@ -769,7 +762,6 @@ struct ContentView: View {
                             typingGraceMsSetting: $typingGraceMsSetting,
                             intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
                             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
-                            allowMouseTakeoverDuringTyping: $allowMouseTakeoverDuringTyping,
                             autocorrectEnabled: $autocorrectEnabled,
                             tapClickEnabled: $tapClickEnabled,
                             snapRadiusPercentSetting: $snapRadiusPercentSetting
@@ -1312,7 +1304,6 @@ struct ContentView: View {
         @Binding var typingGraceMsSetting: Double
         @Binding var intentMoveThresholdMmSetting: Double
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
-        @Binding var allowMouseTakeoverDuringTyping: Bool
         @Binding var autocorrectEnabled: Bool
         @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
@@ -1409,7 +1400,7 @@ struct ContentView: View {
                     .gridCellColumns(2)
                 }
                 GridRow {
-                    Text("Drag Cancel (mm)")
+                    Text("Tap/Drag (ms)")
                         .frame(width: labelWidth, alignment: .leading)
                     TextField(
                         "1",
@@ -1421,23 +1412,6 @@ struct ContentView: View {
                         value: $dragCancelDistanceSetting,
                         in: ContentView.dragCancelDistanceRange,
                         step: 1
-                    )
-                    .frame(minWidth: 120)
-                    .gridCellColumns(2)
-                }
-                GridRow {
-                    Text("Typing Grace (ms)")
-                        .frame(width: labelWidth, alignment: .leading)
-                    TextField(
-                        "120",
-                        value: $typingGraceMsSetting,
-                        formatter: ContentView.typingGraceFormatter
-                    )
-                    .frame(width: valueFieldWidth)
-                    Slider(
-                        value: $typingGraceMsSetting,
-                        in: ContentView.typingGraceRange,
-                        step: 100
                     )
                     .frame(minWidth: 120)
                     .gridCellColumns(2)
@@ -1477,6 +1451,23 @@ struct ContentView: View {
                     .gridCellColumns(2)
                 }
                 GridRow {
+                    Text("Typing Grace (ms)")
+                        .frame(width: labelWidth, alignment: .leading)
+                    TextField(
+                        "120",
+                        value: $typingGraceMsSetting,
+                        formatter: ContentView.typingGraceFormatter
+                    )
+                    .frame(width: valueFieldWidth)
+                    Slider(
+                        value: $typingGraceMsSetting,
+                        in: ContentView.typingGraceRange,
+                        step: 100
+                    )
+                    .frame(minWidth: 120)
+                    .gridCellColumns(2)
+                }
+                GridRow {
                     Text("Haptic Strength")
                         .frame(width: labelWidth, alignment: .leading)
                     Text(currentHapticStrengthStep.label)
@@ -1507,11 +1498,8 @@ struct ContentView: View {
                     Toggle("", isOn: snapRadiusEnabledBinding)
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
-                    Text("Mouse Takeover")
-                        .frame(width: labelWidth, alignment: .leading)
-                    Toggle("", isOn: $allowMouseTakeoverDuringTyping)
-                        .toggleStyle(SwitchToggleStyle())
-                        .labelsHidden()
+                    Spacer()
+                        .gridCellColumns(2)
                 }
             }
         }
@@ -2212,7 +2200,7 @@ struct ContentView: View {
         viewModel.updateTypingGraceMs(typingGraceMsSetting)
         viewModel.updateIntentMoveThresholdMm(intentMoveThresholdMmSetting)
         viewModel.updateIntentVelocityThresholdMmPerSec(intentVelocityThresholdMmPerSecSetting)
-        viewModel.updateAllowMouseTakeover(allowMouseTakeoverDuringTyping)
+        viewModel.updateAllowMouseTakeover(true)
         viewModel.updateSnapRadiusPercent(snapRadiusPercentSetting)
         viewModel.setTouchSnapshotRecordingEnabled(visualsEnabled)
     }

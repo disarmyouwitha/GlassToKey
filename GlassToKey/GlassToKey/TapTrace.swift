@@ -82,6 +82,7 @@ enum TapTraceReasonCode: UInt8 {
     case forceCapExceeded = 10
     case offKeyNoSnap = 11
     case snapAccepted = 12
+    case momentaryLayerCancelled = 13
 
     var label: String {
         switch self {
@@ -98,6 +99,7 @@ enum TapTraceReasonCode: UInt8 {
         case .forceCapExceeded: return "force_cap_exceeded"
         case .offKeyNoSnap: return "off_key_no_snap"
         case .snapAccepted: return "snap_accepted"
+        case .momentaryLayerCancelled: return "momentary_layer_cancelled"
         }
     }
 }

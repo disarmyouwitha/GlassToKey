@@ -803,6 +803,7 @@ final class ContentViewModel: ObservableObject {
             case forceCapExceeded
             case intentMouse
             case offKeyNoSnap
+            case momentaryLayerCancelled
         }
 
         private enum DispatchKind: String {
@@ -867,12 +868,14 @@ final class ContentViewModel: ObservableObject {
 
         private struct ActiveTouch {
             let binding: KeyBinding
+            let layer: Int
             let startTime: TimeInterval
             let startPoint: CGPoint
             let modifierKey: ModifierKey?
             let isContinuousKey: Bool
             let holdBinding: KeyBinding?
             var didHold: Bool
+            var holdRepeatActive: Bool = false
             var maxDistanceSquared: CGFloat
             let initialPressure: Float
             var forceEntryTime: TimeInterval?
@@ -882,6 +885,7 @@ final class ContentViewModel: ObservableObject {
         }
         private struct PendingTouch {
             let binding: KeyBinding
+            let layer: Int
             let startTime: TimeInterval
             let startPoint: CGPoint
             var maxDistanceSquared: CGFloat
@@ -1252,6 +1256,7 @@ final class ContentViewModel: ObservableObject {
         private var toggleTouchStarts = TouchTable<TimeInterval>()
         private var layerToggleTouchStarts = TouchTable<Int>()
         private var momentaryLayerTouches = MomentaryLayerTouches()
+        private var lastMomentaryLayer: Int?
         private var touchInitialContactPoint = TouchTable<CGPoint>()
         private var tapMaxDuration: TimeInterval = 0.2
         private var holdMinDuration: TimeInterval = 0.2
@@ -1301,6 +1306,9 @@ final class ContentViewModel: ObservableObject {
         private var tapClickEnabled = false
         private var typingGraceDeadline: TimeInterval?
         private var typingGraceTask: Task<Void, Never>?
+        private var doubleTapDeadline: TimeInterval?
+        private var awaitingSecondTap = false
+        private let doubleTapWindow: TimeInterval = 0.28
         private struct TapCandidate {
             let deadline: TimeInterval
         }
@@ -1605,7 +1613,7 @@ final class ContentViewModel: ObservableObject {
                     if let active = removedActive {
                         if let modifierKey = active.modifierKey {
                             handleModifierUp(modifierKey, binding: active.binding)
-                        } else if active.isContinuousKey {
+                        } else if active.holdRepeatActive {
                             stopRepeat(for: touchKey)
                        }
                     }
@@ -1646,9 +1654,7 @@ final class ContentViewModel: ObservableObject {
 
                         if intentAllowsTyping,
                            active.modifierKey == nil,
-                           !active.isContinuousKey,
                            !active.didHold,
-                           let holdBinding = active.holdBinding,
                            now - active.startTime >= holdMinDuration,
                            (!isDragDetectionEnabled || active.maxDistanceSquared <= dragCancelDistanceSquared),
                            initialContactPointIsInsideBinding(touchKey, binding: active.binding) {
@@ -1658,9 +1664,24 @@ final class ContentViewModel: ObservableObject {
                                 maxDistanceSquared: active.maxDistanceSquared,
                                 now: now
                             )
-                            triggerBinding(holdBinding, touchKey: touchKey, dispatchInfo: dispatchInfo)
-                            active.didHold = true
-                            setActiveTouch(touchKey, active)
+                            var updated = active
+                            if active.isContinuousKey {
+                                triggerBinding(active.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
+                                startRepeat(for: touchKey, binding: active.binding)
+                                updated.holdRepeatActive = true
+                            } else if let holdBinding = active.holdBinding {
+                                triggerBinding(holdBinding, touchKey: touchKey, dispatchInfo: dispatchInfo)
+                                if isContinuousKey(holdBinding) {
+                                    startRepeat(for: touchKey, binding: holdBinding)
+                                    updated.holdRepeatActive = true
+                                } else {
+                                    updated.holdRepeatActive = false
+                                }
+                            } else {
+                                updated.holdRepeatActive = false
+                            }
+                            updated.didHold = true
+                            setActiveTouch(touchKey, updated)
                         }
                     } else if var pending = pendingTouch(for: touchKey) {
                         let distanceSquared = distanceSquared(from: pending.startPoint, to: point)
@@ -1694,6 +1715,7 @@ final class ContentViewModel: ObservableObject {
                             }
                             let active = ActiveTouch(
                                 binding: pending.binding,
+                                layer: pending.layer,
                                 startTime: pending.startTime,
                                 startPoint: pending.startPoint,
                                 modifierKey: modifierKey,
@@ -1712,9 +1734,6 @@ final class ContentViewModel: ObservableObject {
                                 var updated = active
                                 updated.modifierEngaged = true
                                 setActiveTouch(touchKey, updated)
-                            } else if isContinuousKey {
-                                triggerBinding(pending.binding, touchKey: touchKey)
-                                startRepeat(for: touchKey, binding: pending.binding)
                             }
                         } else if isDragDetectionEnabled {
                             _ = removePendingTouch(for: touchKey)
@@ -1744,6 +1763,7 @@ final class ContentViewModel: ObservableObject {
                                 touchKey,
                                 PendingTouch(
                                     binding: binding,
+                                    layer: activeLayer,
                                     startTime: now,
                                     startPoint: point,
                                     maxDistanceSquared: 0,
@@ -1755,6 +1775,7 @@ final class ContentViewModel: ObservableObject {
                         } else {
                             let active = ActiveTouch(
                                     binding: binding,
+                                    layer: activeLayer,
                                     startTime: now,
                                     startPoint: point,
                                     modifierKey: modifierKey,
@@ -1773,9 +1794,6 @@ final class ContentViewModel: ObservableObject {
                                 var updated = active
                                 updated.modifierEngaged = true
                                 setActiveTouch(touchKey, updated)
-                            } else if allowNow, isContinuousKey {
-                                triggerBinding(binding, touchKey: touchKey)
-                                startRepeat(for: touchKey, binding: binding)
                             }
                         }
                     }
@@ -1836,7 +1854,7 @@ final class ContentViewModel: ObservableObject {
                         let guardTriggered = active.forceGuardTriggered
                         if let modifierKey = active.modifierKey, active.modifierEngaged {
                             handleModifierUp(modifierKey, binding: active.binding)
-                        } else if active.isContinuousKey {
+                        } else if active.holdRepeatActive {
                             stopRepeat(for: touchKey)
                         } else if !guardTriggered,
                                   !active.didHold,
@@ -1944,7 +1962,7 @@ final class ContentViewModel: ObservableObject {
                         active.maxDistanceSquared = max(active.maxDistanceSquared, distanceSquared)
                         if let modifierKey = active.modifierKey, active.modifierEngaged {
                             handleModifierUp(modifierKey, binding: active.binding)
-                        } else if active.isContinuousKey {
+                        } else if active.holdRepeatActive {
                             stopRepeat(for: touchKey)
                         }
                         endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
@@ -2281,8 +2299,13 @@ final class ContentViewModel: ObservableObject {
             return index.customGrid.binding(at: point)
         }
 
+        private var isSnapRadiusEnabled: Bool {
+            snapRadiusFraction > 0
+        }
+
         @inline(__always)
         private func shouldAttemptSnap() -> Bool {
+            guard isSnapRadiusEnabled else { return false }
             switch intentState.mode {
             case .typingCommitted, .keyCandidate:
                 return true
@@ -2509,6 +2532,10 @@ final class ContentViewModel: ObservableObject {
             if let candidate = threeFingerTapCandidate, now > candidate.deadline {
                 threeFingerTapCandidate = nil
             }
+            if let deadline = doubleTapDeadline, now > deadline {
+                doubleTapDeadline = nil
+                awaitingSecondTap = false
+            }
 
             if tapClickEnabled {
                 if currentKeys.count == 2,
@@ -2593,12 +2620,21 @@ final class ContentViewModel: ObservableObject {
                 || (secondFingerAppeared && anyOffKey)
                 || centroidMoved
 
+            let wasTwoFingerTapDetected = twoFingerTapDetected
             guard contactCount > 0 else {
                 state.touches.removeAll()
                 if threeFingerTapDetected {
                     keyDispatcher.postRightClick()
-                } else if twoFingerTapDetected {
-                    keyDispatcher.postLeftClick()
+                } else if wasTwoFingerTapDetected {
+                    if awaitingSecondTap, let deadline = doubleTapDeadline, now <= deadline {
+                        keyDispatcher.postLeftClick(clickCount: 2)
+                        awaitingSecondTap = false
+                        doubleTapDeadline = nil
+                    } else {
+                        keyDispatcher.postLeftClick()
+                        awaitingSecondTap = true
+                        doubleTapDeadline = now + doubleTapWindow
+                    }
                 }
                 if graceActive {
                     state.mode = .typingCommitted(untilAllUp: true)
@@ -3341,7 +3377,7 @@ final class ContentViewModel: ObservableObject {
             if let state, case let .active(active) = state {
                 if let modifierKey = active.modifierKey, active.modifierEngaged {
                     handleModifierUp(modifierKey, binding: active.binding)
-                } else if active.isContinuousKey {
+                } else if active.holdRepeatActive {
                     stopRepeat(for: touchKey)
                 }
                 endMomentaryHoldIfNeeded(active.holdBinding, touchKey: touchKey)
@@ -3432,11 +3468,17 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func updateActiveLayer() {
-            let resolvedLayer = maxMomentaryLayer() ?? persistentLayer
+            let previousMomentaryLayer = lastMomentaryLayer
+            let currentMomentaryLayer = maxMomentaryLayer()
+            let resolvedLayer = currentMomentaryLayer ?? persistentLayer
             if activeLayer != resolvedLayer {
                 activeLayer = resolvedLayer
                 invalidateBindingsCache()
                 onActiveLayerChanged(resolvedLayer)
+            }
+            lastMomentaryLayer = currentMomentaryLayer
+            if previousMomentaryLayer != nil, currentMomentaryLayer == nil {
+                releaseTouchesFromMomentaryLayer(previousMomentaryLayer!)
             }
         }
 
@@ -3452,6 +3494,26 @@ final class ContentViewModel: ObservableObject {
                 }
             }
             return maxLayer
+        }
+
+        private func releaseTouchesFromMomentaryLayer(_ layer: Int) {
+            guard layer != persistentLayer else { return }
+            var toDisqualify: [TouchKey] = []
+            touchStates.forEach { key, state in
+                let stateLayer: Int
+                switch state {
+                case let .active(active):
+                    stateLayer = active.layer
+                case let .pending(pending):
+                    stateLayer = pending.layer
+                }
+                if stateLayer == layer {
+                    toDisqualify.append(key)
+                }
+            }
+            for key in toDisqualify {
+                disqualifyTouch(key, reason: .momentaryLayerCancelled)
+            }
         }
 
         private func endMomentaryHoldIfNeeded(_ binding: KeyBinding?, touchKey: TouchKey) {
@@ -3539,6 +3601,8 @@ final class ContentViewModel: ObservableObject {
                 return .intentMouse
             case .offKeyNoSnap:
                 return .offKeyNoSnap
+            case .momentaryLayerCancelled:
+                return .momentaryLayerCancelled
             }
         }
         #endif
@@ -3981,6 +4045,7 @@ enum KeyActionCatalog {
         "9": (CGKeyCode(kVK_ANSI_9), []),
         "0": (CGKeyCode(kVK_ANSI_0), []),
         "-": (CGKeyCode(kVK_ANSI_Minus), []),
+        "—": (CGKeyCode(kVK_ANSI_Minus), [.maskShift, .maskAlternate]),
         "=": (CGKeyCode(kVK_ANSI_Equal), []),
         "Q": (CGKeyCode(kVK_ANSI_Q), []),
         "W": (CGKeyCode(kVK_ANSI_W), []),

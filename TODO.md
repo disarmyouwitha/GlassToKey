@@ -1,7 +1,9 @@
 ## TODO 
 - 2-finger double tap for double-click!
-- blood god
-- (Optional Install, CGEventFallback): Use Karabiner-DriverKit-VirtualHIDDevice to send keys!
+- Mouse Grace (ms) where it stays in mouse state for X ms after last mouse event. no typing allowed but gestures yes!
+- can we expose the slider for when something becomes a double-click?n
+- take screenshot for transparent stickers
+- (Optional Install, CGEventFallback): Use Karabiner-DriverKit-VirtualHIDDevice to send keys!m
 - normalize % to px??
 ###
 - any vestigial code?  
@@ -15,7 +17,6 @@
 - "Auto" set column x,y based on finger splay "4 finger touch" snapsMetro
 
 # blood for the blood god:
-- Mouse Grace (ms) where it stays in mouse state for X ms after last mouse event. no typing allowed but gestures yes!
 - we will need to refractor gestures / gestures candidate now.,, lol
 - shift frame gets updated a ton, should it just fset a flag on key up key down?
 
