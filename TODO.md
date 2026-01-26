@@ -1,21 +1,15 @@
 ## TODO
-- is shift considered a continious key? does it need to be or can we just set a modifier on key down and up? (I seeit show up 100 times in the debug .jsonl when we are typing.)
-- 4 finger tap chord click shift
+- make toggle for Chordal Shift
 - The only efficiency improvement I’d consider: fold chord‑shift contact counting into
     updateIntentGlobal (it already scans both sides). Right now we do a small extra pass per side
     just to count touches, which is still O(n) and very cheap, but can be shaved if we want to be
     extremely tight.
   - Bottom line: keeping it in TouchProcessor is the right place for low latency + low
     allocations. If you want micro‑optimizations, we can merge counting into the existing pass.
-#
-- Is this the right place to be handling this, or is there a more efficient place we should move
-  gesture tracking (or this particular gesture) please take your time analyzing the code to
-  provide your answer. This is an importan peice, so I want something efficient and performant!
 ###
-- Mouse Grace (ms) where it stays in mouse state for X ms after last mouse event. no typing allowed but gestures yes!
-- can we expose the slider for when click becomes double click?
 - take screenshot for transparent stickers
-- (Optional Install, CGEventFallback): Use Karabiner-DriverKit-VirtualHIDDevice to send keys!
+- (Optional Install, CGEventFallback):
+- Use Karabiner-DriverKit-VirtualHIDDevice to send keys!
 - normalize % to px??
 ###
 - any vestigial code?  
