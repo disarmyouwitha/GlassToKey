@@ -1,4 +1,6 @@
 ## TODO
+- Hey earlier I had you modify how continiuous keys work where they fire immediately on keypress but repeatedly on hold. I only wanted this to work for Backspace, and arrows, but it is happening for every key
+- is shift considered a continious key? does it need to be or can we just set a modifier on key down and up?
 - 4 finger tap chord click shift
 - Mouse Grace (ms) where it stays in mouse state for X ms after last mouse event. no typing allowed but gestures yes!
 - can we expose the slider for when click becomes double click?
@@ -25,4 +27,4 @@
 
 
 # Karabiner stuck, help!
-sudo launchctl kickstart -k system/org.pqrs.vhid
+sudo launchctl kickstart -k system/org.pqrs.vhid 
