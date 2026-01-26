@@ -1320,13 +1320,6 @@ final class ContentViewModel: ObservableObject {
         private var chordShiftState = SidePair(left: ChordShiftState(), right: ChordShiftState())
         private var chordShiftLastContactTime = SidePair(left: TimeInterval(0), right: TimeInterval(0))
         private var chordShiftKeyDown = false
-        #if DEBUG
-        private static let chordShiftLogger = Logger(
-            subsystem: "com.kyome.GlassToKey",
-            category: "ChordShift"
-        )
-        private var chordShiftLogged = false
-        #endif
 
         struct StatusSnapshot: Sendable {
             let contactCounts: SidePair<Int>
@@ -1472,6 +1465,13 @@ final class ContentViewModel: ObservableObject {
 #if DEBUG
             tapTraceFrameIndex &+= 1
 #endif
+            if frame.data.isEmpty {
+                chordShiftState[.left] = ChordShiftState()
+                chordShiftState[.right] = ChordShiftState()
+                chordShiftLastContactTime[.left] = 0
+                chordShiftLastContactTime[.right] = 0
+                updateChordShiftKeyState()
+            }
             let leftContactCount = contactCount(in: frame.left)
             let rightContactCount = contactCount(in: frame.right)
             updateChordShift(for: .left, contactCount: leftContactCount, now: now)
@@ -2458,7 +2458,6 @@ final class ContentViewModel: ObservableObject {
 
         private func updateChordShift(for side: TrackpadSide, contactCount: Int, now: TimeInterval) {
             var state = chordShiftState[side]
-            let wasActive = state.active
             if contactCount > 0 {
                 chordShiftLastContactTime[side] = now
             }
@@ -2470,23 +2469,12 @@ final class ContentViewModel: ObservableObject {
                     }
                 }
                 chordShiftState[side] = state
-                #if DEBUG
-                if wasActive && !state.active {
-                    Self.chordShiftLogger.debug("ChordShift off (\(side.rawValue, privacy: .public)) contacts=\(contactCount)")
-                }
-                #endif
                 return
             }
             if contactCount >= 4 {
                 state.active = true
             }
             chordShiftState[side] = state
-            #if DEBUG
-            if !wasActive && state.active {
-                chordShiftLogged = false
-                Self.chordShiftLogger.debug("ChordShift on (\(side.rawValue, privacy: .public)) contacts=\(contactCount)")
-            }
-            #endif
         }
 
         private func isChordShiftActive(on side: TrackpadSide) -> Bool {
@@ -2507,9 +2495,6 @@ final class ContentViewModel: ObservableObject {
                 holdAction: nil
             )
             postKey(binding: shiftBinding, keyDown: shouldBeDown)
-            #if DEBUG
-            Self.chordShiftLogger.debug("ChordShift key \(shouldBeDown ? "down" : "up", privacy: .public)")
-            #endif
         }
 
         private func updateIntent(for frame: TouchFrame, now: TimeInterval) -> Bool {
@@ -3207,14 +3192,6 @@ final class ContentViewModel: ObservableObject {
             guard case let .key(code, flags) = binding.action else { return }
             #if DEBUG
             onDebugBindingDetected(binding)
-            if !chordShiftLogged,
-               (chordShiftState[.left].active || chordShiftState[.right].active) {
-                chordShiftLogged = true
-                let combinedFlags = flags.union(currentModifierFlags())
-                Self.chordShiftLogger.debug(
-                    "ChordShift dispatch label=\(binding.label, privacy: .public) code=\(Int(code)) flags=\(combinedFlags.rawValue)"
-                )
-            }
 #endif
             extendTypingGrace(for: binding.side, now: Self.now())
             #if DEBUG
