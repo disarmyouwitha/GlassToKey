@@ -1,11 +1,6 @@
 ## TODO
-- make toggle for Chordal Shift
-- The only efficiency improvement I’d consider: fold chord‑shift contact counting into
-    updateIntentGlobal (it already scans both sides). Right now we do a small extra pass per side
-    just to count touches, which is still O(n) and very cheap, but can be shaved if we want to be
-    extremely tight.
-  - Bottom line: keeping it in TouchProcessor is the right place for low latency + low
-    allocations. If you want micro‑optimizations, we can merge counting into the existing pass.
+Implement {- Fingers for gesture should be counted per-side (right-click shows up with LHS:1 RHS:2)
+- Chordal shift: should allow a modified click!}
 ###
 - take screenshot for transparent stickers
 - (Optional Install, CGEventFallback):

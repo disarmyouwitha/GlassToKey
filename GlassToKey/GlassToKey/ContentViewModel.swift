@@ -731,6 +731,12 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func updateChordalShiftEnabled(_ enabled: Bool) {
+        Task { [processor] in
+            await processor.updateChordalShiftEnabled(enabled)
+        }
+    }
+
     func updateTapClickEnabled(_ enabled: Bool) {
         Task { [processor] in
             await processor.updateTapClickEnabled(enabled)
@@ -1317,6 +1323,7 @@ final class ContentViewModel: ObservableObject {
         private struct ChordShiftState {
             var active: Bool = false
         }
+        private var chordShiftEnabled = true
         private var chordShiftState = SidePair(left: ChordShiftState(), right: ChordShiftState())
         private var chordShiftLastContactTime = SidePair(left: TimeInterval(0), right: TimeInterval(0))
         private var chordShiftKeyDown = false
@@ -1452,6 +1459,17 @@ final class ContentViewModel: ObservableObject {
             tapClickEnabled = enabled
         }
 
+        func updateChordalShiftEnabled(_ enabled: Bool) {
+            chordShiftEnabled = enabled
+            if !enabled {
+                chordShiftState[.left] = ChordShiftState()
+                chordShiftState[.right] = ChordShiftState()
+                chordShiftLastContactTime[.left] = 0
+                chordShiftLastContactTime[.right] = 0
+                updateChordShiftKeyState()
+            }
+        }
+
         func processTouchFrame(_ frame: TouchFrame) {
             guard isListening,
                   let leftLayout,
@@ -1472,11 +1490,15 @@ final class ContentViewModel: ObservableObject {
                 chordShiftLastContactTime[.right] = 0
                 updateChordShiftKeyState()
             }
-            let leftContactCount = contactCount(in: frame.left)
-            let rightContactCount = contactCount(in: frame.right)
-            updateChordShift(for: .left, contactCount: leftContactCount, now: now)
-            updateChordShift(for: .right, contactCount: rightContactCount, now: now)
-            updateChordShiftKeyState()
+            if chordShiftEnabled {
+                let leftContactCount = contactCount(in: frame.left)
+                let rightContactCount = contactCount(in: frame.right)
+                updateChordShift(for: .left, contactCount: leftContactCount, now: now)
+                updateChordShift(for: .right, contactCount: rightContactCount, now: now)
+                updateChordShiftKeyState()
+            } else if chordShiftKeyDown {
+                updateChordShiftKeyState()
+            }
             let allowTypingGlobal = updateIntent(for: frame, now: now)
             let allowTypingLeft = allowTypingGlobal || isChordShiftActive(on: .right)
             let allowTypingRight = allowTypingGlobal || isChordShiftActive(on: .left)
@@ -1557,7 +1579,7 @@ final class ContentViewModel: ObservableObject {
                 actualCount: contactCount,
                 now: now
             )
-            let chordShiftSuppressed = isChordShiftActive(on: side)
+            let chordShiftSuppressed = chordShiftEnabled && isChordShiftActive(on: side)
             for touch in touches {
                 let point = CGPoint(
                     x: CGFloat(touch.position.x) * canvasSize.width,
@@ -2478,7 +2500,7 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func isChordShiftActive(on side: TrackpadSide) -> Bool {
-            chordShiftState[side].active
+            chordShiftEnabled && chordShiftState[side].active
         }
 
         private func updateChordShiftKeyState() {
