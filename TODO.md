@@ -1,12 +1,11 @@
 ## TODO
-Implement {- Fingers for gesture should be counted per-side (right-click shows up with LHS:1 RHS:2)
-- Chordal shift: should allow a modified click!}
-###
-- take screenshot for transparent stickers
 - (Optional Install, CGEventFallback):
 - Use Karabiner-DriverKit-VirtualHIDDevice to send keys!
-- normalize % to px??
 ###
+
+# bettr auto complete: feed it my resurrection buffer for better results??
+
+- normalize % to px??
 - any vestigial code?  
 - Is the key matrix the most efficient? lets look deeper! How about KeyDispatch? And is key hit detection as clean as $it could be?
 - analyze custom button code vs key matrix detection, is it less efficient? If so can we fix?
@@ -15,14 +14,7 @@ Implement {- Fingers for gesture should be counted per-side (right-click shows u
 - Have Codex refactor the GUI for effiency
 - Have Codex redesign the GUI for looks, keeping efficiency
 ###
-- "Auto" set column x,y based on finger splay "4 finger touch" snapsMetro
-
-# blood for the blood god:
-- we will need to refractor gestures / gestures candidate now.,, lol
-- shift frame gets updated a ton, should it just fset a flag on key up key down?
-
-
-# bettr auto complete: feed it my resurrection buffer for better results??
+- "Auto" set column x,y based on finger splay "4 finger touch" snapsMetro.
 
 
 # Karabiner stuck, help!
