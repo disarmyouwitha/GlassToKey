@@ -92,6 +92,8 @@ struct ContentView: View {
     private var tapClickEnabled = GlassToKeySettings.tapClickEnabled
     @AppStorage(GlassToKeyDefaultsKeys.snapRadiusPercent)
     private var snapRadiusPercentSetting = GlassToKeySettings.snapRadiusPercent
+    @AppStorage(GlassToKeyDefaultsKeys.chordalShiftEnabled)
+    private var chordalShiftEnabled = GlassToKeySettings.chordalShiftEnabled
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -383,6 +385,9 @@ struct ContentView: View {
             .onChange(of: snapRadiusPercentSetting) { newValue in
                 viewModel.updateSnapRadiusPercent(newValue)
             }
+            .onChange(of: chordalShiftEnabled) { newValue in
+                viewModel.updateChordalShiftEnabled(newValue)
+            }
             .onChange(of: storedAutoResyncMissingTrackpads) { newValue in
                 viewModel.setAutoResyncEnabled(newValue)
             }
@@ -487,6 +492,7 @@ struct ContentView: View {
             autocorrectEnabled: $autocorrectEnabled,
             tapClickEnabled: $tapClickEnabled,
             snapRadiusPercentSetting: $snapRadiusPercentSetting,
+            chordalShiftEnabled: $chordalShiftEnabled,
             onRefreshDevices: {
                 viewModel.loadDevices(preserveSelection: true)
             },
@@ -511,7 +517,8 @@ struct ContentView: View {
             },
             onUpdateKeyMapping: { key, update in
                 updateKeyMappingAndSelection(key: key, update: update)
-            }
+            },
+            onRestoreDefaults: restoreTypingTuningDefaults
         )
     }
 
@@ -723,6 +730,7 @@ struct ContentView: View {
         @Binding var autocorrectEnabled: Bool
         @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
+        @Binding var chordalShiftEnabled: Bool
         @State private var typingTuningExpanded = true
         let onRefreshDevices: () -> Void
         let onAutoResyncChange: (Bool) -> Void
@@ -732,6 +740,7 @@ struct ContentView: View {
         let onUpdateColumn: (Int, (inout ColumnLayoutSettings) -> Void) -> Void
         let onUpdateButton: (UUID, (inout CustomButton) -> Void) -> Void
         let onUpdateKeyMapping: (SelectedGridKey, (inout KeyMapping) -> Void) -> Void
+        let onRestoreDefaults: () -> Void
 
         var body: some View {
             VStack(alignment: .leading, spacing: 14) {
@@ -764,7 +773,9 @@ struct ContentView: View {
                             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
                             autocorrectEnabled: $autocorrectEnabled,
                             tapClickEnabled: $tapClickEnabled,
-                            snapRadiusPercentSetting: $snapRadiusPercentSetting
+                            snapRadiusPercentSetting: $snapRadiusPercentSetting,
+                            chordalShiftEnabled: $chordalShiftEnabled,
+                            onRestoreDefaults: onRestoreDefaults
                         )
                         .padding(.top, 8)
                     } label: {
@@ -1307,6 +1318,8 @@ struct ContentView: View {
         @Binding var autocorrectEnabled: Bool
         @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
+        @Binding var chordalShiftEnabled: Bool
+        let onRestoreDefaults: () -> Void
 
         private let labelWidth: CGFloat = 140
         private let valueFieldWidth: CGFloat = 50
@@ -1364,147 +1377,161 @@ struct ContentView: View {
         }
 
         var body: some View {
-            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+            VStack(spacing: 8) {
+                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                    GridRow {
+                        Text("Tap/Hold (ms)")
+                            .frame(width: labelWidth, alignment: .leading)
+                        TextField(
+                            "200",
+                            value: $tapHoldDurationMs,
+                            formatter: ContentView.tapHoldDurationFormatter
+                        )
+                        .frame(width: valueFieldWidth)
+                        Slider(
+                            value: $tapHoldDurationMs,
+                            in: ContentView.tapHoldDurationRange,
+                            step: 10
+                        )
+                        .frame(minWidth: 100)
+                        .gridCellColumns(2)
+                    }
+                    GridRow {
+                        Text("Force Cap (g)")
+                            .frame(width: labelWidth, alignment: .leading)
+                        TextField(
+                            "0",
+                            value: $forceClickCapSetting,
+                            formatter: ContentView.forceClickCapFormatter
+                        )
+                        .frame(width: valueFieldWidth)
+                        Slider(
+                            value: $forceClickCapSetting,
+                            in: ContentView.forceClickCapRange,
+                            step: 5
+                        )
+                        .frame(minWidth: 120)
+                        .gridCellColumns(2)
+                    }
+                    GridRow {
+                        Text("Tap/Drag (ms)")
+                            .frame(width: labelWidth, alignment: .leading)
+                        TextField(
+                            "1",
+                            value: $dragCancelDistanceSetting,
+                            formatter: ContentView.dragCancelDistanceFormatter
+                        )
+                        .frame(width: valueFieldWidth)
+                        Slider(
+                            value: $dragCancelDistanceSetting,
+                            in: ContentView.dragCancelDistanceRange,
+                            step: 1
+                        )
+                        .frame(minWidth: 120)
+                        .gridCellColumns(2)
+                    }
+                    GridRow {
+                        Text("Intent Move (mm)")
+                            .frame(width: labelWidth, alignment: .leading)
+                        TextField(
+                            "3.0",
+                            value: $intentMoveThresholdMmSetting,
+                            formatter: ContentView.intentMoveThresholdFormatter
+                        )
+                        .frame(width: valueFieldWidth)
+                        Slider(
+                            value: $intentMoveThresholdMmSetting,
+                            in: ContentView.intentMoveThresholdRange,
+                            step: 0.1
+                        )
+                        .frame(minWidth: 120)
+                        .gridCellColumns(2)
+                    }
+                    GridRow {
+                        Text("Intent Velocity (mm/s)")
+                            .frame(width: labelWidth, alignment: .leading)
+                        TextField(
+                            "50",
+                            value: $intentVelocityThresholdMmPerSecSetting,
+                            formatter: ContentView.intentVelocityThresholdFormatter
+                        )
+                        .frame(width: valueFieldWidth)
+                        Slider(
+                            value: $intentVelocityThresholdMmPerSecSetting,
+                            in: ContentView.intentVelocityThresholdRange,
+                            step: 5
+                        )
+                        .frame(minWidth: 120)
+                        .gridCellColumns(2)
+                    }
+                    GridRow {
+                        Text("Typing Grace (ms)")
+                            .frame(width: labelWidth, alignment: .leading)
+                        TextField(
+                            "120",
+                            value: $typingGraceMsSetting,
+                            formatter: ContentView.typingGraceFormatter
+                        )
+                        .frame(width: valueFieldWidth)
+                        Slider(
+                            value: $typingGraceMsSetting,
+                            in: ContentView.typingGraceRange,
+                            step: 100
+                        )
+                        .frame(minWidth: 120)
+                        .gridCellColumns(2)
+                    }
+                    GridRow {
+                        Text("Haptic Strength")
+                            .frame(width: labelWidth, alignment: .leading)
+                        Text(currentHapticStrengthStep.label)
+                            .frame(width: valueFieldWidth, alignment: .leading)
+                        Slider(
+                            value: hapticStrengthIndexBinding,
+                            in: 0...Double(HapticStrengthStep.allCases.count - 1),
+                            step: 1
+                        )
+                        .frame(minWidth: 120)
+                        .gridCellColumns(2)
+                    }
+                    GridRow {
+                        Text("Autocorrect")
+                            .frame(width: labelWidth, alignment: .leading)
+                        Toggle("", isOn: $autocorrectEnabled)
+                            .toggleStyle(SwitchToggleStyle())
+                            .labelsHidden()
+                        Text("Tap Click")
+                            .frame(width: labelWidth, alignment: .leading)
+                        Toggle("", isOn: $tapClickEnabled)
+                            .toggleStyle(SwitchToggleStyle())
+                            .labelsHidden()
+                    }
+                    GridRow {
+                        Text("Snap Radius")
+                            .frame(width: labelWidth, alignment: .leading)
+                        Toggle("", isOn: snapRadiusEnabledBinding)
+                            .toggleStyle(SwitchToggleStyle())
+                            .labelsHidden()
+                        Text("Chordal Shift")
+                            .frame(width: labelWidth, alignment: .leading)
+                        Toggle("", isOn: $chordalShiftEnabled)
+                            .toggleStyle(SwitchToggleStyle())
+                            .labelsHidden()
+                    }
                 GridRow {
-                    Text("Tap/Hold (ms)")
-                        .frame(width: labelWidth, alignment: .leading)
-                    TextField(
-                        "200",
-                        value: $tapHoldDurationMs,
-                        formatter: ContentView.tapHoldDurationFormatter
-                    )
-                    .frame(width: valueFieldWidth)
-                    Slider(
-                        value: $tapHoldDurationMs,
-                        in: ContentView.tapHoldDurationRange,
-                        step: 10
-                    )
-                    .frame(minWidth: 100)
+                    Button("Restore Defaults") {
+                        onRestoreDefaults()
+                    }
+                    .buttonStyle(.borderedProminent)
                     .gridCellColumns(2)
-                }
-                GridRow {
-                    Text("Force Cap (g)")
-                        .frame(width: labelWidth, alignment: .leading)
-                    TextField(
-                        "0",
-                        value: $forceClickCapSetting,
-                        formatter: ContentView.forceClickCapFormatter
-                    )
-                    .frame(width: valueFieldWidth)
-                    Slider(
-                        value: $forceClickCapSetting,
-                        in: ContentView.forceClickCapRange,
-                        step: 5
-                    )
-                    .frame(minWidth: 120)
-                    .gridCellColumns(2)
-                }
-                GridRow {
-                    Text("Tap/Drag (ms)")
-                        .frame(width: labelWidth, alignment: .leading)
-                    TextField(
-                        "1",
-                        value: $dragCancelDistanceSetting,
-                        formatter: ContentView.dragCancelDistanceFormatter
-                    )
-                    .frame(width: valueFieldWidth)
-                    Slider(
-                        value: $dragCancelDistanceSetting,
-                        in: ContentView.dragCancelDistanceRange,
-                        step: 1
-                    )
-                    .frame(minWidth: 120)
-                    .gridCellColumns(2)
-                }
-                GridRow {
-                    Text("Intent Move (mm)")
-                        .frame(width: labelWidth, alignment: .leading)
-                    TextField(
-                        "3.0",
-                        value: $intentMoveThresholdMmSetting,
-                        formatter: ContentView.intentMoveThresholdFormatter
-                    )
-                    .frame(width: valueFieldWidth)
-                    Slider(
-                        value: $intentMoveThresholdMmSetting,
-                        in: ContentView.intentMoveThresholdRange,
-                        step: 0.1
-                    )
-                    .frame(minWidth: 120)
-                    .gridCellColumns(2)
-                }
-                GridRow {
-                    Text("Intent Velocity (mm/s)")
-                        .frame(width: labelWidth, alignment: .leading)
-                    TextField(
-                        "50",
-                        value: $intentVelocityThresholdMmPerSecSetting,
-                        formatter: ContentView.intentVelocityThresholdFormatter
-                    )
-                    .frame(width: valueFieldWidth)
-                    Slider(
-                        value: $intentVelocityThresholdMmPerSecSetting,
-                        in: ContentView.intentVelocityThresholdRange,
-                        step: 5
-                    )
-                    .frame(minWidth: 120)
-                    .gridCellColumns(2)
-                }
-                GridRow {
-                    Text("Typing Grace (ms)")
-                        .frame(width: labelWidth, alignment: .leading)
-                    TextField(
-                        "120",
-                        value: $typingGraceMsSetting,
-                        formatter: ContentView.typingGraceFormatter
-                    )
-                    .frame(width: valueFieldWidth)
-                    Slider(
-                        value: $typingGraceMsSetting,
-                        in: ContentView.typingGraceRange,
-                        step: 100
-                    )
-                    .frame(minWidth: 120)
-                    .gridCellColumns(2)
-                }
-                GridRow {
-                    Text("Haptic Strength")
-                        .frame(width: labelWidth, alignment: .leading)
-                    Text(currentHapticStrengthStep.label)
-                        .frame(width: valueFieldWidth, alignment: .leading)
-                    Slider(
-                        value: hapticStrengthIndexBinding,
-                        in: 0...Double(HapticStrengthStep.allCases.count - 1),
-                        step: 1
-                    )
-                    .frame(minWidth: 120)
-                    .gridCellColumns(2)
-                }
-                GridRow {
-                    Text("Autocorrect")
-                        .frame(width: labelWidth, alignment: .leading)
-                    Toggle("", isOn: $autocorrectEnabled)
-                        .toggleStyle(SwitchToggleStyle())
-                        .labelsHidden()
-                    Text("Tap Click")
-                        .frame(width: labelWidth, alignment: .leading)
-                    Toggle("", isOn: $tapClickEnabled)
-                        .toggleStyle(SwitchToggleStyle())
-                        .labelsHidden()
-                }
-                GridRow {
-                    Text("Snap Radius")
-                        .frame(width: labelWidth, alignment: .leading)
-                    Toggle("", isOn: snapRadiusEnabledBinding)
-                        .toggleStyle(SwitchToggleStyle())
-                        .labelsHidden()
                     Spacer()
                         .gridCellColumns(2)
                 }
+                }
             }
         }
-    }
 
+    }
 
     private struct TrackpadDeckView: View {
         @ObservedObject var viewModel: ContentViewModel
@@ -2202,7 +2229,22 @@ struct ContentView: View {
         viewModel.updateIntentVelocityThresholdMmPerSec(intentVelocityThresholdMmPerSecSetting)
         viewModel.updateAllowMouseTakeover(true)
         viewModel.updateSnapRadiusPercent(snapRadiusPercentSetting)
+        viewModel.updateChordalShiftEnabled(chordalShiftEnabled)
         viewModel.setTouchSnapshotRecordingEnabled(visualsEnabled)
+    }
+
+    private func restoreTypingTuningDefaults() {
+        tapHoldDurationMs = GlassToKeySettings.tapHoldDurationMs
+        dragCancelDistanceSetting = GlassToKeySettings.dragCancelDistanceMm
+        forceClickCapSetting = GlassToKeySettings.forceClickCap
+        hapticStrengthSetting = GlassToKeySettings.hapticStrengthPercent
+        typingGraceMsSetting = GlassToKeySettings.typingGraceMs
+        intentMoveThresholdMmSetting = GlassToKeySettings.intentMoveThresholdMm
+        intentVelocityThresholdMmPerSecSetting = GlassToKeySettings.intentVelocityThresholdMmPerSec
+        autocorrectEnabled = GlassToKeySettings.autocorrectEnabled
+        tapClickEnabled = GlassToKeySettings.tapClickEnabled
+        snapRadiusPercentSetting = GlassToKeySettings.snapRadiusPercent
+        chordalShiftEnabled = GlassToKeySettings.chordalShiftEnabled
     }
 
     private func saveSettings() {

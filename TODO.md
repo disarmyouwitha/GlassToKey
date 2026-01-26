@@ -1,9 +1,10 @@
-## TODO 
-- 2-finger double tap for double-click!
-- Mouse Grace (ms) where it stays in mouse state for X ms after last mouse event. no typing allowed but gestures yes!
-- can we expose the slider for when something becomes a double-click?n
+## TODO
+Implement {- Fingers for gesture should be counted per-side (right-click shows up with LHS:1 RHS:2)
+- Chordal shift: should allow a modified click!}
+###
 - take screenshot for transparent stickers
-- (Optional Install, CGEventFallback): Use Karabiner-DriverKit-VirtualHIDDevice to send keys!m
+- (Optional Install, CGEventFallback):
+- Use Karabiner-DriverKit-VirtualHIDDevice to send keys!
 - normalize % to px??
 ###
 - any vestigial code?  
@@ -25,4 +26,4 @@
 
 
 # Karabiner stuck, help!
-sudo launchctl kickstart -k system/org.pqrs.vhid
+sudo launchctl kickstart -k system/org.pqrs.vhid 

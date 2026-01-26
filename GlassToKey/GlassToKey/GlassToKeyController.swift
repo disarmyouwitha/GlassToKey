@@ -2,16 +2,17 @@ import OpenMultitouchSupport
 import SwiftUI
 
 enum GlassToKeySettings {
-    static let tapHoldDurationMs: Double = 200.0
-    static let dragCancelDistanceMm: Double = 10.0
-    static let forceClickCap: Double = 110.0
-    static let hapticStrengthPercent: Double = 10.0
-    static let typingGraceMs: Double = 600.0
+    static let tapHoldDurationMs: Double = 250.0
+    static let dragCancelDistanceMm: Double = 8.0
+    static let forceClickCap: Double = 120.0
+    static let hapticStrengthPercent: Double = 40.0
+    static let typingGraceMs: Double = 1000.0
     static let intentMoveThresholdMm: Double = 4.0
     static let intentVelocityThresholdMmPerSec: Double = 50.0
-    static let autocorrectEnabled: Bool = false
-    static let tapClickEnabled: Bool = false
+    static let autocorrectEnabled: Bool = true
+    static let tapClickEnabled: Bool = true
     static let snapRadiusPercent: Double = 35.0
+    static let chordalShiftEnabled: Bool = true
 
     static func persistedDouble(
         forKey key: String,
@@ -219,6 +220,9 @@ final class GlassToKeyController: ObservableObject {
             defaults: defaults,
             fallback: GlassToKeySettings.snapRadiusPercent
         )
+        let chordalShiftEnabled = defaults.object(
+            forKey: GlassToKeyDefaultsKeys.chordalShiftEnabled
+        ) as? Bool ?? GlassToKeySettings.chordalShiftEnabled
 
         viewModel.updateHoldThreshold(tapHoldMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragDistance))
@@ -230,6 +234,7 @@ final class GlassToKeyController: ObservableObject {
         viewModel.updateAllowMouseTakeover(true)
         viewModel.updateTapClickEnabled(tapClickEnabled)
         viewModel.updateSnapRadiusPercent(snapRadiusPercent)
+        viewModel.updateChordalShiftEnabled(chordalShiftEnabled)
     }
 
     private func legacyColumnSettings(
