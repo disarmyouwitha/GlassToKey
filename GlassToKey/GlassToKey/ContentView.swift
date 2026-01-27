@@ -2112,7 +2112,11 @@ struct ContentView: View {
             keyRows.append(scaledRects)
             currentY += rowHeight + mobileRowSpacingMM
         }
-        return ContentViewModel.Layout(keyRects: keyRows, trackpadSize: size)
+        return ContentViewModel.Layout(
+            keyRects: keyRows,
+            trackpadSize: size,
+            allowHoldBindings: false
+        )
     }
 
     private static func mobileRowRects(
@@ -2193,6 +2197,8 @@ struct ContentView: View {
         selectedGridKey = nil
         selectedButtonID = nil
         columnSettings = columnSettings(for: newLayout)
+        customButtons = loadCustomButtons(for: newLayout)
+        viewModel.updateCustomButtons(customButtons)
         updateGridLabelInfo()
         applyColumnSettings(columnSettings)
         saveSettings()
@@ -2270,7 +2276,8 @@ struct ContentView: View {
         selectedGridKey = nil
         selectedButtonID = nil
         columnSettings = columnSettings(for: resolvedLayout)
-        loadCustomButtons()
+        customButtons = loadCustomButtons(for: resolvedLayout)
+        viewModel.updateCustomButtons(customButtons)
         loadKeyMappings()
         updateGridLabelInfo()
         applyColumnSettings(columnSettings)
@@ -2379,21 +2386,6 @@ struct ContentView: View {
         }
     }
 
-    private func loadCustomButtons() {
-        if let decoded = CustomButtonStore.decode(storedCustomButtonsData),
-           !decoded.isEmpty {
-            customButtons = decoded
-        } else {
-            customButtons = CustomButtonDefaults.defaultButtons(
-                trackpadWidth: Self.trackpadWidthMM,
-                trackpadHeight: Self.trackpadHeightMM,
-                thumbAnchorsMM: Self.ThumbAnchorsMM
-            )
-            saveCustomButtons(customButtons)
-        }
-        viewModel.updateCustomButtons(customButtons)
-    }
-
     private func loadKeyMappings() {
         if let decoded = KeyActionMappingStore.decodeNormalized(storedKeyMappingsData) {
             keyMappingsByLayer = decoded
@@ -2403,12 +2395,34 @@ struct ContentView: View {
         viewModel.updateKeyMappings(keyMappingsByLayer)
     }
 
+    private func loadCustomButtons(for layout: TrackpadLayoutPreset) -> [CustomButton] {
+        if let stored = LayoutCustomButtonStorage.settings(for: layout, from: storedCustomButtonsData),
+           !stored.isEmpty {
+            return stored
+        }
+        if let decoded = CustomButtonStore.decode(storedCustomButtonsData),
+           !decoded.isEmpty {
+            return decoded
+        }
+        return CustomButtonDefaults.defaultButtons(
+            trackpadWidth: Self.trackpadWidthMM,
+            trackpadHeight: Self.trackpadHeightMM,
+            thumbAnchorsMM: Self.ThumbAnchorsMM
+        )
+    }
+
     private func saveKeyMappings(_ mappings: LayeredKeyMappings) {
         storedKeyMappingsData = KeyActionMappingStore.encode(mappings) ?? Data()
     }
 
     private func saveCustomButtons(_ buttons: [CustomButton]) {
-        storedCustomButtonsData = CustomButtonStore.encode(buttons) ?? Data()
+        var map = LayoutCustomButtonStorage.decode(from: storedCustomButtonsData) ?? [:]
+        map[layoutOption.rawValue] = buttons
+        if let encoded = LayoutCustomButtonStorage.encode(map) {
+            storedCustomButtonsData = encoded
+        } else {
+            storedCustomButtonsData = Data()
+        }
     }
 
     private func addCustomButton(side: TrackpadSide) {
@@ -2690,13 +2704,15 @@ struct ContentView: View {
     }
 
     private func updateGridLabelInfo() {
-        leftGridLabelInfo = gridLabelInfo(for: leftGridLabels, side: .left)
-        rightGridLabelInfo = gridLabelInfo(for: rightGridLabels, side: .right)
+        let allowHold = layoutOption != .mobile
+        leftGridLabelInfo = gridLabelInfo(for: leftGridLabels, side: .left, allowHold: allowHold)
+        rightGridLabelInfo = gridLabelInfo(for: rightGridLabels, side: .right, allowHold: allowHold)
     }
 
     private func gridLabelInfo(
         for labels: [[String]],
-        side: TrackpadSide
+        side: TrackpadSide,
+        allowHold: Bool
     ) -> [[GridLabel]] {
         var output = labels.map { Array(repeating: GridLabel(primary: "", hold: nil), count: $0.count) }
         for row in 0..<labels.count {
@@ -2708,7 +2724,10 @@ struct ContentView: View {
                     side: side
                 )
                 let info = labelInfo(for: key)
-                output[row][col] = GridLabel(primary: info.primary, hold: info.hold)
+                output[row][col] = GridLabel(
+                    primary: info.primary,
+                    hold: allowHold ? info.hold : nil
+                )
             }
         }
         return output

@@ -98,7 +98,7 @@ final class GlassToKeyController: ObservableObject {
             trackpadWidthMm: ContentView.trackpadWidthMM
         )
 
-        let customButtons = loadCustomButtons()
+        let customButtons = loadCustomButtons(for: layout)
         viewModel.updateCustomButtons(customButtons)
 
         let keyMappings = loadKeyMappings()
@@ -129,12 +129,17 @@ final class GlassToKeyController: ObservableObject {
         return viewModel.availableDevices.first { $0.deviceID == deviceID }
     }
 
-    private func loadCustomButtons() -> [CustomButton] {
+    private func loadCustomButtons(for layout: TrackpadLayoutPreset) -> [CustomButton] {
         let defaults = UserDefaults.standard
-        if let data = defaults.data(forKey: GlassToKeyDefaultsKeys.customButtons),
-           let decoded = CustomButtonStore.decode(data),
-           !decoded.isEmpty {
-            return decoded
+        if let data = defaults.data(forKey: GlassToKeyDefaultsKeys.customButtons) {
+            if let stored = LayoutCustomButtonStorage.settings(for: layout, from: data),
+               !stored.isEmpty {
+                return stored
+            }
+            if let decoded = CustomButtonStore.decode(data),
+               !decoded.isEmpty {
+                return decoded
+            }
         }
         return CustomButtonDefaults.defaultButtons(
             trackpadWidth: ContentView.trackpadWidthMM,

@@ -105,14 +105,20 @@ final class ContentViewModel: ObservableObject {
     struct Layout {
         let keyRects: [[CGRect]]
         let normalizedKeyRects: [[NormalizedRect]]
+        let allowHoldBindings: Bool
 
-        init(keyRects: [[CGRect]], trackpadSize: CGSize) {
+        init(
+            keyRects: [[CGRect]],
+            trackpadSize: CGSize,
+            allowHoldBindings: Bool = true
+        ) {
             self.keyRects = keyRects
+            self.allowHoldBindings = allowHoldBindings
             self.normalizedKeyRects = Layout.normalize(keyRects, trackpadSize: trackpadSize)
         }
 
         init(keyRects: [[CGRect]]) {
-            self.init(keyRects: keyRects, trackpadSize: .zero)
+            self.init(keyRects: keyRects, trackpadSize: .zero, allowHoldBindings: true)
         }
 
         private static func normalize(
@@ -1755,7 +1761,10 @@ final class ContentViewModel: ObservableObject {
                            (intentAllowsTyping || allowPriority) {
                             let modifierKey = modifierKey(for: pending.binding)
                             let isContinuousKey = isContinuousKey(pending.binding)
-                            let holdBinding = holdBinding(for: pending.binding)
+                            let holdBinding = holdBinding(
+                                for: pending.binding,
+                                allowHold: layout.allowHoldBindings
+                            )
                             if shouldImmediateTapWithModifiers(binding: pending.binding) {
                                 let dispatchInfo = makeDispatchInfo(
                                     kind: .tap,
@@ -1799,7 +1808,10 @@ final class ContentViewModel: ObservableObject {
                     } else if let binding = bindingAtPoint {
                         let modifierKey = modifierKey(for: binding)
                         let isContinuousKey = isContinuousKey(binding)
-                        let holdBinding = holdBinding(for: binding)
+                        let holdBinding = holdBinding(
+                            for: binding,
+                            allowHold: layout.allowHoldBindings
+                        )
                         let allowPriority = allowsPriorityTyping(for: binding)
                         let allowNow = intentAllowsTyping || allowPriority
                         if allowNow, shouldImmediateTapWithModifiers(binding: binding) {
@@ -2200,7 +2212,8 @@ final class ContentViewModel: ObservableObject {
                         label,
                         rect: rect,
                         normalizedRect: normalizedRect,
-                        position: position
+                        position: position,
+                        layout: layout
                     ) else {
                         continue
                     }
@@ -2253,15 +2266,20 @@ final class ContentViewModel: ObservableObject {
             _ label: String,
             rect: CGRect,
             normalizedRect: NormalizedRect,
-            position: GridKeyPosition
+            position: GridKeyPosition,
+            layout: Layout
         ) -> KeyBinding? {
             guard let action = keyAction(for: position, label: label) else { return nil }
+            let holdAction = layout.allowHoldBindings
+                ? holdAction(for: position, label: label)
+                : nil
             return makeBinding(
                 for: action,
                 rect: rect,
                 normalizedRect: normalizedRect,
                 position: position,
-                side: position.side
+                side: position.side,
+                holdAction: holdAction
             )
         }
 
@@ -3105,7 +3123,8 @@ final class ContentViewModel: ObservableObject {
             }
         }
 
-        private func holdBinding(for binding: KeyBinding) -> KeyBinding? {
+        private func holdBinding(for binding: KeyBinding, allowHold: Bool) -> KeyBinding? {
+            guard allowHold else { return nil }
             if let holdAction = binding.holdAction {
                 return makeBinding(
                     for: holdAction,
@@ -4111,6 +4130,35 @@ enum CustomButtonDefaults {
             }
         }
         return buttons
+    }
+}
+
+enum LayoutCustomButtonStorage {
+    private static let decoder = JSONDecoder()
+    private static let encoder = JSONEncoder()
+
+    static func decode(from data: Data) -> [String: [CustomButton]]? {
+        guard !data.isEmpty else { return nil }
+        if let map = try? decoder.decode([String: [CustomButton]].self, from: data) {
+            return map
+        }
+        if let legacy = try? decoder.decode([CustomButton].self, from: data) {
+            return [TrackpadLayoutPreset.sixByThree.rawValue: legacy]
+        }
+        return nil
+    }
+
+    static func settings(
+        for layout: TrackpadLayoutPreset,
+        from data: Data
+    ) -> [CustomButton]? {
+        guard let map = decode(from: data) else { return nil }
+        return map[layout.rawValue]
+    }
+
+    static func encode(_ map: [String: [CustomButton]]) -> Data? {
+        guard !map.isEmpty else { return nil }
+        return try? encoder.encode(map)
     }
 }
 
