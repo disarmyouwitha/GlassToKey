@@ -99,6 +99,11 @@ struct ContentView: View {
     static let displayScale: CGFloat = 2.7
     static let baseKeyWidthMM: CGFloat = 18.0
     static let baseKeyHeightMM: CGFloat = 17.0
+    private static let mobileKeyWidthMM: CGFloat = 13.0
+    private static let mobileKeyHeightMM: CGFloat = 13.5
+    private static let mobileKeySpacingMM: CGFloat = 1.5
+    private static let mobileRowSpacingMM: CGFloat = 5.0
+    private static let mobileTopInsetMM: CGFloat = 12.0
     static let minCustomButtonSize = CGSize(width: 0.05, height: 0.05)
     fileprivate static let columnScaleRange: ClosedRange<Double> = ColumnLayoutDefaults.scaleRange
     fileprivate static let columnOffsetPercentRange: ClosedRange<Double> = ColumnLayoutDefaults.offsetPercentRange
@@ -1030,7 +1035,9 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                     }
                 } else {
-                    Text("Layout has no grid. Pick one of the presets to show keys.")
+                    Text(layoutOption == .mobile
+                        ? "Mobile preset uses a fixed QWERTY grid on the right trackpad; column tuning is disabled."
+                        : "Layout has no grid. Pick one of the presets to show keys.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -1772,12 +1779,12 @@ struct ContentView: View {
             for keyRects: [[CGRect]],
             trackpadSize: CGSize
         ) -> [CGRect] {
-            guard let columnCount = keyRects.first?.count else { return [] }
+            let columnCount = keyRects.map { $0.count }.max() ?? 0
+            guard columnCount > 0 else { return [] }
             var rects = Array(repeating: CGRect.null, count: columnCount)
-            for row in 0..<keyRects.count {
-                for col in 0..<columnCount {
-                    let rect = keyRects[row][col]
-                    rects[col] = rects[col].union(rect)
+            for row in keyRects {
+                for col in 0..<row.count {
+                    rects[col] = rects[col].union(row[col])
                 }
             }
 
@@ -2087,6 +2094,50 @@ struct ContentView: View {
         }
     }
 
+    private static func makeMobileKeyLayout(size: CGSize) -> ContentViewModel.Layout {
+        let scaleX = size.width / Self.trackpadWidthMM
+        let scaleY = size.height / Self.trackpadHeightMM
+        var keyRows: [[CGRect]] = []
+        var currentY = mobileTopInsetMM
+        for row in MobileLayoutDefinition.rows {
+            let (rowRects, rowHeight) = mobileRowRects(for: row, y: currentY)
+            let scaledRects = rowRects.map { rect in
+                CGRect(
+                    x: rect.minX * scaleX,
+                    y: rect.minY * scaleY,
+                    width: rect.width * scaleX,
+                    height: rect.height * scaleY
+                )
+            }
+            keyRows.append(scaledRects)
+            currentY += rowHeight + mobileRowSpacingMM
+        }
+        return ContentViewModel.Layout(
+            keyRects: keyRows,
+            trackpadSize: size,
+            allowHoldBindings: false
+        )
+    }
+
+    private static func mobileRowRects(
+        for row: MobileLayoutRow,
+        y: CGFloat
+    ) -> ([CGRect], CGFloat) {
+        let totalSpacing = mobileKeySpacingMM * CGFloat(max(row.widthMultipliers.count - 1, 0))
+        let keyWidths = row.widthMultipliers.map { $0 * mobileKeyWidthMM }
+        let totalWidth = keyWidths.reduce(0, +) + totalSpacing
+        let availableSpace = max(Self.trackpadWidthMM - totalWidth, 0)
+        let centeredX = availableSpace / 2 + row.staggerOffset
+        let startX = min(max(centeredX, 0), availableSpace)
+        var x = startX
+        var rects: [CGRect] = []
+        for width in keyWidths {
+            rects.append(CGRect(x: x, y: y, width: width, height: mobileKeyHeightMM))
+            x += width + mobileKeySpacingMM
+        }
+        return (rects, mobileKeyHeightMM)
+    }
+
     private static func normalizedColumnSettings(
         _ settings: [ColumnLayoutSettings],
         columns: Int
@@ -2146,12 +2197,27 @@ struct ContentView: View {
         selectedGridKey = nil
         selectedButtonID = nil
         columnSettings = columnSettings(for: newLayout)
+        customButtons = loadCustomButtons(for: newLayout)
+        viewModel.updateCustomButtons(customButtons)
         updateGridLabelInfo()
         applyColumnSettings(columnSettings)
         saveSettings()
     }
 
     private func rebuildLayouts() {
+        if layoutOption == .mobile {
+            leftLayout = ContentViewModel.Layout(keyRects: [], trackpadSize: trackpadSize)
+            rightLayout = ContentView.makeMobileKeyLayout(size: trackpadSize)
+            viewModel.configureLayouts(
+                leftLayout: leftLayout,
+                rightLayout: rightLayout,
+                leftLabels: leftGridLabels,
+                rightLabels: rightGridLabels,
+                trackpadSize: trackpadSize,
+                trackpadWidthMm: Self.trackpadWidthMM
+            )
+            return
+        }
         guard layoutColumns > 0,
               layoutRows > 0,
               layoutColumnAnchors.count == layoutColumns else {
@@ -2210,7 +2276,8 @@ struct ContentView: View {
         selectedGridKey = nil
         selectedButtonID = nil
         columnSettings = columnSettings(for: resolvedLayout)
-        loadCustomButtons()
+        customButtons = loadCustomButtons(for: resolvedLayout)
+        viewModel.updateCustomButtons(customButtons)
         loadKeyMappings()
         updateGridLabelInfo()
         applyColumnSettings(columnSettings)
@@ -2319,21 +2386,6 @@ struct ContentView: View {
         }
     }
 
-    private func loadCustomButtons() {
-        if let decoded = CustomButtonStore.decode(storedCustomButtonsData),
-           !decoded.isEmpty {
-            customButtons = decoded
-        } else {
-            customButtons = CustomButtonDefaults.defaultButtons(
-                trackpadWidth: Self.trackpadWidthMM,
-                trackpadHeight: Self.trackpadHeightMM,
-                thumbAnchorsMM: Self.ThumbAnchorsMM
-            )
-            saveCustomButtons(customButtons)
-        }
-        viewModel.updateCustomButtons(customButtons)
-    }
-
     private func loadKeyMappings() {
         if let decoded = KeyActionMappingStore.decodeNormalized(storedKeyMappingsData) {
             keyMappingsByLayer = decoded
@@ -2343,12 +2395,34 @@ struct ContentView: View {
         viewModel.updateKeyMappings(keyMappingsByLayer)
     }
 
+    private func loadCustomButtons(for layout: TrackpadLayoutPreset) -> [CustomButton] {
+        if let stored = LayoutCustomButtonStorage.settings(for: layout, from: storedCustomButtonsData),
+           !stored.isEmpty {
+            return stored
+        }
+        if let decoded = CustomButtonStore.decode(storedCustomButtonsData),
+           !decoded.isEmpty {
+            return decoded
+        }
+        return CustomButtonDefaults.defaultButtons(
+            trackpadWidth: Self.trackpadWidthMM,
+            trackpadHeight: Self.trackpadHeightMM,
+            thumbAnchorsMM: Self.ThumbAnchorsMM
+        )
+    }
+
     private func saveKeyMappings(_ mappings: LayeredKeyMappings) {
         storedKeyMappingsData = KeyActionMappingStore.encode(mappings) ?? Data()
     }
 
     private func saveCustomButtons(_ buttons: [CustomButton]) {
-        storedCustomButtonsData = CustomButtonStore.encode(buttons) ?? Data()
+        var map = LayoutCustomButtonStorage.decode(from: storedCustomButtonsData) ?? [:]
+        map[layoutOption.rawValue] = buttons
+        if let encoded = LayoutCustomButtonStorage.encode(map) {
+            storedCustomButtonsData = encoded
+        } else {
+            storedCustomButtonsData = Data()
+        }
     }
 
     private func addCustomButton(side: TrackpadSide) {
@@ -2630,13 +2704,15 @@ struct ContentView: View {
     }
 
     private func updateGridLabelInfo() {
-        leftGridLabelInfo = gridLabelInfo(for: leftGridLabels, side: .left)
-        rightGridLabelInfo = gridLabelInfo(for: rightGridLabels, side: .right)
+        let allowHold = layoutOption != .mobile
+        leftGridLabelInfo = gridLabelInfo(for: leftGridLabels, side: .left, allowHold: allowHold)
+        rightGridLabelInfo = gridLabelInfo(for: rightGridLabels, side: .right, allowHold: allowHold)
     }
 
     private func gridLabelInfo(
         for labels: [[String]],
-        side: TrackpadSide
+        side: TrackpadSide,
+        allowHold: Bool
     ) -> [[GridLabel]] {
         var output = labels.map { Array(repeating: GridLabel(primary: "", hold: nil), count: $0.count) }
         for row in 0..<labels.count {
@@ -2648,7 +2724,10 @@ struct ContentView: View {
                     side: side
                 )
                 let info = labelInfo(for: key)
-                output[row][col] = GridLabel(primary: info.primary, hold: info.hold)
+                output[row][col] = GridLabel(
+                    primary: info.primary,
+                    hold: allowHold ? info.hold : nil
+                )
             }
         }
         return output

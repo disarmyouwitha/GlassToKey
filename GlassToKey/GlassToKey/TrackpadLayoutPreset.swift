@@ -6,6 +6,7 @@ enum TrackpadLayoutPreset: String, CaseIterable, Identifiable {
     case sixByFour = "6x4"
     case fiveByThree = "5x3"
     case fiveByFour = "5x4"
+    case mobile = "Mobile QWERTY"
 
     var id: String { rawValue }
 
@@ -15,7 +16,7 @@ enum TrackpadLayoutPreset: String, CaseIterable, Identifiable {
             return 6
         case .fiveByThree, .fiveByFour:
             return 5
-        case .none:
+        case .mobile, .none:
             return 0
         }
     }
@@ -26,7 +27,7 @@ enum TrackpadLayoutPreset: String, CaseIterable, Identifiable {
             return 3
         case .sixByFour, .fiveByFour:
             return 4
-        case .none:
+        case .mobile, .none:
             return 0
         }
     }
@@ -41,7 +42,7 @@ enum TrackpadLayoutPreset: String, CaseIterable, Identifiable {
             return Self.columnAnchors6
         case .fiveByThree, .fiveByFour:
             return Self.columnAnchors5
-        case .none:
+        case .mobile, .none:
             return []
         }
     }
@@ -56,13 +57,20 @@ enum TrackpadLayoutPreset: String, CaseIterable, Identifiable {
             return Self.rightLabels6x3.map { Array($0.prefix(self.columns)) }
         case .fiveByFour:
             return Self.rightLabels6x4.map { Array($0.prefix(self.columns)) }
+        case .mobile:
+            return MobileLayoutDefinition.labelMatrix
         case .none:
             return []
         }
     }
 
     var leftLabels: [[String]] {
-        Self.mirrored(rightLabels)
+        switch self {
+        case .mobile:
+            return []
+        default:
+            return Self.mirrored(rightLabels)
+        }
     }
 
     private static func mirrored(_ labels: [[String]]) -> [[String]] {
