@@ -10,6 +10,7 @@ import Combine
 import OpenMultitouchSupport
 import QuartzCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     private struct SelectedGridKey: Equatable {
@@ -65,6 +66,8 @@ struct ContentView: View {
     @State private var columnInspectorSelection: ColumnInspectorSelection?
     @State private var buttonInspectorSelection: ButtonInspectorSelection?
     @State private var keyInspectorSelection: KeyInspectorSelection?
+    @State private var exportStatusMessage: String?
+    @State private var exportStatusMessageToken = UUID()
     @State private var keyMappingsByLayer: LayeredKeyMappings = [:]
     @State private var layoutOption: TrackpadLayoutPreset = .sixByThree
     @State private var leftGridLabelInfo: [[GridLabel]] = []
@@ -468,7 +471,11 @@ struct ContentView: View {
             selectedButtonID: $selectedButtonID,
             selectedColumn: $selectedColumn,
             selectedGridKey: $selectedGridKey,
-            testText: $testText
+            testText: $testText,
+            exportStatusMessage: exportStatusMessage,
+            onExportTrackpad: { side in
+                exportTrackpad(side: side)
+            }
         )
     }
 
@@ -674,6 +681,8 @@ struct ContentView: View {
         @Binding var selectedColumn: Int?
         @Binding var selectedGridKey: SelectedGridKey?
         @Binding var testText: String
+        let exportStatusMessage: String?
+        let onExportTrackpad: (TrackpadSide) -> Void
 
         var body: some View {
             VStack(alignment: .leading, spacing: 12) {
@@ -695,6 +704,25 @@ struct ContentView: View {
                     selectedColumn: $selectedColumn,
                     selectedGridKey: $selectedGridKey
                 )
+                HStack(spacing: 12) {
+                    Button("Export Left Trackpad") {
+                        onExportTrackpad(.left)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button("Export Right Trackpad") {
+                        onExportTrackpad(.right)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Spacer()
+
+                    if let message = exportStatusMessage {
+                        Text(message)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 TextEditor(text: $testText)
                     .font(.system(.body, design: .monospaced))
                     .frame(height: 100)
@@ -1895,16 +1923,17 @@ struct ContentView: View {
                 let rightOrigin = CGPoint(x: trackpadSize.width + spacing, y: 0)
                 let leftRect = CGRect(origin: leftOrigin, size: trackpadSize)
                 let rightRect = CGRect(origin: rightOrigin, size: trackpadSize)
-                let borderColor = Color.secondary.opacity(0.6)
+                let borderColor = Color.black
+                let borderWidth: CGFloat = 2.0
                 context.stroke(
                     Path(roundedRect: leftRect, cornerRadius: ContentView.keyCornerRadius),
                     with: .color(borderColor),
-                    lineWidth: 1
+                    lineWidth: borderWidth
                 )
                 context.stroke(
                     Path(roundedRect: rightRect, cornerRadius: ContentView.keyCornerRadius),
                     with: .color(borderColor),
-                    lineWidth: 1
+                    lineWidth: borderWidth
                 )
 
                 guard showDetailed else { return }
@@ -1920,7 +1949,8 @@ struct ContentView: View {
                     selectedButton: selectedLeftButton,
                     touches: leftTouches,
                     trackpadSize: trackpadSize,
-                    visualsEnabled: visualsEnabled
+                    visualsEnabled: visualsEnabled,
+                    styling: .standard
                 )
                 ContentView.drawTrackpadContents(
                     context: &context,
@@ -1933,10 +1963,45 @@ struct ContentView: View {
                     selectedButton: selectedRightButton,
                     touches: rightTouches,
                     trackpadSize: trackpadSize,
-                    visualsEnabled: visualsEnabled
+                    visualsEnabled: visualsEnabled,
+                    styling: .standard
                 )
             }
             .frame(width: (trackpadSize.width * 2) + spacing, height: trackpadSize.height)
+        }
+    }
+
+    private struct TrackpadSnapshotCanvas: View {
+        let trackpadSize: CGSize
+        let layout: ContentViewModel.Layout
+        let labelInfo: [[GridLabel]]
+        let customButtons: [CustomButton]
+        let visualsEnabled: Bool
+        let styling: TrackpadStyling
+
+        var body: some View {
+            Canvas { context, size in
+                let backgroundRect = CGRect(origin: .zero, size: size)
+                context.fill(
+                    Path(backgroundRect),
+                    with: .color(.white)
+                )
+                ContentView.drawTrackpadContents(
+                    context: &context,
+                    origin: .zero,
+                    layout: layout,
+                    labelInfo: labelInfo,
+                    customButtons: customButtons,
+                    selectedColumn: nil,
+                    selectedKey: nil,
+                    selectedButton: nil,
+                    touches: [],
+                    trackpadSize: trackpadSize,
+                    visualsEnabled: visualsEnabled,
+                    styling: styling
+                )
+            }
+            .frame(width: trackpadSize.width, height: trackpadSize.height)
         }
     }
 
@@ -2494,36 +2559,115 @@ struct ContentView: View {
         return viewModel.availableDevices.first { $0.deviceID == deviceID }
     }
 
-    private static func drawSensorGrid(
-        context: inout GraphicsContext,
-        size: CGSize,
-        columns: Int,
-        rows: Int
-    ) {
-        guard columns > 0, rows > 0 else { return }
-        let strokeColor = Color.secondary.opacity(0.2)
-        let lineWidth = CGFloat(0.5)
+    private func customButtons(for side: TrackpadSide) -> [CustomButton] {
+        customButtons.filter {
+            $0.side == side && $0.layer == viewModel.activeLayer
+        }
+    }
 
-        let columnWidth = size.width / CGFloat(columns)
-        let rowHeight = size.height / CGFloat(rows)
-
-        for col in 0...columns {
-            let x = CGFloat(col) * columnWidth
-            let path = Path { path in
-                path.move(to: CGPoint(x: x, y: 0))
-                path.addLine(to: CGPoint(x: x, y: size.height))
-            }
-            context.stroke(path, with: .color(strokeColor), lineWidth: lineWidth)
+    private func exportTrackpad(side: TrackpadSide) {
+        guard let data = trackpadSnapshotData(for: side) else {
+            showExportStatusMessage("Failed to capture \(side.rawValue.capitalized) trackpad")
+            return
         }
 
-        for row in 0...rows {
-            let y = CGFloat(row) * rowHeight
-            let path = Path { path in
-                path.move(to: CGPoint(x: 0, y: y))
-                path.addLine(to: CGPoint(x: size.width, y: y))
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType.png]
+        panel.nameFieldStringValue = "GlassToKey-\(side.rawValue.capitalized)-Trackpad.png"
+        panel.begin { result in
+            guard result == .OK, let url = panel.url else { return }
+            do {
+                try data.write(to: url, options: .atomic)
+                showExportStatusMessage("\(side.rawValue.capitalized) trackpad exported")
+            } catch {
+                showExportStatusMessage("Save failed: \(error.localizedDescription)")
             }
-            context.stroke(path, with: .color(strokeColor), lineWidth: lineWidth)
         }
+    }
+
+    private func trackpadSnapshotData(for side: TrackpadSide) -> Data? {
+        let layout = side == .left ? leftLayout : rightLayout
+        let labelInfo = side == .left ? leftGridLabelInfo : rightGridLabelInfo
+        let canvas = TrackpadSnapshotCanvas(
+            trackpadSize: trackpadSize,
+            layout: layout,
+            labelInfo: labelInfo,
+            customButtons: [],
+            visualsEnabled: false,
+            styling: .snapshot
+        )
+        let renderer = ImageRenderer(content: canvas)
+        renderer.scale = NSScreen.main?.backingScaleFactor ?? 2.0
+        guard let nsImage = renderer.nsImage,
+              let tiff = nsImage.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let pngData = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else {
+            return nil
+        }
+        return pngData
+    }
+
+    private func showExportStatusMessage(_ message: String) {
+        exportStatusMessage = message
+        let token = UUID()
+        exportStatusMessageToken = token
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            if exportStatusMessageToken == token {
+                exportStatusMessage = nil
+            }
+        }
+    }
+
+    private struct TrackpadStyling {
+        let showGridHoldLabels: Bool
+        let showCustomButtonHoldLabels: Bool
+        let showCustomButtonLabels: Bool
+        let gridPrimaryColor: Color
+        let gridHoldColor: Color
+        let customButtonPrimaryColor: Color
+        let customButtonHoldColor: Color
+        let customButtonFillColor: Color?
+        let customButtonStrokeColor: Color
+        let gridFont: Font
+        let gridHoldFont: Font
+        let customButtonPrimaryFont: Font
+        let customButtonHoldFont: Font
+        let customButtonStrokeStyle: StrokeStyle
+
+        static let standard = TrackpadStyling(
+            showGridHoldLabels: true,
+            showCustomButtonHoldLabels: true,
+            showCustomButtonLabels: true,
+            gridPrimaryColor: .secondary,
+            gridHoldColor: .secondary.opacity(0.7),
+            customButtonPrimaryColor: .secondary,
+            customButtonHoldColor: .secondary.opacity(0.7),
+            customButtonFillColor: Color.blue.opacity(0.12),
+            customButtonStrokeColor: .secondary.opacity(0.6),
+            gridFont: .system(size: 10, weight: .semibold, design: .monospaced),
+            gridHoldFont: .system(size: 8, weight: .semibold, design: .monospaced),
+            customButtonPrimaryFont: .system(size: 10, weight: .semibold, design: .monospaced),
+            customButtonHoldFont: .system(size: 8, weight: .semibold, design: .monospaced),
+            customButtonStrokeStyle: StrokeStyle(lineWidth: 1)
+        )
+
+        private static let snapshotGray = Color(.sRGB, red: 0.35, green: 0.35, blue: 0.35, opacity: 1)
+        static let snapshot = TrackpadStyling(
+            showGridHoldLabels: false,
+            showCustomButtonHoldLabels: false,
+            showCustomButtonLabels: false,
+            gridPrimaryColor: snapshotGray,
+            gridHoldColor: snapshotGray,
+            customButtonPrimaryColor: snapshotGray,
+            customButtonHoldColor: snapshotGray,
+            customButtonFillColor: nil,
+            customButtonStrokeColor: snapshotGray,
+            gridFont: .system(size: 14, weight: .semibold, design: .monospaced),
+            gridHoldFont: .system(size: 10, weight: .semibold, design: .monospaced),
+            customButtonPrimaryFont: .system(size: 14, weight: .semibold, design: .monospaced),
+            customButtonHoldFont: .system(size: 10, weight: .semibold, design: .monospaced),
+            customButtonStrokeStyle: StrokeStyle(lineWidth: 1, dash: [4, 4])
+        )
     }
 
     private static func drawKeyGrid(
@@ -2533,7 +2677,7 @@ struct ContentView: View {
         for row in keyRects {
             for rect in row {
                 let keyPath = Path(roundedRect: rect, cornerRadius: Self.keyCornerRadius)
-                context.stroke(keyPath, with: .color(.secondary.opacity(0.6)), lineWidth: 1)
+                context.stroke(keyPath, with: .color(.black.opacity(0.9)), lineWidth: 1.8)
             }
         }
     }
@@ -2567,25 +2711,35 @@ struct ContentView: View {
     private static func drawCustomButtons(
         context: inout GraphicsContext,
         buttons: [CustomButton],
-        trackpadSize: CGSize
+        trackpadSize: CGSize,
+        showHoldLabels: Bool,
+        showLabels: Bool,
+        fillColor: Color?,
+        strokeColor: Color,
+        strokeStyle: StrokeStyle,
+        primaryFont: Font,
+        holdFont: Font,
+        primaryTextColor: Color,
+        holdTextColor: Color
     ) {
-        let primaryStyle = Font.system(size: 10, weight: .semibold, design: .monospaced)
-        let holdStyle = Font.system(size: 8, weight: .semibold, design: .monospaced)
         for button in buttons {
             let rect = button.rect.rect(in: trackpadSize)
             let buttonPath = Path(roundedRect: rect, cornerRadius: Self.keyCornerRadius)
-            context.fill(buttonPath, with: .color(Color.blue.opacity(0.12)))
-            context.stroke(buttonPath, with: .color(.secondary.opacity(0.6)), lineWidth: 1)
+            if let fillColor {
+                context.fill(buttonPath, with: .color(fillColor))
+            }
+            context.stroke(buttonPath, with: .color(strokeColor), style: strokeStyle)
             let center = CGPoint(x: rect.midX, y: rect.midY)
+            guard showLabels else { continue }
             let primaryText = Text(button.action.displayText)
-                .font(primaryStyle)
-                .foregroundColor(.secondary)
-            let primaryY = center.y - (button.hold != nil ? 4 : 0)
+                .font(primaryFont)
+                .foregroundColor(primaryTextColor)
+            let primaryY = center.y - (showHoldLabels && button.hold != nil ? 4 : 0)
             context.draw(primaryText, at: CGPoint(x: center.x, y: primaryY))
-            if let holdLabel = button.hold?.label {
+            if showHoldLabels, let holdLabel = button.hold?.label {
                 let holdText = Text(holdLabel)
-                    .font(holdStyle)
-                    .foregroundColor(.secondary.opacity(0.7))
+                    .font(holdFont)
+                    .foregroundColor(holdTextColor)
                 context.draw(holdText, at: CGPoint(x: center.x, y: center.y + 6))
             }
         }
@@ -2712,9 +2866,13 @@ struct ContentView: View {
     private static func drawGridLabels(
         context: inout GraphicsContext,
         keyRects: [[CGRect]],
-        labelInfo: [[GridLabel]]
+        labelInfo: [[GridLabel]],
+        showHoldLabels: Bool,
+        primaryFont: Font,
+        holdFont: Font,
+        primaryTextColor: Color,
+        holdTextColor: Color
     ) {
-        let textStyle = Font.system(size: 10, weight: .semibold, design: .monospaced)
 
         for row in 0..<keyRects.count {
             for col in 0..<keyRects[row].count {
@@ -2724,13 +2882,14 @@ struct ContentView: View {
                 let center = CGPoint(x: rect.midX, y: rect.midY)
                 let info = labelInfo[row][col]
                 let primaryText = Text(info.primary)
-                    .font(textStyle)
-                    .foregroundColor(.secondary)
-                context.draw(primaryText, at: CGPoint(x: center.x, y: center.y - 4))
-                if let holdLabel = info.hold {
+                    .font(primaryFont)
+                    .foregroundColor(primaryTextColor)
+                let primaryYOffset: CGFloat = showHoldLabels ? -4.0 : 0.0
+                context.draw(primaryText, at: CGPoint(x: center.x, y: center.y + primaryYOffset))
+                if showHoldLabels, let holdLabel = info.hold {
                     let holdText = Text(holdLabel)
-                        .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                        .foregroundColor(.secondary.opacity(0.7))
+                        .font(holdFont)
+                        .foregroundColor(holdTextColor)
                     context.draw(holdText, at: CGPoint(x: center.x, y: center.y + 6))
                 }
             }
@@ -2748,25 +2907,34 @@ struct ContentView: View {
         selectedButton: CustomButton?,
         touches: [OMSTouchData],
         trackpadSize: CGSize,
-        visualsEnabled: Bool
+        visualsEnabled: Bool,
+        styling: TrackpadStyling
     ) {
         withTranslatedContext(context: &context, origin: origin) { innerContext in
-            drawSensorGrid(
-                context: &innerContext,
-                size: trackpadSize,
-                columns: 30,
-                rows: 22
-            )
             drawKeyGrid(context: &innerContext, keyRects: layout.keyRects)
             drawCustomButtons(
                 context: &innerContext,
                 buttons: customButtons,
-                trackpadSize: trackpadSize
+                trackpadSize: trackpadSize,
+                showHoldLabels: styling.showCustomButtonHoldLabels,
+                showLabels: styling.showCustomButtonLabels,
+                fillColor: styling.customButtonFillColor,
+                strokeColor: styling.customButtonStrokeColor,
+                strokeStyle: styling.customButtonStrokeStyle,
+                primaryFont: styling.customButtonPrimaryFont,
+                holdFont: styling.customButtonHoldFont,
+                primaryTextColor: styling.customButtonPrimaryColor,
+                holdTextColor: styling.customButtonHoldColor
             )
             drawGridLabels(
                 context: &innerContext,
                 keyRects: layout.keyRects,
-                labelInfo: labelInfo
+                labelInfo: labelInfo,
+                showHoldLabels: styling.showGridHoldLabels,
+                primaryFont: styling.gridFont,
+                holdFont: styling.gridHoldFont,
+                primaryTextColor: styling.gridPrimaryColor,
+                holdTextColor: styling.gridHoldColor
             )
             drawKeySelection(
                 context: &innerContext,
