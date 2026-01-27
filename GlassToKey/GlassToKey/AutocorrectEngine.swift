@@ -15,6 +15,9 @@ final class AutocorrectEngine: @unchecked Sendable {
     private static let capacity = 2048
     private static let mask = capacity - 1
     private static let historyCapacity = 3
+    private static let maxContextCharacters = 280
+    private static let contextBoundaryCharacterSet: CharacterSet =
+        CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
 
     nonisolated(unsafe) private static var enabledFlag: Int32 = 0
     nonisolated(unsafe) private static var suppressionCount: Int64 = 0
@@ -31,6 +34,7 @@ final class AutocorrectEngine: @unchecked Sendable {
 
     private var wordBuffer: [UInt8] = []
     private var autocorrectBuffer: [UInt8] = []
+    private var contextBuffer: [UInt8] = []
     private var historyBuffers: [[UInt8]] = []
     private var historyHead = 0
     private var historyCount = 0
@@ -59,6 +63,7 @@ final class AutocorrectEngine: @unchecked Sendable {
         for index in 0..<historyBuffers.count {
             historyBuffers[index].reserveCapacity(maxWordLength)
         }
+        contextBuffer.reserveCapacity(Self.maxContextCharacters)
     }
 
     func setEnabled(_ enabled: Bool) {
@@ -71,6 +76,7 @@ final class AutocorrectEngine: @unchecked Sendable {
             queue.async { [weak self] in
                 self?.wordBuffer.removeAll(keepingCapacity: true)
                 self?.autocorrectBuffer.removeAll(keepingCapacity: true)
+                self?.contextBuffer.removeAll(keepingCapacity: true)
                 self?.resetHistory()
             }
         }
@@ -146,12 +152,16 @@ final class AutocorrectEngine: @unchecked Sendable {
             }
         case .boundary:
             if !wordBuffer.isEmpty {
+                let originalBytes = wordBuffer
+                var committedBytes = originalBytes
                 if autocorrectBuffer.count == wordBuffer.count,
                    let correctedBytes = attemptCorrection(bytes: autocorrectBuffer, boundaryEvent: event) {
+                    committedBytes = correctedBytes
                     pushHistory(bytes: correctedBytes)
                 } else {
                     pushHistoryFromCurrent()
                 }
+                commitWordToContext(committedBytes, boundaryEvent: event)
                 wordBuffer.removeAll(keepingCapacity: true)
                 autocorrectBuffer.removeAll(keepingCapacity: true)
             }
@@ -159,21 +169,24 @@ final class AutocorrectEngine: @unchecked Sendable {
             wordBuffer.removeAll(keepingCapacity: true)
             autocorrectBuffer.removeAll(keepingCapacity: true)
             resetHistory()
+            contextBuffer.removeAll(keepingCapacity: true)
         }
     }
 
     private func attemptCorrection(bytes: [UInt8], boundaryEvent: KeySemanticEvent) -> [UInt8]? {
         guard shouldConsiderWord(bytes) else { return nil }
         guard let word = String(bytes: bytes, encoding: .ascii) else { return nil }
-        let wordRange = NSRange(location: 0, length: word.utf16.count)
+        let fallbackRange = NSRange(location: 0, length: word.utf16.count)
+        let (contextString, wordRange) =
+            contextStringForCorrection(currentWordBytes: bytes) ?? (word, fallbackRange)
         let language = spellChecker.language(
             forWordRange: wordRange,
-            in: word,
+            in: contextString,
             orthography: nil
         ) ?? "en_US"
         guard let correction = spellChecker.correction(
             forWordRange: wordRange,
-            in: word,
+            in: contextString,
             language: language,
             inSpellDocumentWithTag: spellDocumentTag
         ) else {
@@ -198,6 +211,53 @@ final class AutocorrectEngine: @unchecked Sendable {
             replacement: correction
         )
         return correctionBytes
+    }
+
+    private func commitWordToContext(_ wordBytes: [UInt8], boundaryEvent: KeySemanticEvent) {
+        guard !wordBytes.isEmpty else { return }
+        contextBuffer.append(contentsOf: wordBytes)
+        appendBoundaryByte(for: boundaryEvent)
+        trimContextIfNeeded()
+    }
+
+    private func appendBoundaryByte(for boundaryEvent: KeySemanticEvent) {
+        let ascii = boundaryEvent.ascii
+        if ascii != 0 {
+            contextBuffer.append(ascii)
+            return
+        }
+        contextBuffer.append(UInt8(ascii: " "))
+    }
+
+    private func trimContextIfNeeded() {
+        let excess = contextBuffer.count - Self.maxContextCharacters
+        if excess > 0 {
+            contextBuffer.removeFirst(excess)
+        }
+    }
+
+    private func contextStringForCorrection(currentWordBytes: [UInt8]) -> (String, NSRange)? {
+        guard let currentWord = String(bytes: currentWordBytes, encoding: .ascii) else { return nil }
+        let prefix: String
+        if contextBuffer.isEmpty {
+            prefix = ""
+        } else {
+            guard let decoded = String(bytes: contextBuffer, encoding: .ascii) else { return nil }
+            prefix = decoded
+        }
+        var context = prefix
+        if !context.isEmpty, needsSeparatorBeforeAppending(to: context) {
+            context.append(" ")
+        }
+        let wordStart = context.utf16.count
+        context.append(currentWord)
+        let wordRange = NSRange(location: wordStart, length: currentWord.utf16.count)
+        return (context, wordRange)
+    }
+
+    private func needsSeparatorBeforeAppending(to prefix: String) -> Bool {
+        guard let lastScalar = prefix.unicodeScalars.last else { return false }
+        return !Self.contextBoundaryCharacterSet.contains(lastScalar)
     }
 
     private func shouldConsiderWord(_ bytes: [UInt8]) -> Bool {

@@ -1,4 +1,5 @@
 ## TODO
+- custom buttons still not saving
 
 # bettr auto complete: feed it my resurrection buffer for better results??
 
