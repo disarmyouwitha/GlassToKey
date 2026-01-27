@@ -1,7 +1,4 @@
 ## TODO
-- (Optional Install, CGEventFallback):
-- Use Karabiner-DriverKit-VirtualHIDDevice to send keys!
-###
 
 # bettr auto complete: feed it my resurrection buffer for better results??
 
