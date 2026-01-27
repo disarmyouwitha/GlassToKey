@@ -76,6 +76,11 @@ final class VirtualHIDKeyDispatcher: @unchecked Sendable, KeyDispatching {
             if let token, !token.isActive {
                 return
             }
+            AutocorrectEngine.shared.recordDispatchedKey(
+                code: code,
+                flags: flags,
+                keyDown: true
+            )
             client.sendKeyStroke(
                 code: code,
                 flags: flags
@@ -91,6 +96,13 @@ final class VirtualHIDKeyDispatcher: @unchecked Sendable, KeyDispatching {
         queue.async { [self] in
             if let token, !token.isActive {
                 return
+            }
+            if keyDown {
+                AutocorrectEngine.shared.recordDispatchedKey(
+                    code: code,
+                    flags: flags,
+                    keyDown: true
+                )
             }
             client.sendKey(
                 code: code,
