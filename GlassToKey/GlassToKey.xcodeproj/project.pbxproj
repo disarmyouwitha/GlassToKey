@@ -19,6 +19,7 @@
 		77292A9B2B931D7A001CA3F6 /* OpenMultitouchSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 77292A9A2B931D7A001CA3F6 /* OpenMultitouchSupport */; };
 		A1B2C3D4E5F6A7B8C9D0E1F4 /* GlassToKeyController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B8C9D0E1F2 /* GlassToKeyController.swift */; };
 		D1E2F3A4B5C6D7E8F9012346 /* TrackpadLayoutPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C6D7E8F9012345 /* TrackpadLayoutPreset.swift */; };
+		3C193E5CB3384DBB97B4BD76 /* MobileLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D5BB43B585451E9D83C8ED /* MobileLayout.swift */; };
 		A1B2C3D4E5F6A7B8C9D0E1F5 /* GlassToKeyDefaultsKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B8C9D0E1F3 /* GlassToKeyDefaultsKeys.swift */; };
 		B5E3C9A51F3B7D2200A1B2C3 /* TapTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5E3C9A41F3B7D2200A1B2C3 /* TapTrace.swift */; };
 /* End PBXBuildFile section */
@@ -33,6 +34,7 @@
 		77292A872B931953001CA3F6 /* GlassToKeyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassToKeyApp.swift; sourceTree = "<group>"; };
 		77292A892B931953001CA3F6 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		D1E2F3A4B5C6D7E8F9012345 /* TrackpadLayoutPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackpadLayoutPreset.swift; sourceTree = "<group>"; };
+		21D5BB43B585451E9D83C8ED /* MobileLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileLayout.swift; sourceTree = "<group>"; };
 		77292A8B2B931954001CA3F6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		77292A962B931C84001CA3F6 /* OpenMultitouchSupport */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = OpenMultitouchSupport; path = ..; sourceTree = "<group>"; };
 		77292A972B931D60001CA3F6 /* ContentViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewModel.swift; sourceTree = "<group>"; };
@@ -82,6 +84,7 @@
 				5A1C2D3E4F5061728394A5B7 /* AccessibilityTextReplacer.swift */,
 				5A1C2D3E4F5061728394A5B9 /* KeySemanticMapper.swift */,
 				D1E2F3A4B5C6D7E8F9012345 /* TrackpadLayoutPreset.swift */,
+				21D5BB43B585451E9D83C8ED /* MobileLayout.swift */,
 				77292A972B931D60001CA3F6 /* ContentViewModel.swift */,
 				B5E3C9A41F3B7D2200A1B2C3 /* TapTrace.swift */,
 				E0B1C2D3E4F5678901234567 /* KeyEventDispatcher.swift */,
@@ -179,6 +182,7 @@
 				E0B1C2D3E4F5678901234568 /* KeyEventDispatcher.swift in Sources */,
 				5A1C2D3E4F5061728394A5BA /* KeySemanticMapper.swift in Sources */,
 				D1E2F3A4B5C6D7E8F9012346 /* TrackpadLayoutPreset.swift in Sources */,
+				3C193E5CB3384DBB97B4BD76 /* MobileLayout.swift in Sources */,
 				31AB052C2F14DA2600EEE33E /* ColumnLayoutSettings.swift in Sources */,
 				A1B2C3D4E5F6A7B8C9D0E1F5 /* GlassToKeyDefaultsKeys.swift in Sources */,
 				B5E3C9A51F3B7D2200A1B2C3 /* TapTrace.swift in Sources */,
