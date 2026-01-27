@@ -2592,7 +2592,7 @@ struct ContentView: View {
             trackpadSize: trackpadSize,
             layout: layout,
             labelInfo: labelInfo,
-            customButtons: [],
+            customButtons: customButtons(for: side),
             visualsEnabled: false,
             styling: .snapshot
         )
@@ -2624,6 +2624,7 @@ struct ContentView: View {
         let showCustomButtonLabels: Bool
         let gridPrimaryColor: Color
         let gridHoldColor: Color
+        let gridBorderColor: Color
         let customButtonPrimaryColor: Color
         let customButtonHoldColor: Color
         let customButtonFillColor: Color?
@@ -2640,6 +2641,7 @@ struct ContentView: View {
             showCustomButtonLabels: true,
             gridPrimaryColor: .secondary,
             gridHoldColor: .secondary.opacity(0.7),
+            gridBorderColor: .black.opacity(0.9),
             customButtonPrimaryColor: .secondary,
             customButtonHoldColor: .secondary.opacity(0.7),
             customButtonFillColor: Color.blue.opacity(0.12),
@@ -2658,6 +2660,7 @@ struct ContentView: View {
             showCustomButtonLabels: false,
             gridPrimaryColor: snapshotGray,
             gridHoldColor: snapshotGray,
+            gridBorderColor: snapshotGray,
             customButtonPrimaryColor: snapshotGray,
             customButtonHoldColor: snapshotGray,
             customButtonFillColor: nil,
@@ -2672,12 +2675,13 @@ struct ContentView: View {
 
     private static func drawKeyGrid(
         context: inout GraphicsContext,
-        keyRects: [[CGRect]]
+        keyRects: [[CGRect]],
+        strokeColor: Color
     ) {
         for row in keyRects {
             for rect in row {
                 let keyPath = Path(roundedRect: rect, cornerRadius: Self.keyCornerRadius)
-                context.stroke(keyPath, with: .color(.black.opacity(0.9)), lineWidth: 1.8)
+                context.stroke(keyPath, with: .color(strokeColor), lineWidth: 1.8)
             }
         }
     }
@@ -2911,7 +2915,11 @@ struct ContentView: View {
         styling: TrackpadStyling
     ) {
         withTranslatedContext(context: &context, origin: origin) { innerContext in
-            drawKeyGrid(context: &innerContext, keyRects: layout.keyRects)
+            drawKeyGrid(
+                context: &innerContext,
+                keyRects: layout.keyRects,
+                strokeColor: styling.gridPrimaryColor
+            )
             drawCustomButtons(
                 context: &innerContext,
                 buttons: customButtons,
