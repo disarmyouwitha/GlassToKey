@@ -1984,7 +1984,7 @@ struct ContentView: View {
                 let backgroundRect = CGRect(origin: .zero, size: size)
                 context.fill(
                     Path(backgroundRect),
-                    with: .color(.white)
+                    with: .color(.clear)
                 )
                 ContentView.drawTrackpadContents(
                     context: &context,
