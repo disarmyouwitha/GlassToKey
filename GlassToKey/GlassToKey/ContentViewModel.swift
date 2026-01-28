@@ -2606,6 +2606,9 @@ final class ContentViewModel: ObservableObject {
             var maxDistanceSquared: CGFloat = 0
             var sumX: CGFloat = 0
             var sumY: CGFloat = 0
+            var gestureContactCount = 0
+            var gestureSumX: CGFloat = 0
+            var gestureSumY: CGFloat = 0
             var firstOnKeyTouchKey: TouchKey?
             var currentKeys = TouchTable<Bool>(minimumCapacity: leftTouches.count + rightTouches.count)
             var hasKeyboardAnchor = false
@@ -2614,20 +2617,31 @@ final class ContentViewModel: ObservableObject {
             let staggerWindow = max(intentConfig.keyBufferSeconds, contactCountHoldDuration)
 
             func process(_ touch: OMSTouchData, side: TrackpadSide, bindings: BindingIndex) {
-                guard Self.isIntentContactState(touch.state) else { return }
+                let isChordState = Self.isChordShiftContactState(touch.state)
+                let isIntentState = Self.isIntentContactState(touch.state)
+                guard isChordState || isIntentState else { return }
                 let touchKey = Self.makeTouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
-                if momentaryLayerTouches.value(for: touchKey) != nil {
-                    hasKeyboardAnchor = true
-                    return
-                }
-                currentKeys.set(touchKey, true)
-                contactCount += 1
                 let point = CGPoint(
                     x: CGFloat(touch.position.x) * trackpadSize.width,
                     y: CGFloat(1.0 - touch.position.y) * trackpadSize.height
                 )
+                if isChordState {
+                    gestureContactCount += 1
+                    gestureSumX += point.x
+                    gestureSumY += point.y
+                }
+                if !isIntentState {
+                    return
+                }
+                let isMomentaryLayerTouch = momentaryLayerTouches.value(for: touchKey) != nil
+                if isMomentaryLayerTouch {
+                    hasKeyboardAnchor = true
+                    return
+                }
+                contactCount += 1
                 sumX += point.x
                 sumY += point.y
+                currentKeys.set(touchKey, true)
 
                 let binding = binding(at: point, index: bindings)
                 if binding != nil {
@@ -2749,9 +2763,12 @@ final class ContentViewModel: ObservableObject {
             let centroid: CGPoint? = contactCount > 0
                 ? CGPoint(x: sumX / CGFloat(contactCount), y: sumY / CGFloat(contactCount))
                 : nil
+            let gestureCentroid: CGPoint? = gestureContactCount > 0
+                ? CGPoint(x: gestureSumX / CGFloat(gestureContactCount), y: gestureSumY / CGFloat(gestureContactCount))
+                : nil
             updateFiveFingerSwipe(
-                contactCount: contactCount,
-                centroid: centroid,
+                contactCount: gestureContactCount,
+                centroid: gestureCentroid,
                 now: now,
                 unitsPerMm: unitsPerMm
             )
@@ -2774,6 +2791,10 @@ final class ContentViewModel: ObservableObject {
             let wasTwoFingerTapDetected = twoFingerTapDetected
             guard contactCount > 0 else {
                 state.touches.removeAll()
+                if gestureContactCount == 0, !momentaryLayerTouches.isEmpty {
+                    momentaryLayerTouches.removeAll()
+                    updateActiveLayer()
+                }
                 if threeFingerTapDetected {
                     keyDispatcher.postRightClick()
                 } else if wasTwoFingerTapDetected {
