@@ -132,8 +132,7 @@ final class GlassToKeyController: ObservableObject {
     private func loadCustomButtons(for layout: TrackpadLayoutPreset) -> [CustomButton] {
         let defaults = UserDefaults.standard
         if let data = defaults.data(forKey: GlassToKeyDefaultsKeys.customButtons) {
-            if let stored = LayoutCustomButtonStorage.settings(for: layout, from: data),
-               !stored.isEmpty {
+            if let stored = LayoutCustomButtonStorage.buttons(for: layout, from: data) {
                 return stored
             }
             if let decoded = CustomButtonStore.decode(data),

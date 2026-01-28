@@ -2396,8 +2396,7 @@ struct ContentView: View {
     }
 
     private func loadCustomButtons(for layout: TrackpadLayoutPreset) -> [CustomButton] {
-        if let stored = LayoutCustomButtonStorage.settings(for: layout, from: storedCustomButtonsData),
-           !stored.isEmpty {
+        if let stored = LayoutCustomButtonStorage.buttons(for: layout, from: storedCustomButtonsData) {
             return stored
         }
         if let decoded = CustomButtonStore.decode(storedCustomButtonsData),
@@ -2421,6 +2420,9 @@ struct ContentView: View {
         let updated = LayoutCustomButtonStorage.layeredButtons(from: buttons)
         for (layer, layerButtons) in updated {
             layered[layer] = layerButtons
+        }
+        if updated[viewModel.activeLayer] == nil {
+            layered[viewModel.activeLayer] = []
         }
         map[layoutOption.rawValue] = layered
         if let encoded = LayoutCustomButtonStorage.encode(map) {

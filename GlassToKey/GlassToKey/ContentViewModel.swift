@@ -4151,12 +4151,13 @@ enum LayoutCustomButtonStorage {
         return nil
     }
 
-    static func settings(
+    static func buttons(
         for layout: TrackpadLayoutPreset,
         from data: Data
     ) -> [CustomButton]? {
         guard let map = decode(from: data) else { return nil }
-        return allButtons(from: map[layout.rawValue])
+        guard let layered = map[layout.rawValue] else { return nil }
+        return allButtons(from: layered) ?? []
     }
 
     static func encode(_ map: [String: [Int: [CustomButton]]]) -> Data? {
