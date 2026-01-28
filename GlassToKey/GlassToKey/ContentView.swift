@@ -2417,7 +2417,12 @@ struct ContentView: View {
 
     private func saveCustomButtons(_ buttons: [CustomButton]) {
         var map = LayoutCustomButtonStorage.decode(from: storedCustomButtonsData) ?? [:]
-        map[layoutOption.rawValue] = buttons
+        var layered = map[layoutOption.rawValue] ?? [:]
+        let updated = LayoutCustomButtonStorage.layeredButtons(from: buttons)
+        for (layer, layerButtons) in updated {
+            layered[layer] = layerButtons
+        }
+        map[layoutOption.rawValue] = layered
         if let encoded = LayoutCustomButtonStorage.encode(map) {
             storedCustomButtonsData = encoded
         } else {

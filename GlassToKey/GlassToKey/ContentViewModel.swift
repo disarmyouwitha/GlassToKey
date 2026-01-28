@@ -4137,13 +4137,16 @@ enum LayoutCustomButtonStorage {
     private static let decoder = JSONDecoder()
     private static let encoder = JSONEncoder()
 
-    static func decode(from data: Data) -> [String: [CustomButton]]? {
+    static func decode(from data: Data) -> [String: [Int: [CustomButton]]]? {
         guard !data.isEmpty else { return nil }
-        if let map = try? decoder.decode([String: [CustomButton]].self, from: data) {
+        if let map = try? decoder.decode([String: [Int: [CustomButton]]].self, from: data) {
             return map
         }
+        if let map = try? decoder.decode([String: [CustomButton]].self, from: data) {
+            return map.mapValues { layeredButtons(from: $0) }
+        }
         if let legacy = try? decoder.decode([CustomButton].self, from: data) {
-            return [TrackpadLayoutPreset.sixByThree.rawValue: legacy]
+            return [TrackpadLayoutPreset.sixByThree.rawValue: layeredButtons(from: legacy)]
         }
         return nil
     }
@@ -4153,12 +4156,25 @@ enum LayoutCustomButtonStorage {
         from data: Data
     ) -> [CustomButton]? {
         guard let map = decode(from: data) else { return nil }
-        return map[layout.rawValue]
+        return allButtons(from: map[layout.rawValue])
     }
 
-    static func encode(_ map: [String: [CustomButton]]) -> Data? {
+    static func encode(_ map: [String: [Int: [CustomButton]]]) -> Data? {
         guard !map.isEmpty else { return nil }
         return try? encoder.encode(map)
+    }
+
+    static func layeredButtons(from buttons: [CustomButton]) -> [Int: [CustomButton]] {
+        var layered: [Int: [CustomButton]] = [:]
+        for button in buttons {
+            layered[button.layer, default: []].append(button)
+        }
+        return layered
+    }
+
+    private static func allButtons(from map: [Int: [CustomButton]]?) -> [CustomButton]? {
+        guard let map, !map.isEmpty else { return nil }
+        return map.values.flatMap { $0 }
     }
 }
 
