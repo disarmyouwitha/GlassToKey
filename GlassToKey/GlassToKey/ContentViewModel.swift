@@ -1326,6 +1326,15 @@ final class ContentViewModel: ObservableObject {
         }
         private var twoFingerTapCandidate: TapCandidate?
         private var threeFingerTapCandidate: TapCandidate?
+        private struct FiveFingerSwipeState {
+            var active: Bool = false
+            var triggered: Bool = false
+            var startTime: TimeInterval = 0
+            var startX: CGFloat = 0
+            var startY: CGFloat = 0
+        }
+        private var fiveFingerSwipeState = FiveFingerSwipeState()
+        private let fiveFingerSwipeThresholdMm: CGFloat = 8.0
         private struct ChordShiftState {
             var active: Bool = false
         }
@@ -2572,7 +2581,8 @@ final class ContentViewModel: ObservableObject {
                 rightBindings: rightBindings,
                 now: now,
                 moveThresholdSquared: moveThresholdSquared,
-                velocityThreshold: velocityThreshold
+                velocityThreshold: velocityThreshold,
+                unitsPerMm: unitsPerMm
             )
         }
 
@@ -2583,7 +2593,8 @@ final class ContentViewModel: ObservableObject {
             rightBindings: BindingIndex,
             now: TimeInterval,
             moveThresholdSquared: CGFloat,
-            velocityThreshold: CGFloat
+            velocityThreshold: CGFloat,
+            unitsPerMm: CGFloat
         ) -> Bool {
             var state = intentState
             let graceActive = isTypingGraceActive(now: now)
@@ -2738,6 +2749,12 @@ final class ContentViewModel: ObservableObject {
             let centroid: CGPoint? = contactCount > 0
                 ? CGPoint(x: sumX / CGFloat(contactCount), y: sumY / CGFloat(contactCount))
                 : nil
+            updateFiveFingerSwipe(
+                contactCount: contactCount,
+                centroid: centroid,
+                now: now,
+                unitsPerMm: unitsPerMm
+            )
             let previousContactCount = state.lastContactCount
             let secondFingerAppeared = contactCount > 1 && contactCount > previousContactCount
             let anyOnKey = onKeyCount > 0
@@ -2959,6 +2976,43 @@ final class ContentViewModel: ObservableObject {
                 disqualifyTouch(touchKey, reason: .intentMouse)
                 toggleTouchStarts.remove(touchKey)
                 layerToggleTouchStarts.remove(touchKey)
+            }
+        }
+
+        private func updateFiveFingerSwipe(
+            contactCount: Int,
+            centroid: CGPoint?,
+            now: TimeInterval,
+            unitsPerMm: CGFloat
+        ) {
+            guard contactCount >= 5, let centroid else {
+                if fiveFingerSwipeState.active || fiveFingerSwipeState.triggered {
+                    fiveFingerSwipeState = FiveFingerSwipeState()
+                }
+                return
+            }
+            var state = fiveFingerSwipeState
+            if !state.active {
+                state.active = true
+                state.triggered = false
+                state.startTime = now
+                state.startX = centroid.x
+                state.startY = centroid.y
+                fiveFingerSwipeState = state
+                return
+            }
+            if state.triggered {
+                return
+            }
+            let dx = centroid.x - state.startX
+            let dy = centroid.y - state.startY
+            let threshold = fiveFingerSwipeThresholdMm * unitsPerMm
+            if abs(dx) >= threshold, abs(dx) >= abs(dy) {
+                state.triggered = true
+                fiveFingerSwipeState = state
+                toggleTypingMode()
+            } else {
+                fiveFingerSwipeState = state
             }
         }
 
