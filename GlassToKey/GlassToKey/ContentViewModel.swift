@@ -5,6 +5,7 @@
 //  Created by Takuto Nakamura on 2024/03/02.
 //
 
+import AppKit
 import Carbon
 import CoreGraphics
 import Darwin
@@ -1239,7 +1240,17 @@ final class ContentViewModel: ObservableObject {
             let snapRadiusSq: [Float]
         }
 
+        private struct SnapCandidate {
+            let index: Int
+            let binding: KeyBinding
+            let distanceSq: Float
+            var weight: Double
+            let ascii: UInt8
+            let isText: Bool
+        }
+
         private let keyDispatcher: KeyEventDispatcher
+        private let spellingDisambiguator: EnglishSpellingDisambiguator
         private let onTypingEnabledChanged: @Sendable (Bool) -> Void
         private let onActiveLayerChanged: @Sendable (Int) -> Void
         private let onDebugBindingDetected: @Sendable (KeyBinding) -> Void
@@ -1275,6 +1286,11 @@ final class ContentViewModel: ObservableObject {
         private var dragCancelDistance: CGFloat = 2.5
         private var forceClickCap: Float = 0
         private var snapRadiusFraction: Float = 0.35
+        private let snapCandidateRadiusScale: Float = 1.15
+        private let snapAmbiguityEpsilonFraction: Float = 0.15
+        private let snapGaussianSigmaScaleSq: Float = 0.5
+        private let snapCandidateLimit = 5
+        private var snapCandidateBuffer: [SnapCandidate] = []
 #if DEBUG
         nonisolated(unsafe) private static var snapAttemptCount: Int64 = 0
         nonisolated(unsafe) private static var snapAcceptedCount: Int64 = 0
@@ -1364,6 +1380,10 @@ final class ContentViewModel: ObservableObject {
             onIntentStateChanged: @Sendable @escaping (SidePair<IntentDisplay>) -> Void
         ) {
             self.keyDispatcher = keyDispatcher
+            self.spellingDisambiguator = EnglishSpellingDisambiguator(
+                spellChecker: NSSpellChecker.shared,
+                spellDocumentTag: NSSpellChecker.uniqueSpellDocumentTag()
+            )
             self.onTypingEnabledChanged = onTypingEnabledChanged
             self.onActiveLayerChanged = onActiveLayerChanged
             self.onDebugBindingDetected = onDebugBindingDetected
@@ -2399,25 +2419,166 @@ final class ContentViewModel: ObservableObject {
             }
         }
 
+        private struct SnapNearestResult {
+            let bestIndex: Int
+            let bestDistanceSq: Float
+            let secondIndex: Int
+            let secondDistanceSq: Float
+        }
+
         @inline(__always)
-        private func nearestSnapIndex(to point: CGPoint, in bindings: BindingIndex) -> (Int, Float)? {
+        private func nearestSnapIndex(to point: CGPoint, in bindings: BindingIndex) -> SnapNearestResult? {
             let count = bindings.snapCentersX.count
             guard count > 0 else { return nil }
             let px = Float(point.x)
             let py = Float(point.y)
             var bestIndex = -1
+            var secondIndex = -1
             var bestDistance = Float.greatestFiniteMagnitude
+            var secondDistance = Float.greatestFiniteMagnitude
             for index in 0..<count {
                 let dx = px - bindings.snapCentersX[index]
                 let dy = py - bindings.snapCentersY[index]
                 let distance = dx * dx + dy * dy
                 if distance < bestDistance {
+                    secondDistance = bestDistance
+                    secondIndex = bestIndex
                     bestDistance = distance
                     bestIndex = index
+                } else if distance < secondDistance {
+                    secondDistance = distance
+                    secondIndex = index
                 }
             }
             guard bestIndex >= 0 else { return nil }
-            return (bestIndex, bestDistance)
+            return SnapNearestResult(
+                bestIndex: bestIndex,
+                bestDistanceSq: bestDistance,
+                secondIndex: secondIndex,
+                secondDistanceSq: secondDistance
+            )
+        }
+
+        private func resolveSnapBinding(
+            nearest: SnapNearestResult,
+            point: CGPoint,
+            bindings: BindingIndex
+        ) -> KeyBinding? {
+            let bestIndex = nearest.bestIndex
+            let bestBinding = bindings.snapBindings[bestIndex]
+            guard case .key = bestBinding.action else { return nil }
+
+            snapCandidateBuffer.removeAll(keepingCapacity: true)
+            let count = bindings.snapCentersX.count
+            let px = Float(point.x)
+            let py = Float(point.y)
+            let radiusScaleSq = snapCandidateRadiusScale * snapCandidateRadiusScale
+
+            let combinedFlags = currentModifierFlags()
+            let timestamp = Self.nowUptimeNanoseconds()
+            for index in 0..<count {
+                let dx = px - bindings.snapCentersX[index]
+                let dy = py - bindings.snapCentersY[index]
+                let distanceSq = dx * dx + dy * dy
+                let thresholdSq = bindings.snapRadiusSq[index] * radiusScaleSq
+                guard distanceSq <= thresholdSq else { continue }
+                let binding = bindings.snapBindings[index]
+                guard case let .key(code, flags) = binding.action else { continue }
+                let event = KeySemanticMapper.semanticEvent(
+                    code: code,
+                    flags: flags.union(combinedFlags),
+                    timestampNs: timestamp
+                )
+                let ascii = event?.ascii ?? 0
+                let isText = event?.kind == .text
+                snapCandidateBuffer.append(
+                    SnapCandidate(
+                        index: index,
+                        binding: binding,
+                        distanceSq: distanceSq,
+                        weight: 0,
+                        ascii: ascii,
+                        isText: isText
+                    )
+                )
+            }
+
+            if snapCandidateBuffer.isEmpty {
+                return bestBinding
+            }
+
+            if nearest.secondIndex >= 0 {
+                let bestDistance = sqrtf(nearest.bestDistanceSq)
+                let secondDistance = sqrtf(nearest.secondDistanceSq)
+                let epsilon = bestDistance * snapAmbiguityEpsilonFraction
+                if secondDistance - bestDistance <= epsilon {
+                    let secondIndex = nearest.secondIndex
+                    if !snapCandidateBuffer.contains(where: { $0.index == secondIndex }) {
+                        let binding = bindings.snapBindings[secondIndex]
+                        if case let .key(code, flags) = binding.action {
+                            let event = KeySemanticMapper.semanticEvent(
+                                code: code,
+                                flags: flags.union(combinedFlags),
+                                timestampNs: timestamp
+                            )
+                            let ascii = event?.ascii ?? 0
+                            let isText = event?.kind == .text
+                            snapCandidateBuffer.append(
+                                SnapCandidate(
+                                    index: secondIndex,
+                                    binding: binding,
+                                    distanceSq: nearest.secondDistanceSq,
+                                    weight: 0,
+                                    ascii: ascii,
+                                    isText: isText
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            snapCandidateBuffer.sort { $0.distanceSq < $1.distanceSq }
+            if snapCandidateBuffer.count > snapCandidateLimit {
+                snapCandidateBuffer.removeSubrange(snapCandidateLimit..<snapCandidateBuffer.count)
+            }
+
+            var totalWeight = 0.0
+            for index in snapCandidateBuffer.indices {
+                let radiusSq = max(bindings.snapRadiusSq[snapCandidateBuffer[index].index], 0.0001)
+                let sigmaSq = Double(radiusSq * snapGaussianSigmaScaleSq)
+                let weight = exp(-Double(snapCandidateBuffer[index].distanceSq) / (2.0 * sigmaSq))
+                snapCandidateBuffer[index].weight = weight
+                totalWeight += weight
+            }
+
+            if totalWeight > 0 {
+                for index in snapCandidateBuffer.indices {
+                    snapCandidateBuffer[index].weight /= totalWeight
+                }
+            }
+
+            let textCandidates = snapCandidateBuffer.filter { $0.isText && $0.ascii > 0 }
+            if snapCandidateBuffer.first?.isText == true, textCandidates.count >= 2 {
+                let keyCandidates = textCandidates.map {
+                    KeyCandidate(ascii: $0.ascii, geometricWeight: $0.weight)
+                }
+                let chosenAscii = spellingDisambiguator.resolve(
+                    resolution: .ambiguous(keyCandidates),
+                    currentToken: []
+                )
+                var bestMatch: SnapCandidate?
+                for candidate in textCandidates where candidate.ascii == chosenAscii {
+                    if bestMatch == nil || candidate.weight > bestMatch!.weight {
+                        bestMatch = candidate
+                    }
+                }
+                if let bestMatch {
+                    return bestMatch.binding
+                }
+            }
+
+            return snapCandidateBuffer.first?.binding ?? bestBinding
         }
 
         private func dispatchSnappedBinding(_ binding: KeyBinding, touchKey: TouchKey) {
@@ -2448,14 +2609,25 @@ final class ContentViewModel: ObservableObject {
             #if DEBUG
             OSAtomicIncrement64Barrier(&Self.snapAttemptCount)
             #endif
-            guard let (index, distanceSq) = nearestSnapIndex(to: point, in: bindings) else {
+            guard let nearest = nearestSnapIndex(to: point, in: bindings) else {
                 #if DEBUG
                 OSAtomicIncrement64Barrier(&Self.snapRejectedCount)
                 #endif
                 return false
             }
-            if distanceSq <= bindings.snapRadiusSq[index] {
-                let binding = bindings.snapBindings[index]
+            let bestIndex = nearest.bestIndex
+            if nearest.bestDistanceSq <= bindings.snapRadiusSq[bestIndex] {
+                let binding = resolveSnapBinding(
+                    nearest: nearest,
+                    point: point,
+                    bindings: bindings
+                )
+                guard let binding else {
+                    #if DEBUG
+                    OSAtomicIncrement64Barrier(&Self.snapRejectedCount)
+                    #endif
+                    return false
+                }
                 dispatchSnappedBinding(binding, touchKey: touchKey)
                 // Prevent duplicate snap dispatch on subsequent release states.
                 disqualifiedTouches.set(touchKey, true)
@@ -3284,6 +3456,7 @@ final class ContentViewModel: ObservableObject {
 
         private func sendKey(code: CGKeyCode, flags: CGEventFlags, side: TrackpadSide?) {
             let combinedFlags = flags.union(currentModifierFlags())
+            updateSpellingDisambiguator(code: code, flags: combinedFlags)
             keyDispatcher.postKeyStroke(code: code, flags: combinedFlags)
         }
 
@@ -3321,6 +3494,26 @@ final class ContentViewModel: ObservableObject {
             }
             #endif
             sendKey(code: code, flags: flags, side: binding.side)
+        }
+
+        private func updateSpellingDisambiguator(code: CGKeyCode, flags: CGEventFlags) {
+            guard let event = KeySemanticMapper.semanticEvent(
+                code: code,
+                flags: flags,
+                timestampNs: Self.nowUptimeNanoseconds()
+            ) else {
+                return
+            }
+            switch event.kind {
+            case .text:
+                spellingDisambiguator.onCommittedChar(event.ascii)
+            case .boundary:
+                spellingDisambiguator.onBoundary()
+            case .backspace:
+                spellingDisambiguator.onBackspace()
+            case .nonText:
+                spellingDisambiguator.onBoundary()
+            }
         }
 
         private func playHapticIfNeeded(on side: TrackpadSide?, touchKey: TouchKey? = nil) {
@@ -3414,6 +3607,7 @@ final class ContentViewModel: ObservableObject {
                     continue
                 }
                 if entry.nextFire <= now {
+                    updateSpellingDisambiguator(code: entry.code, flags: entry.flags)
                     keyDispatcher.postKeyStroke(code: entry.code, flags: entry.flags, token: entry.token)
                     var next = entry.nextFire
                     while next <= now {
