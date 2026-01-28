@@ -1326,6 +1326,15 @@ final class ContentViewModel: ObservableObject {
         }
         private var twoFingerTapCandidate: TapCandidate?
         private var threeFingerTapCandidate: TapCandidate?
+        private struct FiveFingerSwipeState {
+            var active: Bool = false
+            var triggered: Bool = false
+            var startTime: TimeInterval = 0
+            var startX: CGFloat = 0
+            var startY: CGFloat = 0
+        }
+        private var fiveFingerSwipeState = FiveFingerSwipeState()
+        private let fiveFingerSwipeThresholdMm: CGFloat = 8.0
         private struct ChordShiftState {
             var active: Bool = false
         }
@@ -2572,7 +2581,8 @@ final class ContentViewModel: ObservableObject {
                 rightBindings: rightBindings,
                 now: now,
                 moveThresholdSquared: moveThresholdSquared,
-                velocityThreshold: velocityThreshold
+                velocityThreshold: velocityThreshold,
+                unitsPerMm: unitsPerMm
             )
         }
 
@@ -2583,7 +2593,8 @@ final class ContentViewModel: ObservableObject {
             rightBindings: BindingIndex,
             now: TimeInterval,
             moveThresholdSquared: CGFloat,
-            velocityThreshold: CGFloat
+            velocityThreshold: CGFloat,
+            unitsPerMm: CGFloat
         ) -> Bool {
             var state = intentState
             let graceActive = isTypingGraceActive(now: now)
@@ -2595,6 +2606,9 @@ final class ContentViewModel: ObservableObject {
             var maxDistanceSquared: CGFloat = 0
             var sumX: CGFloat = 0
             var sumY: CGFloat = 0
+            var gestureContactCount = 0
+            var gestureSumX: CGFloat = 0
+            var gestureSumY: CGFloat = 0
             var firstOnKeyTouchKey: TouchKey?
             var currentKeys = TouchTable<Bool>(minimumCapacity: leftTouches.count + rightTouches.count)
             var hasKeyboardAnchor = false
@@ -2603,20 +2617,31 @@ final class ContentViewModel: ObservableObject {
             let staggerWindow = max(intentConfig.keyBufferSeconds, contactCountHoldDuration)
 
             func process(_ touch: OMSTouchData, side: TrackpadSide, bindings: BindingIndex) {
-                guard Self.isIntentContactState(touch.state) else { return }
+                let isChordState = Self.isChordShiftContactState(touch.state)
+                let isIntentState = Self.isIntentContactState(touch.state)
+                guard isChordState || isIntentState else { return }
                 let touchKey = Self.makeTouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
-                if momentaryLayerTouches.value(for: touchKey) != nil {
-                    hasKeyboardAnchor = true
-                    return
-                }
-                currentKeys.set(touchKey, true)
-                contactCount += 1
                 let point = CGPoint(
                     x: CGFloat(touch.position.x) * trackpadSize.width,
                     y: CGFloat(1.0 - touch.position.y) * trackpadSize.height
                 )
+                if isChordState {
+                    gestureContactCount += 1
+                    gestureSumX += point.x
+                    gestureSumY += point.y
+                }
+                if !isIntentState {
+                    return
+                }
+                let isMomentaryLayerTouch = momentaryLayerTouches.value(for: touchKey) != nil
+                if isMomentaryLayerTouch {
+                    hasKeyboardAnchor = true
+                    return
+                }
+                contactCount += 1
                 sumX += point.x
                 sumY += point.y
+                currentKeys.set(touchKey, true)
 
                 let binding = binding(at: point, index: bindings)
                 if binding != nil {
@@ -2738,6 +2763,15 @@ final class ContentViewModel: ObservableObject {
             let centroid: CGPoint? = contactCount > 0
                 ? CGPoint(x: sumX / CGFloat(contactCount), y: sumY / CGFloat(contactCount))
                 : nil
+            let gestureCentroid: CGPoint? = gestureContactCount > 0
+                ? CGPoint(x: gestureSumX / CGFloat(gestureContactCount), y: gestureSumY / CGFloat(gestureContactCount))
+                : nil
+            updateFiveFingerSwipe(
+                contactCount: gestureContactCount,
+                centroid: gestureCentroid,
+                now: now,
+                unitsPerMm: unitsPerMm
+            )
             let previousContactCount = state.lastContactCount
             let secondFingerAppeared = contactCount > 1 && contactCount > previousContactCount
             let anyOnKey = onKeyCount > 0
@@ -2757,6 +2791,10 @@ final class ContentViewModel: ObservableObject {
             let wasTwoFingerTapDetected = twoFingerTapDetected
             guard contactCount > 0 else {
                 state.touches.removeAll()
+                if gestureContactCount == 0, !momentaryLayerTouches.isEmpty {
+                    momentaryLayerTouches.removeAll()
+                    updateActiveLayer()
+                }
                 if threeFingerTapDetected {
                     keyDispatcher.postRightClick()
                 } else if wasTwoFingerTapDetected {
@@ -2959,6 +2997,43 @@ final class ContentViewModel: ObservableObject {
                 disqualifyTouch(touchKey, reason: .intentMouse)
                 toggleTouchStarts.remove(touchKey)
                 layerToggleTouchStarts.remove(touchKey)
+            }
+        }
+
+        private func updateFiveFingerSwipe(
+            contactCount: Int,
+            centroid: CGPoint?,
+            now: TimeInterval,
+            unitsPerMm: CGFloat
+        ) {
+            guard contactCount >= 5, let centroid else {
+                if fiveFingerSwipeState.active || fiveFingerSwipeState.triggered {
+                    fiveFingerSwipeState = FiveFingerSwipeState()
+                }
+                return
+            }
+            var state = fiveFingerSwipeState
+            if !state.active {
+                state.active = true
+                state.triggered = false
+                state.startTime = now
+                state.startX = centroid.x
+                state.startY = centroid.y
+                fiveFingerSwipeState = state
+                return
+            }
+            if state.triggered {
+                return
+            }
+            let dx = centroid.x - state.startX
+            let dy = centroid.y - state.startY
+            let threshold = fiveFingerSwipeThresholdMm * unitsPerMm
+            if abs(dx) >= threshold, abs(dx) >= abs(dy) {
+                state.triggered = true
+                fiveFingerSwipeState = state
+                toggleTypingMode()
+            } else {
+                fiveFingerSwipeState = state
             }
         }
 
@@ -3984,9 +4059,6 @@ enum KeyActionKind: String, Codable {
         flags = try container.decode(UInt64.self, forKey: .flags)
         kind = try container.decodeIfPresent(KeyActionKind.self, forKey: .kind) ?? .key
         layer = try container.decodeIfPresent(Int.self, forKey: .layer)
-        if kind == .typingToggle, label == KeyActionCatalog.legacyTypingToggleLabel {
-            label = KeyActionCatalog.typingToggleLabel
-        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -4058,25 +4130,6 @@ struct CustomButton: Identifiable, Codable, Hashable {
     }
 }
 
-enum CustomButtonStore {
-    static func decode(_ data: Data) -> [CustomButton]? {
-        guard !data.isEmpty else { return nil }
-        do {
-            return try JSONDecoder().decode([CustomButton].self, from: data)
-        } catch {
-            return nil
-        }
-    }
-
-    static func encode(_ buttons: [CustomButton]) -> Data? {
-        do {
-            return try JSONEncoder().encode(buttons)
-        } catch {
-            return nil
-        }
-    }
-}
-
 enum CustomButtonDefaults {
     static func defaultButtons(
         trackpadWidth: CGFloat,
@@ -4137,35 +4190,42 @@ enum LayoutCustomButtonStorage {
     private static let decoder = JSONDecoder()
     private static let encoder = JSONEncoder()
 
-    static func decode(from data: Data) -> [String: [CustomButton]]? {
+    static func decode(from data: Data) -> [String: [Int: [CustomButton]]]? {
         guard !data.isEmpty else { return nil }
-        if let map = try? decoder.decode([String: [CustomButton]].self, from: data) {
-            return map
-        }
-        if let legacy = try? decoder.decode([CustomButton].self, from: data) {
-            return [TrackpadLayoutPreset.sixByThree.rawValue: legacy]
-        }
-        return nil
+        return try? decoder.decode([String: [Int: [CustomButton]]].self, from: data)
     }
 
-    static func settings(
+    static func buttons(
         for layout: TrackpadLayoutPreset,
         from data: Data
     ) -> [CustomButton]? {
         guard let map = decode(from: data) else { return nil }
-        return map[layout.rawValue]
+        guard let layered = map[layout.rawValue] else { return nil }
+        return allButtons(from: layered) ?? []
     }
 
-    static func encode(_ map: [String: [CustomButton]]) -> Data? {
+    static func encode(_ map: [String: [Int: [CustomButton]]]) -> Data? {
         guard !map.isEmpty else { return nil }
         return try? encoder.encode(map)
+    }
+
+    static func layeredButtons(from buttons: [CustomButton]) -> [Int: [CustomButton]] {
+        var layered: [Int: [CustomButton]] = [:]
+        for button in buttons {
+            layered[button.layer, default: []].append(button)
+        }
+        return layered
+    }
+
+    private static func allButtons(from map: [Int: [CustomButton]]?) -> [CustomButton]? {
+        guard let map, !map.isEmpty else { return nil }
+        return map.values.flatMap { $0 }
     }
 }
 
 enum KeyActionCatalog {
     static let typingToggleLabel = "Typing Toggle"
     static let typingToggleDisplayLabel = "Typing\nToggle"
-    static let legacyTypingToggleLabel = "Typing Mode Toggle"
     static let momentaryLayer1Label = "MO(1)"
     static let toggleLayer1Label = "TO(1)"
     static let noneLabel = "None"
@@ -4397,7 +4457,7 @@ enum KeyActionCatalog {
         if label == noneLabel {
             return noneAction
         }
-        if label == typingToggleLabel || label == legacyTypingToggleLabel {
+        if label == typingToggleLabel {
             return KeyAction(
                 label: typingToggleLabel,
                 keyCode: 0,
@@ -4476,13 +4536,7 @@ enum KeyActionCatalog {
 enum KeyActionMappingStore {
     static func decode(_ data: Data) -> LayeredKeyMappings? {
         guard !data.isEmpty else { return nil }
-        if let layered = try? JSONDecoder().decode(LayeredKeyMappings.self, from: data) {
-            return layered
-        }
-        if let legacy = try? JSONDecoder().decode([String: KeyMapping].self, from: data) {
-            return [0: legacy, 1: legacy]
-        }
-        return nil
+        return try? JSONDecoder().decode(LayeredKeyMappings.self, from: data)
     }
 
     static func decodeNormalized(_ data: Data) -> LayeredKeyMappings? {

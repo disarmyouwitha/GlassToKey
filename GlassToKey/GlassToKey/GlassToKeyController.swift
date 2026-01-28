@@ -30,10 +30,6 @@ enum GlassToKeySettings {
 final class GlassToKeyController: ObservableObject {
     let viewModel: ContentViewModel
     private var isRunning = false
-    private let legacyKeyScaleKey = "GlassToKey.keyScale"
-    private let legacyKeyOffsetXKey = "GlassToKey.keyOffsetX"
-    private let legacyKeyOffsetYKey = "GlassToKey.keyOffsetY"
-    private let legacyRowSpacingPercentKey = "GlassToKey.rowSpacingPercent"
 
     init(viewModel: ContentViewModel = ContentViewModel()) {
         self.viewModel = viewModel
@@ -132,13 +128,8 @@ final class GlassToKeyController: ObservableObject {
     private func loadCustomButtons(for layout: TrackpadLayoutPreset) -> [CustomButton] {
         let defaults = UserDefaults.standard
         if let data = defaults.data(forKey: GlassToKeyDefaultsKeys.customButtons) {
-            if let stored = LayoutCustomButtonStorage.settings(for: layout, from: data),
-               !stored.isEmpty {
+            if let stored = LayoutCustomButtonStorage.buttons(for: layout, from: data) {
                 return stored
-            }
-            if let decoded = CustomButtonStore.decode(data),
-               !decoded.isEmpty {
-                return decoded
             }
         }
         return CustomButtonDefaults.defaultButtons(
@@ -173,9 +164,6 @@ final class GlassToKeyController: ObservableObject {
             from: data
         ) {
             return ColumnLayoutDefaults.normalizedSettings(stored, columns: columns)
-        }
-        if let migrated = legacyColumnSettings(for: layout) {
-            return migrated
         }
         return ColumnLayoutDefaults.defaultSettings(columns: columns)
     }
@@ -240,38 +228,6 @@ final class GlassToKeyController: ObservableObject {
         viewModel.updateTapClickEnabled(tapClickEnabled)
         viewModel.updateSnapRadiusPercent(snapRadiusPercent)
         viewModel.updateChordalShiftEnabled(chordalShiftEnabled)
-    }
-
-    private func legacyColumnSettings(
-        for layout: TrackpadLayoutPreset
-    ) -> [ColumnLayoutSettings]? {
-        let columns = layout.columns
-        guard columns > 0 else { return nil }
-        let defaults = UserDefaults.standard
-        let hasLegacyScale = defaults.object(forKey: legacyKeyScaleKey) != nil
-        let hasLegacyOffsetX = defaults.object(forKey: legacyKeyOffsetXKey) != nil
-        let hasLegacyOffsetY = defaults.object(forKey: legacyKeyOffsetYKey) != nil
-        let hasLegacyRowSpacing = defaults.object(forKey: legacyRowSpacingPercentKey) != nil
-        guard hasLegacyScale || hasLegacyOffsetX || hasLegacyOffsetY || hasLegacyRowSpacing else {
-            return nil
-        }
-        let keyScale = hasLegacyScale ? defaults.double(forKey: legacyKeyScaleKey) : 1.0
-        let offsetX = hasLegacyOffsetX ? defaults.double(forKey: legacyKeyOffsetXKey) : 0.0
-        let offsetY = hasLegacyOffsetY ? defaults.double(forKey: legacyKeyOffsetYKey) : 0.0
-        let rowSpacingPercent = hasLegacyRowSpacing
-            ? defaults.double(forKey: legacyRowSpacingPercentKey)
-            : 0.0
-        let offsetXPercent = offsetX / Double(ContentView.trackpadWidthMM) * 100.0
-        let offsetYPercent = offsetY / Double(ContentView.trackpadHeightMM) * 100.0
-        let migrated = ColumnLayoutDefaults.defaultSettings(columns: columns).map { _ in
-            ColumnLayoutSettings(
-                scale: keyScale,
-                offsetXPercent: offsetXPercent,
-                offsetYPercent: offsetYPercent,
-                rowSpacingPercent: rowSpacingPercent
-            )
-        }
-        return ColumnLayoutDefaults.normalizedSettings(migrated, columns: columns)
     }
 
     private func stringValue(forKey key: String) -> String {
