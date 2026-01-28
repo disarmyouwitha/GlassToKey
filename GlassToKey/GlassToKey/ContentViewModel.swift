@@ -3984,9 +3984,6 @@ enum KeyActionKind: String, Codable {
         flags = try container.decode(UInt64.self, forKey: .flags)
         kind = try container.decodeIfPresent(KeyActionKind.self, forKey: .kind) ?? .key
         layer = try container.decodeIfPresent(Int.self, forKey: .layer)
-        if kind == .typingToggle, label == KeyActionCatalog.legacyTypingToggleLabel {
-            label = KeyActionCatalog.typingToggleLabel
-        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -4058,25 +4055,6 @@ struct CustomButton: Identifiable, Codable, Hashable {
     }
 }
 
-enum CustomButtonStore {
-    static func decode(_ data: Data) -> [CustomButton]? {
-        guard !data.isEmpty else { return nil }
-        do {
-            return try JSONDecoder().decode([CustomButton].self, from: data)
-        } catch {
-            return nil
-        }
-    }
-
-    static func encode(_ buttons: [CustomButton]) -> Data? {
-        do {
-            return try JSONEncoder().encode(buttons)
-        } catch {
-            return nil
-        }
-    }
-}
-
 enum CustomButtonDefaults {
     static func defaultButtons(
         trackpadWidth: CGFloat,
@@ -4139,16 +4117,7 @@ enum LayoutCustomButtonStorage {
 
     static func decode(from data: Data) -> [String: [Int: [CustomButton]]]? {
         guard !data.isEmpty else { return nil }
-        if let map = try? decoder.decode([String: [Int: [CustomButton]]].self, from: data) {
-            return map
-        }
-        if let map = try? decoder.decode([String: [CustomButton]].self, from: data) {
-            return map.mapValues { layeredButtons(from: $0) }
-        }
-        if let legacy = try? decoder.decode([CustomButton].self, from: data) {
-            return [TrackpadLayoutPreset.sixByThree.rawValue: layeredButtons(from: legacy)]
-        }
-        return nil
+        return try? decoder.decode([String: [Int: [CustomButton]]].self, from: data)
     }
 
     static func buttons(
@@ -4182,7 +4151,6 @@ enum LayoutCustomButtonStorage {
 enum KeyActionCatalog {
     static let typingToggleLabel = "Typing Toggle"
     static let typingToggleDisplayLabel = "Typing\nToggle"
-    static let legacyTypingToggleLabel = "Typing Mode Toggle"
     static let momentaryLayer1Label = "MO(1)"
     static let toggleLayer1Label = "TO(1)"
     static let noneLabel = "None"
@@ -4414,7 +4382,7 @@ enum KeyActionCatalog {
         if label == noneLabel {
             return noneAction
         }
-        if label == typingToggleLabel || label == legacyTypingToggleLabel {
+        if label == typingToggleLabel {
             return KeyAction(
                 label: typingToggleLabel,
                 keyCode: 0,
@@ -4493,13 +4461,7 @@ enum KeyActionCatalog {
 enum KeyActionMappingStore {
     static func decode(_ data: Data) -> LayeredKeyMappings? {
         guard !data.isEmpty else { return nil }
-        if let layered = try? JSONDecoder().decode(LayeredKeyMappings.self, from: data) {
-            return layered
-        }
-        if let legacy = try? JSONDecoder().decode([String: KeyMapping].self, from: data) {
-            return [0: legacy, 1: legacy]
-        }
-        return nil
+        return try? JSONDecoder().decode(LayeredKeyMappings.self, from: data)
     }
 
     static func decodeNormalized(_ data: Data) -> LayeredKeyMappings? {

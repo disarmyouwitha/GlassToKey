@@ -27,37 +27,11 @@ struct ColumnLayoutSettings: Codable, Hashable {
     }
 }
 
-enum ColumnLayoutStore {
-    static func decode(_ data: Data) -> [ColumnLayoutSettings]? {
-        guard !data.isEmpty else { return nil }
-        do {
-            return try JSONDecoder().decode([ColumnLayoutSettings].self, from: data)
-        } catch {
-            return nil
-        }
-    }
-
-    static func encode(_ settings: [ColumnLayoutSettings]) -> Data? {
-        do {
-            return try JSONEncoder().encode(settings)
-        } catch {
-            return nil
-        }
-    }
-}
-
 enum LayoutColumnSettingsStorage {
     static func decode(from data: Data) -> [String: [ColumnLayoutSettings]]? {
         guard !data.isEmpty else { return nil }
         let decoder = JSONDecoder()
-        if let map = try? decoder.decode([String: [ColumnLayoutSettings]].self, from: data) {
-            return map
-        }
-        if let legacy = try? decoder.decode([ColumnLayoutSettings].self, from: data) {
-            let legacyLayout = TrackpadLayoutPreset.sixByThree.rawValue
-            return [legacyLayout: legacy]
-        }
-        return nil
+        return try? decoder.decode([String: [ColumnLayoutSettings]].self, from: data)
     }
 
     static func encode(_ map: [String: [ColumnLayoutSettings]]) -> Data? {

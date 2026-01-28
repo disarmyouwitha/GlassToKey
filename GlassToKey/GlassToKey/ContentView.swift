@@ -216,11 +216,6 @@ struct ContentView: View {
         formatter.maximum = NSNumber(value: ContentView.intentVelocityThresholdRange.upperBound)
         return formatter
     }()
-    private static let legacyKeyScaleKey = "GlassToKey.keyScale"
-    private static let legacyKeyOffsetXKey = "GlassToKey.keyOffsetX"
-    private static let legacyKeyOffsetYKey = "GlassToKey.keyOffsetY"
-    private static let legacyRowSpacingPercentKey = "GlassToKey.rowSpacingPercent"
-
     static let ThumbAnchorsMM: [CGRect] = [
         CGRect(x: 0, y: 75, width: 40, height: 40),
         CGRect(x: 40, y: 85, width: 40, height: 30),
@@ -2337,40 +2332,7 @@ struct ContentView: View {
         ) {
             return Self.normalizedColumnSettings(stored, columns: layout.columns)
         }
-        if let migrated = legacyColumnSettings(for: layout) {
-            return migrated
-        }
         return ColumnLayoutDefaults.defaultSettings(columns: layout.columns)
-    }
-
-    private func legacyColumnSettings(for layout: TrackpadLayoutPreset) -> [ColumnLayoutSettings]? {
-        let columns = layout.columns
-        guard columns > 0 else { return nil }
-        let defaults = UserDefaults.standard
-        let hasLegacyScale = defaults.object(forKey: Self.legacyKeyScaleKey) != nil
-        let hasLegacyOffsetX = defaults.object(forKey: Self.legacyKeyOffsetXKey) != nil
-        let hasLegacyOffsetY = defaults.object(forKey: Self.legacyKeyOffsetYKey) != nil
-        let hasLegacyRowSpacing = defaults.object(forKey: Self.legacyRowSpacingPercentKey) != nil
-        guard hasLegacyScale || hasLegacyOffsetX || hasLegacyOffsetY || hasLegacyRowSpacing else {
-            return nil
-        }
-        let keyScale = hasLegacyScale ? defaults.double(forKey: Self.legacyKeyScaleKey) : 1.0
-        let offsetX = hasLegacyOffsetX ? defaults.double(forKey: Self.legacyKeyOffsetXKey) : 0.0
-        let offsetY = hasLegacyOffsetY ? defaults.double(forKey: Self.legacyKeyOffsetYKey) : 0.0
-        let rowSpacingPercent = hasLegacyRowSpacing
-            ? defaults.double(forKey: Self.legacyRowSpacingPercentKey)
-            : 0.0
-        let offsetXPercent = offsetX / Double(Self.trackpadWidthMM) * 100.0
-        let offsetYPercent = offsetY / Double(Self.trackpadHeightMM) * 100.0
-        let migrated = ColumnLayoutDefaults.defaultSettings(columns: columns).map { _ in
-            ColumnLayoutSettings(
-                scale: keyScale,
-                offsetXPercent: offsetXPercent,
-                offsetYPercent: offsetYPercent,
-                rowSpacingPercent: rowSpacingPercent
-            )
-        }
-        return ColumnLayoutDefaults.normalizedSettings(migrated, columns: columns)
     }
 
     private func saveCurrentColumnSettings() {
@@ -2398,10 +2360,6 @@ struct ContentView: View {
     private func loadCustomButtons(for layout: TrackpadLayoutPreset) -> [CustomButton] {
         if let stored = LayoutCustomButtonStorage.buttons(for: layout, from: storedCustomButtonsData) {
             return stored
-        }
-        if let decoded = CustomButtonStore.decode(storedCustomButtonsData),
-           !decoded.isEmpty {
-            return decoded
         }
         return CustomButtonDefaults.defaultButtons(
             trackpadWidth: Self.trackpadWidthMM,
