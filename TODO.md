@@ -1,13 +1,7 @@
 ## TODO
-- expose slider for click stagger?
-
-# bettr auto complete: feed it my resurrection buffer for better results??
-^ feed it complete sentences
-
-- normalize % to px??
-- any vestigial code?  
-- Is the key matrix the most efficient? lets look deeper! How about KeyDispatch? And is key hit detection as clean as $it could be?
-- analyze custom button code vs key matrix detection, is it less efficient? If so can we fix?
+- expose slider for double-click stagger
+- normalize % to px??,
+- analyze custom button code vs key matrix detection, is it less efficient?
 - Refactor from the driver/api layer, any efficiency we can gain by rewrites?
 - Have Codex refactor the code for compiler efficiency and runtime efficiency. Leave no stone unturned!
 - Have Codex refactor the GUI for effiency

@@ -1148,12 +1148,16 @@ final class ContentViewModel: ObservableObject {
             private let rows: Int
             private let cols: Int
             private let canvasSize: CGSize
+            private let invWidth: CGFloat
+            private let invHeight: CGFloat
             private var buckets: [[[KeyBinding]]]
 
             init(canvasSize: CGSize, rows: Int, cols: Int) {
                 self.canvasSize = canvasSize
                 self.rows = max(1, rows)
                 self.cols = max(1, cols)
+                self.invWidth = canvasSize.width > 0 ? 1.0 / canvasSize.width : 0
+                self.invHeight = canvasSize.height > 0 ? 1.0 / canvasSize.height : 0
                 var filledBuckets: [[[KeyBinding]]] = []
                 filledBuckets.reserveCapacity(self.rows)
                 for _ in 0..<self.rows {
@@ -1177,20 +1181,22 @@ final class ContentViewModel: ObservableObject {
             }
 
             func binding(at point: CGPoint) -> KeyBinding? {
-                let row = bucketIndex(
-                    for: normalize(point.y, axisSize: canvasSize.height),
-                    count: rows
-                )
-                let col = bucketIndex(
-                    for: normalize(point.x, axisSize: canvasSize.width),
-                    count: cols
-                )
+                let row = bucketIndex(for: normalize(point.y, invAxisSize: invHeight), count: rows)
+                let col = bucketIndex(for: normalize(point.x, invAxisSize: invWidth), count: cols)
+                var bestBinding: KeyBinding?
+                var bestScore: CGFloat = -1
+                var bestArea: CGFloat = .greatestFiniteMagnitude
                 for binding in buckets[row][col] {
-                    if binding.rect.contains(point) {
-                        return binding
+                    guard binding.rect.contains(point) else { continue }
+                    let score = insideDistanceToRectEdge(point: point, rect: binding.rect)
+                    let area = binding.rect.width * binding.rect.height
+                    if score > bestScore || (score == bestScore && area < bestArea) {
+                        bestBinding = binding
+                        bestScore = score
+                        bestArea = area
                     }
                 }
-                return nil
+                return bestBinding
             }
 
             func binding(atNormalizedPoint point: CGPoint) -> KeyBinding? {
@@ -1200,19 +1206,30 @@ final class ContentViewModel: ObservableObject {
                 )
                 let row = bucketIndex(for: clampedPoint.y, count: rows)
                 let col = bucketIndex(for: clampedPoint.x, count: cols)
+                var bestBinding: KeyBinding?
+                var bestScore: CGFloat = -1
+                var bestArea: CGFloat = .greatestFiniteMagnitude
                 for binding in buckets[row][col] {
-                    if binding.normalizedRect.contains(clampedPoint) {
-                        return binding
+                    guard binding.normalizedRect.contains(clampedPoint) else { continue }
+                    let score = insideDistanceToNormalizedRectEdge(
+                        point: clampedPoint,
+                        rect: binding.normalizedRect
+                    )
+                    let area = binding.normalizedRect.width * binding.normalizedRect.height
+                    if score > bestScore || (score == bestScore && area < bestArea) {
+                        bestBinding = binding
+                        bestScore = score
+                        bestArea = area
                     }
                 }
-                return nil
+                return bestBinding
             }
 
             private func bucketRange(for rect: CGRect) -> (rowRange: ClosedRange<Int>, colRange: ClosedRange<Int>) {
-                let minX = normalize(rect.minX, axisSize: canvasSize.width)
-                let maxX = normalize(rect.maxX, axisSize: canvasSize.width)
-                let minY = normalize(rect.minY, axisSize: canvasSize.height)
-                let maxY = normalize(rect.maxY, axisSize: canvasSize.height)
+                let minX = normalize(rect.minX, invAxisSize: invWidth)
+                let maxX = normalize(rect.maxX, invAxisSize: invWidth)
+                let minY = normalize(rect.minY, invAxisSize: invHeight)
+                let maxY = normalize(rect.maxY, invAxisSize: invHeight)
                 let startCol = bucketIndex(for: minX, count: cols)
                 let endCol = bucketIndex(for: maxX, count: cols)
                 let startRow = bucketIndex(for: minY, count: rows)
@@ -1230,9 +1247,27 @@ final class ContentViewModel: ObservableObject {
                 return index >= count ? count - 1 : index
             }
 
-            private func normalize(_ coordinate: CGFloat, axisSize: CGFloat) -> CGFloat {
-                guard axisSize > 0 else { return 0 }
-                return min(max(coordinate / axisSize, 0), 1)
+            @inline(__always)
+            private func normalize(_ coordinate: CGFloat, invAxisSize: CGFloat) -> CGFloat {
+                return min(max(coordinate * invAxisSize, 0), 1)
+            }
+
+            @inline(__always)
+            private func insideDistanceToRectEdge(point: CGPoint, rect: CGRect) -> CGFloat {
+                let dx = min(point.x - rect.minX, rect.maxX - point.x)
+                let dy = min(point.y - rect.minY, rect.maxY - point.y)
+                return min(dx, dy)
+            }
+
+            @inline(__always)
+            private func insideDistanceToNormalizedRectEdge(point: CGPoint, rect: NormalizedRect) -> CGFloat {
+                let minX = rect.x
+                let maxX = rect.x + rect.width
+                let minY = rect.y
+                let maxY = rect.y + rect.height
+                let dx = min(point.x - minX, maxX - point.x)
+                let dy = min(point.y - minY, maxY - point.y)
+                return min(dx, dy)
             }
         }
 
@@ -1313,6 +1348,10 @@ final class ContentViewModel: ObservableObject {
         private var bindingsCacheLayer: Int = -1
         private var bindingsGeneration = 0
         private var bindingsGenerationBySide = SidePair(left: -1, right: -1)
+        private var bindingCacheBySide = SidePair(
+            left: TouchTable<KeyBinding>(minimumCapacity: 16),
+            right: TouchTable<KeyBinding>(minimumCapacity: 16)
+        )
         private var hapticStrength: Double = 0
         private struct IntentState {
             var mode: IntentMode = .idle
@@ -1527,23 +1566,40 @@ final class ContentViewModel: ObservableObject {
             } else if chordShiftKeyDown {
                 updateChordShiftKeyState()
             }
-            let allowTypingGlobal = updateIntent(for: frame, now: now)
+            let leftBindings = bindings(
+                for: .left,
+                layout: leftLayout,
+                labels: leftLabels,
+                canvasSize: trackpadSize
+            )
+            let rightBindings = bindings(
+                for: .right,
+                layout: rightLayout,
+                labels: rightLabels,
+                canvasSize: trackpadSize
+            )
+            let allowTypingGlobal = updateIntent(
+                for: frame,
+                now: now,
+                leftBindings: leftBindings,
+                rightBindings: rightBindings
+            )
             let allowTypingLeft = allowTypingGlobal || isChordShiftActive(on: .right)
             let allowTypingRight = allowTypingGlobal || isChordShiftActive(on: .left)
             processTouches(
                 frame.left,
+                bindings: leftBindings,
                 layout: leftLayout,
                 canvasSize: trackpadSize,
-                labels: leftLabels,
                 isLeftSide: true,
                 now: now,
                 intentAllowsTyping: allowTypingLeft
             )
             processTouches(
                 frame.right,
+                bindings: rightBindings,
                 layout: rightLayout,
                 canvasSize: trackpadSize,
-                labels: rightLabels,
                 isLeftSide: false,
                 now: now,
                 intentAllowsTyping: allowTypingRight
@@ -1576,9 +1632,9 @@ final class ContentViewModel: ObservableObject {
 
         private func processTouches(
             _ touches: [OMSTouchData],
+            bindings: BindingIndex,
             layout: Layout,
             canvasSize: CGSize,
-            labels: [[String]],
             isLeftSide: Bool,
             now: TimeInterval,
             intentAllowsTyping: Bool
@@ -1593,12 +1649,6 @@ final class ContentViewModel: ObservableObject {
             #endif
             let dragCancelDistanceSquared = dragCancelDistance * dragCancelDistance
             let side: TrackpadSide = isLeftSide ? .left : .right
-            let bindings = bindings(
-                for: side,
-                layout: layout,
-                labels: labels,
-                canvasSize: canvasSize
-            )
             let contactCount = touches.reduce(0) { current, touch in
                 current + (Self.isContactState(touch.state) ? 1 : 0)
             }
@@ -1614,6 +1664,16 @@ final class ContentViewModel: ObservableObject {
                     y: CGFloat(1.0 - touch.position.y) * canvasSize.height
                 )
                 let touchKey = Self.makeTouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
+                var bindingAtPoint: KeyBinding?
+                var didResolveBinding = false
+                @inline(__always)
+                func resolveBinding() -> KeyBinding? {
+                    if !didResolveBinding {
+                        didResolveBinding = true
+                        bindingAtPoint = bindingCacheBySide[side].value(for: touchKey)
+                    }
+                    return bindingAtPoint
+                }
                 if chordShiftSuppressed {
                     if disqualifiedTouches.value(for: touchKey) == nil {
                         disqualifyTouch(touchKey, reason: .typingDisabled)
@@ -1632,7 +1692,6 @@ final class ContentViewModel: ObservableObject {
                     touchInitialContactPoint.set(touchKey, point)
                 }
                 handleForceGuard(touchKey: touchKey, pressure: touch.pressure, now: now)
-                let bindingAtPoint = binding(at: point, index: bindings)
 
                 if disqualifiedTouches.value(for: touchKey) != nil {
                     switch touch.state {
@@ -1665,7 +1724,7 @@ final class ContentViewModel: ObservableObject {
                     )
                     continue
                 }
-                if let binding = bindingAtPoint {
+                if let binding = resolveBinding() {
                     switch binding.action {
                     case .typingToggle:
                         handleTypingToggleTouch(
@@ -1827,7 +1886,7 @@ final class ContentViewModel: ObservableObject {
                         } else {
                             _ = removePendingTouch(for: touchKey)
                         }
-                    } else if let binding = bindingAtPoint {
+                    } else if let binding = resolveBinding() {
                         let modifierKey = modifierKey(for: binding)
                         let isContinuousKey = isContinuousKey(binding)
                         let holdBinding = holdBinding(
@@ -1997,7 +2056,7 @@ final class ContentViewModel: ObservableObject {
                         }
                         #endif
                     }
-                    if !hadPending, !hadActive, bindingAtPoint == nil {
+                    if !hadPending, !hadActive, resolveBinding() == nil {
                         if attemptSnapOnRelease(
                             touchKey: touchKey,
                             point: point,
@@ -2082,7 +2141,7 @@ final class ContentViewModel: ObservableObject {
                         }
                         #endif
                     }
-                    if !hadPending, !hadActive, bindingAtPoint == nil {
+                    if !hadPending, !hadActive, resolveBinding() == nil {
                         if attemptSnapOnRelease(
                             touchKey: touchKey,
                             point: point,
@@ -2742,28 +2801,20 @@ final class ContentViewModel: ObservableObject {
             postKey(binding: shiftBinding, keyDown: shouldBeDown)
         }
 
-        private func updateIntent(for frame: TouchFrame, now: TimeInterval) -> Bool {
+        private func updateIntent(
+            for frame: TouchFrame,
+            now: TimeInterval,
+            leftBindings: BindingIndex,
+            rightBindings: BindingIndex
+        ) -> Bool {
             guard trackpadSize.width > 0,
-                  trackpadSize.height > 0,
-                  let leftLayout,
-                  let rightLayout else {
+                  trackpadSize.height > 0 else {
                 intentState = IntentState()
                 updateIntentDisplayIfNeeded()
+                bindingCacheBySide[.left].removeAll(keepingCapacity: true)
+                bindingCacheBySide[.right].removeAll(keepingCapacity: true)
                 return isTypingEnabled
             }
-
-            let leftBindings = bindings(
-                for: .left,
-                layout: leftLayout,
-                labels: leftLabels,
-                canvasSize: trackpadSize
-            )
-            let rightBindings = bindings(
-                for: .right,
-                layout: rightLayout,
-                labels: rightLabels,
-                canvasSize: trackpadSize
-            )
 
             let unitsPerMm = mmUnitsPerMillimeter()
             let moveThreshold = intentConfig.moveThresholdMm * unitsPerMm
@@ -2778,7 +2829,8 @@ final class ContentViewModel: ObservableObject {
                 now: now,
                 moveThresholdSquared: moveThresholdSquared,
                 velocityThreshold: velocityThreshold,
-                unitsPerMm: unitsPerMm
+                unitsPerMm: unitsPerMm,
+                bindingCacheBySide: &bindingCacheBySide
             )
         }
 
@@ -2790,10 +2842,13 @@ final class ContentViewModel: ObservableObject {
             now: TimeInterval,
             moveThresholdSquared: CGFloat,
             velocityThreshold: CGFloat,
-            unitsPerMm: CGFloat
+            unitsPerMm: CGFloat,
+            bindingCacheBySide: inout SidePair<TouchTable<KeyBinding>>
         ) -> Bool {
             var state = intentState
             let graceActive = isTypingGraceActive(now: now)
+            bindingCacheBySide[.left].removeAll(keepingCapacity: true)
+            bindingCacheBySide[.right].removeAll(keepingCapacity: true)
 
             var contactCount = 0
             var onKeyCount = 0
@@ -2840,13 +2895,13 @@ final class ContentViewModel: ObservableObject {
                 currentKeys.set(touchKey, true)
 
                 let binding = binding(at: point, index: bindings)
-                if binding != nil {
+                if let binding {
+                    bindingCacheBySide[side].set(touchKey, binding)
                     onKeyCount += 1
                     if firstOnKeyTouchKey == nil {
                         firstOnKeyTouchKey = touchKey
                     }
-                    if let binding,
-                       modifierKey(for: binding) != nil || isContinuousKey(binding) {
+                    if modifierKey(for: binding) != nil || isContinuousKey(binding) {
                         hasKeyboardAnchor = true
                     }
                 } else {
