@@ -2499,21 +2499,26 @@ final class ContentViewModel: ObservableObject {
                         point: point,
                         rect: bindings.snapBindings[secondIndex].rect
                     )
-#if DEBUG
-                    let bestLabel = bindings.snapBindings[bestIndex].label
-                    let secondLabel = bindings.snapBindings[secondIndex].label
-                    NSLog(
-                        "Snap ambiguity at (%.2f, %.2f): best=%@ d2=%.3f edge2=%.3f, second=%@ d2=%.3f edge2=%.3f",
-                        point.x,
-                        point.y,
-                        bestLabel,
-                        bestDistanceSq,
-                        bestEdgeDistance,
-                        secondLabel,
-                        secondDistanceSq,
-                        secondEdgeDistance
+                    #if DEBUG
+                    let bestBinding = bindings.snapBindings[bestIndex]
+                    let secondBinding = bindings.snapBindings[secondIndex]
+                    let keyCell = traceKeyCell(for: bestBinding)
+                    TapTrace.record(
+                        .snapAmbiguity,
+                        frame: tapTraceFrameIndex,
+                        touchKey: touchKey,
+                        keyRow: keyCell.row,
+                        keyCol: keyCell.col,
+                        keyCode: traceKeyCode(for: bestBinding),
+                        char: traceCharScalar(from: bestBinding.label),
+                        auxChar: traceCharScalar(from: secondBinding.label),
+                        aux0: bestDistanceSq,
+                        aux1: secondDistanceSq,
+                        aux2: bestEdgeDistance,
+                        aux3: secondEdgeDistance,
+                        reason: .snapAmbiguity
                     )
-#endif
+                    #endif
                     if secondEdgeDistance < bestEdgeDistance {
                         selectedIndex = secondIndex
                         alternateIndex = bestIndex

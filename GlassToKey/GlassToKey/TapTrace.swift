@@ -23,6 +23,11 @@ struct TapTraceEntry: Sendable {
     var keyCol: Int16
     var keyCode: Int16
     var char: UInt32
+    var auxChar: UInt32
+    var aux0: Float
+    var aux1: Float
+    var aux2: Float
+    var aux3: Float
     var reason: UInt8
 
     init(
@@ -34,6 +39,11 @@ struct TapTraceEntry: Sendable {
         keyCol: Int16 = -1,
         keyCode: Int16 = -1,
         char: UInt32 = 0,
+        auxChar: UInt32 = 0,
+        aux0: Float = 0,
+        aux1: Float = 0,
+        aux2: Float = 0,
+        aux3: Float = 0,
         reason: UInt8 = 0
     ) {
         self.timestampNs = timestampNs
@@ -44,6 +54,11 @@ struct TapTraceEntry: Sendable {
         self.keyCol = keyCol
         self.keyCode = keyCode
         self.char = char
+        self.auxChar = auxChar
+        self.aux0 = aux0
+        self.aux1 = aux1
+        self.aux2 = aux2
+        self.aux3 = aux3
         self.reason = reason
     }
 }
@@ -55,6 +70,7 @@ enum TapTraceEventType: UInt8 {
     case disqualified = 4
     case finalized = 5
     case expired = 6
+    case snapAmbiguity = 7
 
     var label: String {
         switch self {
@@ -64,6 +80,7 @@ enum TapTraceEventType: UInt8 {
         case .disqualified: return "disqualified"
         case .finalized: return "finalized"
         case .expired: return "expired"
+        case .snapAmbiguity: return "snap_ambiguity"
         }
     }
 }
@@ -83,6 +100,7 @@ enum TapTraceReasonCode: UInt8 {
     case offKeyNoSnap = 11
     case snapAccepted = 12
     case momentaryLayerCancelled = 13
+    case snapAmbiguity = 14
 
     var label: String {
         switch self {
@@ -100,6 +118,7 @@ enum TapTraceReasonCode: UInt8 {
         case .offKeyNoSnap: return "off_key_no_snap"
         case .snapAccepted: return "snap_accepted"
         case .momentaryLayerCancelled: return "momentary_layer_cancelled"
+        case .snapAmbiguity: return "snap_ambiguity"
         }
     }
 }
@@ -125,6 +144,11 @@ enum TapTrace {
         keyCol: Int16 = -1,
         keyCode: Int16 = -1,
         char: UInt32 = 0,
+        auxChar: UInt32 = 0,
+        aux0: Float = 0,
+        aux1: Float = 0,
+        aux2: Float = 0,
+        aux3: Float = 0,
         reason: TapTraceReasonCode = .none
     ) {
         if !isEnabled { return }
@@ -139,6 +163,11 @@ enum TapTrace {
             keyCol: keyCol,
             keyCode: keyCode,
             char: char,
+            auxChar: auxChar,
+            aux0: aux0,
+            aux1: aux1,
+            aux2: aux2,
+            aux3: aux3,
             reason: reason.rawValue
         )
     }
@@ -187,7 +216,18 @@ enum TapTrace {
             } else {
                 charStr = "null"
             }
-            let line = "{\"ts_ns\":\(entry.timestampNs),\"frame\":\(entry.frame),\"touchKey\":\(entry.touchKey),\"type\":\"\(typeLabel)\",\"keyCell\":\(keyCell),\"keyCode\":\(keyCodeValue),\"keyName\":\(keyNameValue),\"char\":\(charValue),\"charStr\":\(charStr),\"reason\":\"\(reasonLabel)\"}\n"
+            let auxCharValue = entry.auxChar > 0 ? String(entry.auxChar) : "null"
+            let auxCharStr: String
+            if entry.auxChar > 0, let scalar = UnicodeScalar(entry.auxChar) {
+                auxCharStr = "\"\(TapTrace.escapeJSON(String(scalar)))\""
+            } else {
+                auxCharStr = "null"
+            }
+            let aux0 = entry.aux0 != 0 ? String(format: "%.4f", entry.aux0) : "null"
+            let aux1 = entry.aux1 != 0 ? String(format: "%.4f", entry.aux1) : "null"
+            let aux2 = entry.aux2 != 0 ? String(format: "%.4f", entry.aux2) : "null"
+            let aux3 = entry.aux3 != 0 ? String(format: "%.4f", entry.aux3) : "null"
+            let line = "{\"ts_ns\":\(entry.timestampNs),\"frame\":\(entry.frame),\"touchKey\":\(entry.touchKey),\"type\":\"\(typeLabel)\",\"keyCell\":\(keyCell),\"keyCode\":\(keyCodeValue),\"keyName\":\(keyNameValue),\"char\":\(charValue),\"charStr\":\(charStr),\"auxChar\":\(auxCharValue),\"auxCharStr\":\(auxCharStr),\"aux0\":\(aux0),\"aux1\":\(aux1),\"aux2\":\(aux2),\"aux3\":\(aux3),\"reason\":\"\(reasonLabel)\"}\n"
             buffer.append(contentsOf: line.utf8)
             if entry.type == TapTraceEventType.finalized.rawValue {
                 buffer.append(contentsOf: "-------\n".utf8)
