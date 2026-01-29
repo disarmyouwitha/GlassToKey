@@ -1273,7 +1273,8 @@ final class ContentViewModel: ObservableObject {
 
         private struct BindingIndex {
             let keyGrid: BindingGrid
-            let customGrid: BindingGrid
+            let customGrid: BindingGrid?
+            let customBindings: [KeyBinding]
             let snapBindings: [KeyBinding]
             let snapCentersX: [Float]
             let snapCentersY: [Float]
@@ -2266,11 +2267,14 @@ final class ContentViewModel: ObservableObject {
             let keyRows = max(1, keyRects.count)
             let keyCols = max(1, keyRects.first?.count ?? 1)
             var keyGrid = BindingGrid(canvasSize: canvasSize, rows: keyRows, cols: keyCols)
-            var customGrid = BindingGrid(
-                canvasSize: canvasSize,
-                rows: max(4, keyRows),
-                cols: max(4, keyCols)
-            )
+            let useCustomGrid = customButtons.count > 4
+            var customGrid = useCustomGrid
+                ? BindingGrid(
+                    canvasSize: canvasSize,
+                    rows: max(4, keyRows),
+                    cols: max(4, keyCols)
+                )
+                : nil
             let estimatedKeys = keyRects.reduce(0) { $0 + $1.count }
             var snapBindings: [KeyBinding] = []
             var snapCentersX: [Float] = []
@@ -2280,6 +2284,8 @@ final class ContentViewModel: ObservableObject {
             snapCentersX.reserveCapacity(estimatedKeys)
             snapCentersY.reserveCapacity(estimatedKeys)
             snapRadiusSq.reserveCapacity(estimatedKeys)
+            var customBindings: [KeyBinding] = []
+            customBindings.reserveCapacity(customButtons.count)
 
             @inline(__always)
             func appendSnapBinding(_ binding: KeyBinding) {
@@ -2342,12 +2348,14 @@ final class ContentViewModel: ObservableObject {
                     side: button.side,
                     holdAction: button.hold
                 )
-                customGrid.insert(binding)
+                customBindings.append(binding)
+                customGrid?.insert(binding)
             }
 
             return BindingIndex(
                 keyGrid: keyGrid,
                 customGrid: customGrid,
+                customBindings: customBindings,
                 snapBindings: snapBindings,
                 snapCentersX: snapCentersX,
                 snapCentersY: snapCentersY,
@@ -2465,7 +2473,25 @@ final class ContentViewModel: ObservableObject {
             if let binding = index.keyGrid.binding(at: point) {
                 return binding
             }
-            return index.customGrid.binding(at: point)
+            if let customGrid = index.customGrid {
+                return customGrid.binding(at: point)
+            }
+            var bestBinding: KeyBinding?
+            var bestScore: CGFloat = -1
+            var bestArea: CGFloat = .greatestFiniteMagnitude
+            for binding in index.customBindings {
+                guard binding.rect.contains(point) else { continue }
+                let dx = min(point.x - binding.rect.minX, binding.rect.maxX - point.x)
+                let dy = min(point.y - binding.rect.minY, binding.rect.maxY - point.y)
+                let score = min(dx, dy)
+                let area = binding.rect.width * binding.rect.height
+                if score > bestScore || (score == bestScore && area < bestArea) {
+                    bestBinding = binding
+                    bestScore = score
+                    bestArea = area
+                }
+            }
+            return bestBinding
         }
 
         private var isSnapRadiusEnabled: Bool {
@@ -4200,7 +4226,8 @@ final class ContentViewModel: ObservableObject {
             }
             return bindingsCache[side] ?? BindingIndex(
                 keyGrid: BindingGrid(canvasSize: .zero, rows: 1, cols: 1),
-                customGrid: BindingGrid(canvasSize: .zero, rows: 1, cols: 1),
+                customGrid: nil,
+                customBindings: [],
                 snapBindings: [],
                 snapCentersX: [],
                 snapCentersY: [],
