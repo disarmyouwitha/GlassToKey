@@ -96,6 +96,8 @@ struct ContentView: View {
     private var snapRadiusPercentSetting = GlassToKeySettings.snapRadiusPercent
     @AppStorage(GlassToKeyDefaultsKeys.chordalShiftEnabled)
     private var chordalShiftEnabled = GlassToKeySettings.chordalShiftEnabled
+    @AppStorage(GlassToKeyDefaultsKeys.softSnapEnabled)
+    private var softSnapEnabled = GlassToKeySettings.softSnapEnabled
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -393,6 +395,9 @@ struct ContentView: View {
             .onChange(of: chordalShiftEnabled) { newValue in
                 viewModel.updateChordalShiftEnabled(newValue)
             }
+            .onChange(of: softSnapEnabled) { newValue in
+                viewModel.updateSoftSnapEnabled(newValue)
+            }
             .onChange(of: storedAutoResyncMissingTrackpads) { newValue in
                 viewModel.setAutoResyncEnabled(newValue)
             }
@@ -499,6 +504,7 @@ struct ContentView: View {
             tapClickEnabled: $tapClickEnabled,
             snapRadiusPercentSetting: $snapRadiusPercentSetting,
             chordalShiftEnabled: $chordalShiftEnabled,
+            softSnapEnabled: $softSnapEnabled,
             onRefreshDevices: {
                 viewModel.loadDevices(preserveSelection: true)
             },
@@ -738,6 +744,7 @@ struct ContentView: View {
         @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
         @Binding var chordalShiftEnabled: Bool
+        @Binding var softSnapEnabled: Bool
         @State private var typingTuningExpanded = true
         let onRefreshDevices: () -> Void
         let onAutoResyncChange: (Bool) -> Void
@@ -783,6 +790,7 @@ struct ContentView: View {
                             tapClickEnabled: $tapClickEnabled,
                             snapRadiusPercentSetting: $snapRadiusPercentSetting,
                             chordalShiftEnabled: $chordalShiftEnabled,
+                            softSnapEnabled: $softSnapEnabled,
                             onRestoreDefaults: onRestoreDefaults
                         )
                         .padding(.top, 8)
@@ -1330,6 +1338,7 @@ struct ContentView: View {
         @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
         @Binding var chordalShiftEnabled: Bool
+        @Binding var softSnapEnabled: Bool
         let onRestoreDefaults: () -> Void
 
         private let labelWidth: CGFloat = 140
@@ -1538,6 +1547,15 @@ struct ContentView: View {
                         Toggle("", isOn: $chordalShiftEnabled)
                             .toggleStyle(SwitchToggleStyle())
                             .labelsHidden()
+                    }
+                    GridRow {
+                        Text("Soft Snap")
+                            .frame(width: labelWidth, alignment: .leading)
+                        Toggle("", isOn: $softSnapEnabled)
+                            .toggleStyle(SwitchToggleStyle())
+                            .labelsHidden()
+                        Spacer()
+                            .gridCellColumns(2)
                     }
                 GridRow {
                     Button("Restore Defaults") {
@@ -2312,6 +2330,7 @@ struct ContentView: View {
         viewModel.updateAllowMouseTakeover(true)
         viewModel.updateSnapRadiusPercent(snapRadiusPercentSetting)
         viewModel.updateChordalShiftEnabled(chordalShiftEnabled)
+        viewModel.updateSoftSnapEnabled(softSnapEnabled)
         viewModel.setTouchSnapshotRecordingEnabled(visualsEnabled)
     }
 
@@ -2328,6 +2347,7 @@ struct ContentView: View {
         tapClickEnabled = GlassToKeySettings.tapClickEnabled
         snapRadiusPercentSetting = GlassToKeySettings.snapRadiusPercent
         chordalShiftEnabled = GlassToKeySettings.chordalShiftEnabled
+        softSnapEnabled = GlassToKeySettings.softSnapEnabled
     }
 
     private func saveSettings() {

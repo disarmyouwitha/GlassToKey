@@ -223,6 +223,10 @@ final class AutocorrectEngine: @unchecked Sendable {
         boundaryEvent: KeySemanticEvent
     ) -> [UInt8]? {
         guard shouldConsiderWord(bytes) else { return nil }
+        let hasAmbiguity = hasAmbiguity(ambiguity)
+        if bytes.count == 2, minWordLength <= 2, !hasAmbiguity {
+            return nil
+        }
         guard let word = String(bytes: bytes, encoding: .ascii) else { return nil }
         let fallbackRange = NSRange(location: 0, length: word.utf16.count)
         let (contextString, wordRange) =
@@ -262,6 +266,7 @@ final class AutocorrectEngine: @unchecked Sendable {
         if let ambiguousCorrection = attemptAmbiguousCorrection(
             bytes: bytes,
             ambiguity: ambiguity,
+            hasAmbiguity: hasAmbiguity,
             contextString: contextString,
             wordRange: wordRange,
             language: language
@@ -293,16 +298,12 @@ final class AutocorrectEngine: @unchecked Sendable {
     private func attemptAmbiguousCorrection(
         bytes: [UInt8],
         ambiguity: [UInt8],
+        hasAmbiguity: Bool,
         contextString: String,
         wordRange: NSRange,
         language: String
     ) -> [UInt8]? {
         guard bytes.count == ambiguity.count else { return nil }
-        var hasAmbiguity = false
-        for alt in ambiguity where alt != 0 {
-            hasAmbiguity = true
-            break
-        }
         guard hasAmbiguity else { return nil }
         guard let guesses = spellChecker.guesses(
             forWordRange: wordRange,
@@ -467,6 +468,13 @@ final class AutocorrectEngine: @unchecked Sendable {
         historyHead = lastIndex
         historyCount -= 1
         return true
+    }
+
+    private func hasAmbiguity(_ ambiguity: [UInt8]) -> Bool {
+        for alt in ambiguity where alt != 0 {
+            return true
+        }
+        return false
     }
 
     private struct ByteRing {

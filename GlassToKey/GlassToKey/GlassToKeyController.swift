@@ -14,6 +14,7 @@ enum GlassToKeySettings {
     static let tapClickEnabled: Bool = true
     static let snapRadiusPercent: Double = 35.0
     static let chordalShiftEnabled: Bool = true
+    static let softSnapEnabled: Bool = false
 
     static func persistedDouble(
         forKey key: String,
@@ -221,6 +222,9 @@ final class GlassToKeyController: ObservableObject {
         let chordalShiftEnabled = defaults.object(
             forKey: GlassToKeyDefaultsKeys.chordalShiftEnabled
         ) as? Bool ?? GlassToKeySettings.chordalShiftEnabled
+        let softSnapEnabled = defaults.object(
+            forKey: GlassToKeyDefaultsKeys.softSnapEnabled
+        ) as? Bool ?? GlassToKeySettings.softSnapEnabled
 
         viewModel.updateHoldThreshold(tapHoldMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragDistance))
@@ -233,6 +237,7 @@ final class GlassToKeyController: ObservableObject {
         viewModel.updateTapClickEnabled(tapClickEnabled)
         viewModel.updateSnapRadiusPercent(snapRadiusPercent)
         viewModel.updateChordalShiftEnabled(chordalShiftEnabled)
+        viewModel.updateSoftSnapEnabled(softSnapEnabled)
     }
 
     private func stringValue(forKey key: String) -> String {

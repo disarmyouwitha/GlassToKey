@@ -21,4 +21,5 @@ enum GlassToKeyDefaultsKeys {
     static let autocorrectMinWordLength = "GlassToKey.autocorrectMinWordLength"
     static let snapRadiusPercent = "GlassToKey.snapRadiusPercent"
     static let chordalShiftEnabled = "GlassToKey.chordalShiftEnabled"
+    static let softSnapEnabled = "GlassToKey.softSnapEnabled"
 }
