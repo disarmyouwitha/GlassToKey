@@ -89,10 +89,12 @@
 @interface OpenMTManager()
 
 @property (strong, readwrite) NSMutableArray *listeners;
+@property (strong, readwrite) NSMutableArray *rawListeners;
 @property (strong, readwrite) NSArray<OpenMTDeviceInfo *> *availableDeviceInfos;
 @property (strong, readwrite) NSArray<OpenMTDeviceInfo *> *activeDeviceInfos;
 @property (strong, readwrite) NSMutableDictionary<NSString *, NSValue *> *deviceRefs;
 @property (strong, readwrite) NSMutableDictionary<NSValue *, NSString *> *deviceIDsByRef;
+@property (strong, readwrite) NSMutableDictionary<NSValue *, NSNumber *> *deviceNumericIDsByRef;
 @property (strong, readwrite) NSMutableDictionary<NSString *, NSValue *> *availableDeviceRefs;
 @property (copy, readwrite) NSString *primaryDeviceID;
 
@@ -118,8 +120,10 @@
 - (instancetype)init {
     if (self = [super init]) {
         self.listeners = NSMutableArray.new;
+        self.rawListeners = NSMutableArray.new;
         self.deviceRefs = NSMutableDictionary.new;
         self.deviceIDsByRef = NSMutableDictionary.new;
+        self.deviceNumericIDsByRef = NSMutableDictionary.new;
         self.availableDeviceRefs = NSMutableDictionary.new;
         [self enumerateDevices];
         
@@ -242,6 +246,10 @@
     NSValue *refValue = [NSValue valueWithPointer:deviceRef];
     self.deviceRefs[deviceID] = refValue;
     self.deviceIDsByRef[refValue] = deviceID;
+    unsigned long long parsedID = strtoull(deviceID.UTF8String, NULL, 0);
+    if (parsedID > 0) {
+        self.deviceNumericIDsByRef[refValue] = @(parsedID);
+    }
 }
 
 - (void)clearDeviceRefs {
@@ -253,6 +261,7 @@
     }
     [self.deviceRefs removeAllObjects];
     [self.deviceIDsByRef removeAllObjects];
+    [self.deviceNumericIDsByRef removeAllObjects];
 }
 
 - (void)clearAvailableDeviceRefs {
@@ -311,6 +320,24 @@
     return nil;
 }
 
+- (uint64_t)deviceNumericIDForDeviceRef:(MTDeviceRef)deviceRef {
+    if (!deviceRef) {
+        return 0;
+    }
+    NSValue *refValue = [NSValue valueWithPointer:deviceRef];
+    NSNumber *cached = self.deviceNumericIDsByRef[refValue];
+    if (cached) {
+        return cached.unsignedLongLongValue;
+    }
+    uint64_t rawID = 0;
+    OSStatus err = MTDeviceGetDeviceID(deviceRef, &rawID);
+    if (!err && rawID > 0) {
+        self.deviceNumericIDsByRef[refValue] = @(rawID);
+        return rawID;
+    }
+    return 0;
+}
+
 //- (void)handlePathEvent:(OpenMTTouch *)touch {
 //    NSLog(@"%@", touch.description);
 //}
@@ -328,6 +355,32 @@
         dispatchResponseAsync(^{
             [listener listenToEvent:event];
         });
+    }
+}
+
+- (void)handleRawFrameWithDevice:(MTDeviceRef)deviceRef
+                         touches:(const MTTouch *)touches
+                           count:(int)numTouches
+                       timestamp:(double)timestamp
+                           frame:(int)frame {
+    if (self.rawListeners.count == 0) {
+        return;
+    }
+    uint64_t deviceID = [self deviceNumericIDForDeviceRef:deviceRef];
+    for (NSInteger i = self.rawListeners.count - 1; i >= 0; i--) {
+        OpenMTListener *listener = self.rawListeners[i];
+        if (listener.dead) {
+            [self.rawListeners removeObjectAtIndex:i];
+            continue;
+        }
+        if (!listener.listening) {
+            continue;
+        }
+        [listener listenToRawFrameWithTouches:touches
+                                        count:numTouches
+                                    timestamp:timestamp
+                                        frame:frame
+                                     deviceID:deviceID];
     }
 }
 
@@ -431,7 +484,7 @@
     dispatchSync(dispatch_get_main_queue(), ^{
         if (!self.class.systemSupportsMultitouch) { return; }
         listener = [[OpenMTListener alloc] initWithTarget:target selector:selector];
-        if (self.listeners.count == 0) {
+        if (self.listeners.count == 0 && self.rawListeners.count == 0) {
             [self startHandlingMultitouchEvents];
         }
         [self.listeners addObject:listener];
@@ -442,7 +495,29 @@
 - (void)removeListener:(OpenMTListener *)listener {
     dispatchSync(dispatch_get_main_queue(), ^{
         [self.listeners removeObject:listener];
-        if (self.listeners.count == 0) {
+        if (self.listeners.count == 0 && self.rawListeners.count == 0) {
+            [self stopHandlingMultitouchEvents];
+        }
+    });
+}
+
+- (OpenMTListener *)addRawListenerWithCallback:(OpenMTRawFrameCallback)callback {
+    __block OpenMTListener *listener = nil;
+    dispatchSync(dispatch_get_main_queue(), ^{
+        if (!self.class.systemSupportsMultitouch) { return; }
+        listener = [[OpenMTListener alloc] initWithRawCallback:callback];
+        if (self.listeners.count == 0 && self.rawListeners.count == 0) {
+            [self startHandlingMultitouchEvents];
+        }
+        [self.rawListeners addObject:listener];
+    });
+    return listener;
+}
+
+- (void)removeRawListener:(OpenMTListener *)listener {
+    dispatchSync(dispatch_get_main_queue(), ^{
+        [self.rawListeners removeObject:listener];
+        if (self.listeners.count == 0 && self.rawListeners.count == 0) {
             [self stopHandlingMultitouchEvents];
         }
     });
@@ -594,20 +669,29 @@ static void dispatchResponseAsync(dispatch_block_t block) {
 
 static void contactEventHandler(MTDeviceRef eventDevice, MTTouch eventTouches[], int numTouches, double timestamp, int frame) {
     @autoreleasepool {
+        OpenMTManager *manager = OpenMTManager.sharedManager;
+        [manager handleRawFrameWithDevice:eventDevice
+                                  touches:eventTouches
+                                    count:numTouches
+                                timestamp:timestamp
+                                    frame:frame];
+        if (manager.listeners.count == 0) {
+            return;
+        }
         NSMutableArray *touches = [NSMutableArray arrayWithCapacity:(NSUInteger)numTouches];
-        
+
         for (int i = 0; i < numTouches; i++) {
             OpenMTTouch *touch = [[OpenMTTouch alloc] initWithMTTouch:&eventTouches[i]];
             [touches addObject:touch];
         }
-        
+
         OpenMTEvent *event = OpenMTEvent.new;
         event.touches = touches;
-        event.deviceID = [OpenMTManager.sharedManager deviceIDForDeviceRef:eventDevice] ?: @"Unknown";
+        event.deviceID = [manager deviceIDForDeviceRef:eventDevice] ?: @"Unknown";
         event.frameID = frame;
         event.timestamp = timestamp;
-        
-        [OpenMTManager.sharedManager handleMultitouchEvent:event];
+
+        [manager handleMultitouchEvent:event];
     }
 }
 

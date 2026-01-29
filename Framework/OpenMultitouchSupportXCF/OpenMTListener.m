@@ -11,6 +11,7 @@
 @implementation OpenMTListener {
 @private
     OpenMTEventCallback _callback;
+    OpenMTRawFrameCallback _rawCallback;
     __weak id _target;
     SEL _selector;
 }
@@ -30,6 +31,13 @@
     return self;
 }
 
+- (instancetype)initWithRawCallback:(OpenMTRawFrameCallback)callback {
+    if (self = [self init]) {
+        _rawCallback = [callback copy];
+    }
+    return self;
+}
+
 - (void)listenToEvent:(OpenMTEvent *)event {
     if (self.dead || !self.listening) {
         return;
@@ -44,8 +52,21 @@
     }
 }
 
+- (void)listenToRawFrameWithTouches:(const MTTouch *)touches
+                              count:(int)numTouches
+                          timestamp:(double)timestamp
+                              frame:(int)frame
+                           deviceID:(uint64_t)deviceID {
+    if (self.dead || !self.listening || !_rawCallback) {
+        return;
+    }
+    _rawCallback(touches, numTouches, timestamp, frame, deviceID);
+}
+
 - (BOOL)dead {
-    return !(_callback || (_target && _selector && [_target respondsToSelector:_selector]));
+    return !(_callback
+             || _rawCallback
+             || (_target && _selector && [_target respondsToSelector:_selector]));
 }
 
 @end

@@ -37,10 +37,13 @@ public final class OMSManager: Sendable {
     public static let shared = OMSManager()
 
     private let protectedManager: OSAllocatedUnfairLock<OpenMTManager?>
-    private let protectedListener = OSAllocatedUnfairLock<OpenMTListener?>(uncheckedState: nil)
+    private let protectedRawListener = OSAllocatedUnfairLock<OpenMTListener?>(uncheckedState: nil)
     private let protectedTimestampEnabled = OSAllocatedUnfairLock<Bool>(uncheckedState: true)
     private let protectedDeviceIndexStore = OSAllocatedUnfairLock<DeviceIndexStore>(
         uncheckedState: DeviceIndexStore()
+    )
+    private let deviceIDStringCache = OSAllocatedUnfairLock<[UInt64: String]>(
+        uncheckedState: [:]
     )
     private let touchContinuations = OSAllocatedUnfairLock<[UUID: AsyncStream<[OMSTouchData]>.Continuation]>(
         uncheckedState: [:]
@@ -85,7 +88,7 @@ public final class OMSManager: Sendable {
     }
 
     public var isListening: Bool {
-        protectedListener.withLockUnchecked { $0 != nil }
+        protectedRawListener.withLockUnchecked { $0 != nil }
     }
 
     public var isTimestampEnabled: Bool {
@@ -111,25 +114,30 @@ public final class OMSManager: Sendable {
     @discardableResult
     public func startListening() -> Bool {
         guard let xcfManager = protectedManager.withLockUnchecked(\.self),
-              protectedListener.withLockUnchecked({ $0 == nil }) else {
+              protectedRawListener.withLockUnchecked({ $0 == nil }) else {
             return false
         }
-        let listener = xcfManager.addListener(
-            withTarget: self,
-            selector: #selector(listen)
-        )
-        protectedListener.withLockUnchecked { $0 = listener }
+        let listener = xcfManager.addRawListener(callback: { [weak self] touches, count, timestamp, frame, deviceID in
+            self?.handleRawFrame(
+                touches: touches,
+                count: Int(count),
+                timestamp: timestamp,
+                frame: Int(frame),
+                deviceID: deviceID
+            )
+        })
+        protectedRawListener.withLockUnchecked { $0 = listener }
         return true
     }
 
     @discardableResult
     public func stopListening() -> Bool {
         guard let xcfManager = protectedManager.withLockUnchecked(\.self),
-              let listener = protectedListener.withLockUnchecked(\.self) else {
+              let listener = protectedRawListener.withLockUnchecked(\.self) else {
             return false
         }
-        xcfManager.remove(listener)
-        protectedListener.withLockUnchecked { $0 = nil }
+        xcfManager.removeRawListener(listener)
+        protectedRawListener.withLockUnchecked { $0 = nil }
         return true
     }
     
@@ -170,8 +178,8 @@ public final class OMSManager: Sendable {
     }
 
     public func deviceIndex(for deviceID: String) -> Int? {
-        guard !deviceID.isEmpty else { return nil }
-        return resolveDeviceIndex(for: deviceID)
+        guard let parsedID = UInt64(deviceID) else { return nil }
+        return resolveDeviceIndex(for: parsedID)
     }
 
     @objc func listen(_ event: OpenMTEvent) {
@@ -182,7 +190,8 @@ public final class OMSManager: Sendable {
         guard let touches = (event.touches as NSArray) as? [OpenMTTouch] else { return }
         let frameTimestamp = event.timestamp
         let deviceID = event.deviceID ?? "Unknown"
-        let deviceIndex = resolveDeviceIndex(for: deviceID)
+        let numericID = UInt64(deviceID) ?? 0
+        let deviceIndex = resolveDeviceIndex(for: numericID)
         if touches.isEmpty {
             emitRawTouchFrame(
                 OMSRawTouchFrame(
@@ -226,6 +235,64 @@ public final class OMSManager: Sendable {
         emitRawTouchFrame(frame)
     }
 
+    private func handleRawFrame(
+        touches: UnsafePointer<MTTouch>?,
+        count: Int,
+        timestamp: TimeInterval,
+        frame: Int,
+        deviceID: UInt64
+    ) {
+#if DEBUG
+        let signpostState = signposter.beginInterval("OpenMTRawFrame")
+        defer { signposter.endInterval("OpenMTRawFrame", signpostState) }
+#endif
+        let deviceIndex = resolveDeviceIndex(for: deviceID)
+        let deviceIDString = deviceIDString(for: deviceID)
+        guard let touches, count > 0 else {
+            emitRawTouchFrame(
+                OMSRawTouchFrame(
+                    deviceID: deviceIDString,
+                    deviceIndex: deviceIndex,
+                    timestamp: timestamp,
+                    buffer: nil,
+                    releaseHandler: nil
+                )
+            )
+            return
+        }
+        let buffer = takeBuffer(capacity: count)
+        buffer.touches.reserveCapacity(count)
+        for index in 0..<count {
+            let touch = touches[index]
+            let state = OpenMTState(rawValue: UInt(touch.state)) ?? .notTouching
+            buffer.touches.append(OMSRawTouch(
+                id: Int32(touch.identifier),
+                posX: touch.normalizedPosition.position.x,
+                posY: touch.normalizedPosition.position.y,
+                total: touch.total,
+                pressure: touch.pressure,
+                majorAxis: touch.majorAxis,
+                minorAxis: touch.minorAxis,
+                angle: touch.angle,
+                density: touch.density,
+                state: state
+            ))
+        }
+        let rawFrame = OMSRawTouchFrame(
+            deviceID: deviceIDString,
+            deviceIndex: deviceIndex,
+            timestamp: timestamp,
+            buffer: buffer,
+            releaseHandler: { [rawBufferPool] buffer in
+                rawBufferPool.withLockUnchecked { pool in
+                    pool.append(buffer)
+                    return ()
+                }
+            }
+        )
+        emitRawTouchFrame(rawFrame)
+    }
+
     private func emitTouchData(_ data: [OMSTouchData]) {
         let continuations = touchContinuations.withLockUnchecked { Array($0.values) }
         for continuation in continuations {
@@ -243,9 +310,21 @@ public final class OMSManager: Sendable {
         }
     }
 
-    private func resolveDeviceIndex(for deviceID: String) -> Int {
+    private func resolveDeviceIndex(for deviceID: UInt64) -> Int {
         protectedDeviceIndexStore.withLockUnchecked { store in
             store.index(for: deviceID)
+        }
+    }
+
+    private func deviceIDString(for deviceID: UInt64) -> String {
+        guard deviceID > 0 else { return "Unknown" }
+        return deviceIDStringCache.withLockUnchecked { cache in
+            if let cached = cache[deviceID] {
+                return cached
+            }
+            let value = String(deviceID)
+            cache[deviceID] = value
+            return value
         }
     }
 
@@ -296,13 +375,13 @@ public final class OMSManager: Sendable {
 }
 
 private struct DeviceIndexStore: Sendable {
-    private var id0: String?
-    private var id1: String?
+    private var id0: UInt64?
+    private var id1: UInt64?
     private var last0: UInt64 = 0
     private var last1: UInt64 = 0
     private var counter: UInt64 = 0
 
-    mutating func index(for deviceID: String) -> Int {
+    mutating func index(for deviceID: UInt64) -> Int {
         if id0 == deviceID {
             last0 = tick()
             return 0
