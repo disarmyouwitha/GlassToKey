@@ -2,6 +2,7 @@
 - expose slider for click stagger?
 
 # bettr auto complete: feed it my resurrection buffer for better results??
+^ feed it complete sentences
 
 - normalize % to px??
 - any vestigial code?  

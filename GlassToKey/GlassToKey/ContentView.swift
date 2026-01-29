@@ -88,6 +88,8 @@ struct ContentView: View {
     private var intentVelocityThresholdMmPerSecSetting: Double = GlassToKeySettings.intentVelocityThresholdMmPerSec
     @AppStorage(GlassToKeyDefaultsKeys.autocorrectEnabled)
     private var autocorrectEnabled = GlassToKeySettings.autocorrectEnabled
+    @AppStorage(GlassToKeyDefaultsKeys.autocorrectMinWordLength)
+    private var autocorrectMinWordLength = GlassToKeySettings.autocorrectMinWordLength
     @AppStorage(GlassToKeyDefaultsKeys.tapClickEnabled)
     private var tapClickEnabled = GlassToKeySettings.tapClickEnabled
     @AppStorage(GlassToKeyDefaultsKeys.snapRadiusPercent)
@@ -379,6 +381,9 @@ struct ContentView: View {
             .onChange(of: autocorrectEnabled) { newValue in
                 AutocorrectEngine.shared.setEnabled(newValue)
             }
+            .onChange(of: autocorrectMinWordLength) { newValue in
+                AutocorrectEngine.shared.setMinimumWordLength(newValue)
+            }
             .onChange(of: tapClickEnabled) { newValue in
                 viewModel.updateTapClickEnabled(newValue)
             }
@@ -490,6 +495,7 @@ struct ContentView: View {
             intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
             autocorrectEnabled: $autocorrectEnabled,
+            autocorrectMinWordLength: $autocorrectMinWordLength,
             tapClickEnabled: $tapClickEnabled,
             snapRadiusPercentSetting: $snapRadiusPercentSetting,
             chordalShiftEnabled: $chordalShiftEnabled,
@@ -728,6 +734,7 @@ struct ContentView: View {
         @Binding var intentMoveThresholdMmSetting: Double
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var autocorrectEnabled: Bool
+        @Binding var autocorrectMinWordLength: Int
         @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
         @Binding var chordalShiftEnabled: Bool
@@ -772,6 +779,7 @@ struct ContentView: View {
                             intentMoveThresholdMmSetting: $intentMoveThresholdMmSetting,
                             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
                             autocorrectEnabled: $autocorrectEnabled,
+                            autocorrectMinWordLength: $autocorrectMinWordLength,
                             tapClickEnabled: $tapClickEnabled,
                             snapRadiusPercentSetting: $snapRadiusPercentSetting,
                             chordalShiftEnabled: $chordalShiftEnabled,
@@ -1318,6 +1326,7 @@ struct ContentView: View {
         @Binding var intentMoveThresholdMmSetting: Double
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var autocorrectEnabled: Bool
+        @Binding var autocorrectMinWordLength: Int
         @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
         @Binding var chordalShiftEnabled: Bool
@@ -1507,6 +1516,16 @@ struct ContentView: View {
                         Toggle("", isOn: $tapClickEnabled)
                             .toggleStyle(SwitchToggleStyle())
                             .labelsHidden()
+                    }
+                    GridRow {
+                        Text("Autocorrect Min")
+                            .frame(width: labelWidth, alignment: .leading)
+                        Text("\(autocorrectMinWordLength)")
+                            .frame(width: valueFieldWidth, alignment: .leading)
+                        Stepper("", value: $autocorrectMinWordLength, in: 2...6)
+                            .labelsHidden()
+                            .frame(minWidth: 120)
+                            .gridCellColumns(2)
                     }
                     GridRow {
                         Text("Snap Radius")
@@ -2265,6 +2284,7 @@ struct ContentView: View {
         visualsEnabled = storedVisualsEnabled
         viewModel.setStatusVisualsEnabled(visualsEnabled)
         AutocorrectEngine.shared.setEnabled(autocorrectEnabled)
+        AutocorrectEngine.shared.setMinimumWordLength(autocorrectMinWordLength)
         let resolvedLayout = TrackpadLayoutPreset(rawValue: storedLayoutPreset) ?? .sixByThree
         layoutOption = resolvedLayout
         selectedColumn = nil
@@ -2304,6 +2324,7 @@ struct ContentView: View {
         intentMoveThresholdMmSetting = GlassToKeySettings.intentMoveThresholdMm
         intentVelocityThresholdMmPerSecSetting = GlassToKeySettings.intentVelocityThresholdMmPerSec
         autocorrectEnabled = GlassToKeySettings.autocorrectEnabled
+        autocorrectMinWordLength = GlassToKeySettings.autocorrectMinWordLength
         tapClickEnabled = GlassToKeySettings.tapClickEnabled
         snapRadiusPercentSetting = GlassToKeySettings.snapRadiusPercent
         chordalShiftEnabled = GlassToKeySettings.chordalShiftEnabled

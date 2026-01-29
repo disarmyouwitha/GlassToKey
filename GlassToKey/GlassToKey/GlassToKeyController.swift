@@ -10,6 +10,7 @@ enum GlassToKeySettings {
     static let intentMoveThresholdMm: Double = 4.0
     static let intentVelocityThresholdMmPerSec: Double = 50.0
     static let autocorrectEnabled: Bool = true
+    static let autocorrectMinWordLength: Int = 3
     static let tapClickEnabled: Bool = true
     static let snapRadiusPercent: Double = 35.0
     static let chordalShiftEnabled: Bool = true
@@ -105,6 +106,10 @@ final class GlassToKeyController: ObservableObject {
             forKey: GlassToKeyDefaultsKeys.autocorrectEnabled
         )
         AutocorrectEngine.shared.setEnabled(autocorrectEnabled)
+        let autocorrectMinLength = UserDefaults.standard.object(
+            forKey: GlassToKeyDefaultsKeys.autocorrectMinWordLength
+        ) as? Int ?? GlassToKeySettings.autocorrectMinWordLength
+        AutocorrectEngine.shared.setMinimumWordLength(autocorrectMinLength)
 
         let leftDeviceID = stringValue(forKey: GlassToKeyDefaultsKeys.leftDeviceID)
         let rightDeviceID = stringValue(forKey: GlassToKeyDefaultsKeys.rightDeviceID)

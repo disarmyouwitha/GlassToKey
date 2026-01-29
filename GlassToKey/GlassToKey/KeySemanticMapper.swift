@@ -7,6 +7,7 @@ enum KeySemanticKind: UInt8 {
     case boundary = 2
     case backspace = 3
     case nonText = 4
+    case navigation = 5
 }
 
 struct KeySemanticEvent: Sendable {
@@ -317,6 +318,17 @@ struct KeySemanticMapper {
             )
         }
 
+        if isLeftRightArrow(code) {
+            return KeySemanticEvent(
+                timestampNs: timestampNs,
+                code: code,
+                flags: flags,
+                kind: .navigation,
+                ascii: 0,
+                altAscii: 0
+            )
+        }
+
         if code == CGKeyCode(kVK_Delete) {
             return KeySemanticEvent(
                 timestampNs: timestampNs,
@@ -442,15 +454,23 @@ struct KeySemanticMapper {
 
     private static func isCancelKey(_ code: CGKeyCode) -> Bool {
         switch code {
-        case CGKeyCode(kVK_LeftArrow),
-             CGKeyCode(kVK_RightArrow),
-             CGKeyCode(kVK_UpArrow),
+        case CGKeyCode(kVK_UpArrow),
              CGKeyCode(kVK_DownArrow),
              CGKeyCode(kVK_Escape),
              CGKeyCode(kVK_Home),
              CGKeyCode(kVK_End),
              CGKeyCode(kVK_PageUp),
              CGKeyCode(kVK_PageDown):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isLeftRightArrow(_ code: CGKeyCode) -> Bool {
+        switch code {
+        case CGKeyCode(kVK_LeftArrow),
+             CGKeyCode(kVK_RightArrow):
             return true
         default:
             return false

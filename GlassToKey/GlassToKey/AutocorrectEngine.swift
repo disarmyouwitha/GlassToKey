@@ -15,12 +15,12 @@ final class AutocorrectEngine: @unchecked Sendable {
     private static let capacity = 2048
     private static let mask = capacity - 1
     private static let historyCapacity = 3
-    private static let maxContextCharacters = 280
-    private static let contextBoundaryCharacterSet: CharacterSet =
-        CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
+    private static let maxContextLeft = 1024
+    private static let maxContextRight = 256
 
     nonisolated(unsafe) private static var enabledFlag: Int32 = 0
     nonisolated(unsafe) private static var suppressionCount: Int64 = 0
+    nonisolated(unsafe) private static var minWordLengthFlag: Int32 = 3
 
     private let queue: DispatchQueue
     private let wakeSource: DispatchSourceUserDataAdd
@@ -35,11 +35,11 @@ final class AutocorrectEngine: @unchecked Sendable {
     private var wordBuffer: [UInt8] = []
     private var autocorrectBuffer: [UInt8] = []
     private var ambiguityBuffer: [UInt8] = []
-    private var contextBuffer: [UInt8] = []
+    private var leftContext = ByteRing(capacity: AutocorrectEngine.maxContextLeft)
+    private var rightContext = ByteRing(capacity: AutocorrectEngine.maxContextRight)
     private var historyBuffers: [[UInt8]] = []
     private var historyHead = 0
     private var historyCount = 0
-    private let minWordLength = 3
     private let maxWordLength = 64
 
     private init() {
@@ -65,7 +65,6 @@ final class AutocorrectEngine: @unchecked Sendable {
         for index in 0..<historyBuffers.count {
             historyBuffers[index].reserveCapacity(maxWordLength)
         }
-        contextBuffer.reserveCapacity(Self.maxContextCharacters)
     }
 
     func setEnabled(_ enabled: Bool) {
@@ -79,9 +78,19 @@ final class AutocorrectEngine: @unchecked Sendable {
                 self?.wordBuffer.removeAll(keepingCapacity: true)
                 self?.autocorrectBuffer.removeAll(keepingCapacity: true)
                 self?.ambiguityBuffer.removeAll(keepingCapacity: true)
-                self?.contextBuffer.removeAll(keepingCapacity: true)
+                self?.leftContext.removeAll()
+                self?.rightContext.removeAll()
                 self?.resetHistory()
             }
+        }
+    }
+
+    func setMinimumWordLength(_ length: Int) {
+        let clamped = max(2, min(length, maxWordLength))
+        let value = Int32(clamped)
+        var current = OSAtomicAdd32Barrier(0, &Self.minWordLengthFlag)
+        while !OSAtomicCompareAndSwap32Barrier(current, value, &Self.minWordLengthFlag) {
+            current = OSAtomicAdd32Barrier(0, &Self.minWordLengthFlag)
         }
     }
 
@@ -113,6 +122,10 @@ final class AutocorrectEngine: @unchecked Sendable {
         OSAtomicAdd64Barrier(0, &Self.suppressionCount) > 0
     }
 
+    private var minWordLength: Int {
+        Int(OSAtomicAdd32Barrier(0, &Self.minWordLengthFlag))
+    }
+
     private func enqueue(_ event: KeySemanticEvent) {
         let index = OSAtomicIncrement64Barrier(&writeIndex) - 1
         let slot = Int(index) & Self.mask
@@ -127,6 +140,9 @@ final class AutocorrectEngine: @unchecked Sendable {
             readIndex = end
             wordBuffer.removeAll(keepingCapacity: true)
             autocorrectBuffer.removeAll(keepingCapacity: true)
+            ambiguityBuffer.removeAll(keepingCapacity: true)
+            leftContext.removeAll()
+            rightContext.removeAll()
             resetHistory()
             return
         }
@@ -152,7 +168,9 @@ final class AutocorrectEngine: @unchecked Sendable {
             if ambiguityBuffer.count < maxWordLength {
                 ambiguityBuffer.append(event.altAscii)
             }
+            leftContext.append(event.ascii)
         case .backspace:
+            _ = leftContext.popLast()
             if !wordBuffer.isEmpty {
                 wordBuffer.removeLast()
                 if !autocorrectBuffer.isEmpty {
@@ -168,30 +186,34 @@ final class AutocorrectEngine: @unchecked Sendable {
             }
         case .boundary:
             if !wordBuffer.isEmpty {
-                let originalBytes = wordBuffer
-                var committedBytes = originalBytes
                 if autocorrectBuffer.count == wordBuffer.count,
                    let correctedBytes = attemptCorrection(
                     bytes: autocorrectBuffer,
                     ambiguity: ambiguityBuffer,
                     boundaryEvent: event
                    ) {
-                    committedBytes = correctedBytes
                     pushHistory(bytes: correctedBytes)
                 } else {
                     pushHistoryFromCurrent()
                 }
-                commitWordToContext(committedBytes, boundaryEvent: event)
-                wordBuffer.removeAll(keepingCapacity: true)
-                autocorrectBuffer.removeAll(keepingCapacity: true)
-                ambiguityBuffer.removeAll(keepingCapacity: true)
             }
+            appendBoundaryByte(for: event)
+            wordBuffer.removeAll(keepingCapacity: true)
+            autocorrectBuffer.removeAll(keepingCapacity: true)
+            ambiguityBuffer.removeAll(keepingCapacity: true)
+        case .navigation:
+            handleNavigation(event)
+            wordBuffer.removeAll(keepingCapacity: true)
+            autocorrectBuffer.removeAll(keepingCapacity: true)
+            ambiguityBuffer.removeAll(keepingCapacity: true)
+            resetHistory()
         case .nonText:
             wordBuffer.removeAll(keepingCapacity: true)
             autocorrectBuffer.removeAll(keepingCapacity: true)
             ambiguityBuffer.removeAll(keepingCapacity: true)
             resetHistory()
-            contextBuffer.removeAll(keepingCapacity: true)
+            leftContext.removeAll()
+            rightContext.removeAll()
         }
     }
 
@@ -316,51 +338,42 @@ final class AutocorrectEngine: @unchecked Sendable {
         return nil
     }
 
-    private func commitWordToContext(_ wordBytes: [UInt8], boundaryEvent: KeySemanticEvent) {
-        guard !wordBytes.isEmpty else { return }
-        contextBuffer.append(contentsOf: wordBytes)
-        appendBoundaryByte(for: boundaryEvent)
-        trimContextIfNeeded()
-    }
-
     private func appendBoundaryByte(for boundaryEvent: KeySemanticEvent) {
         let ascii = boundaryEvent.ascii
         if ascii != 0 {
-            contextBuffer.append(ascii)
+            leftContext.append(ascii)
             return
         }
-        contextBuffer.append(UInt8(ascii: " "))
-    }
-
-    private func trimContextIfNeeded() {
-        let excess = contextBuffer.count - Self.maxContextCharacters
-        if excess > 0 {
-            contextBuffer.removeFirst(excess)
-        }
+        leftContext.append(UInt8(ascii: " "))
     }
 
     private func contextStringForCorrection(currentWordBytes: [UInt8]) -> (String, NSRange)? {
-        guard let currentWord = String(bytes: currentWordBytes, encoding: .ascii) else { return nil }
-        let prefix: String
-        if contextBuffer.isEmpty {
-            prefix = ""
-        } else {
-            guard let decoded = String(bytes: contextBuffer, encoding: .ascii) else { return nil }
-            prefix = decoded
-        }
-        var context = prefix
-        if !context.isEmpty, needsSeparatorBeforeAppending(to: context) {
-            context.append(" ")
-        }
-        let wordStart = context.utf16.count
-        context.append(currentWord)
-        let wordRange = NSRange(location: wordStart, length: currentWord.utf16.count)
+        let wordLength = currentWordBytes.count
+        guard wordLength > 0 else { return nil }
+        var contextBytes: [UInt8] = []
+        contextBytes.reserveCapacity(leftContext.count + rightContext.count)
+        leftContext.appendInOrder(to: &contextBytes)
+        guard contextBytes.count >= wordLength else { return nil }
+        let wordStart = contextBytes.count - wordLength
+        rightContext.appendInReverseOrder(to: &contextBytes)
+        guard let context = String(bytes: contextBytes, encoding: .ascii) else { return nil }
+        let wordRange = NSRange(location: wordStart, length: wordLength)
         return (context, wordRange)
     }
 
-    private func needsSeparatorBeforeAppending(to prefix: String) -> Bool {
-        guard let lastScalar = prefix.unicodeScalars.last else { return false }
-        return !Self.contextBoundaryCharacterSet.contains(lastScalar)
+    private func handleNavigation(_ event: KeySemanticEvent) {
+        switch event.code {
+        case CGKeyCode(kVK_LeftArrow):
+            if let byte = leftContext.popLast() {
+                rightContext.append(byte)
+            }
+        case CGKeyCode(kVK_RightArrow):
+            if let byte = rightContext.popLast() {
+                leftContext.append(byte)
+            }
+        default:
+            break
+        }
     }
 
     private func shouldConsiderWord(_ bytes: [UInt8]) -> Bool {
@@ -454,5 +467,64 @@ final class AutocorrectEngine: @unchecked Sendable {
         historyHead = lastIndex
         historyCount -= 1
         return true
+    }
+
+    private struct ByteRing {
+        private var buffer: [UInt8]
+        private var head = 0
+        private(set) var count = 0
+
+        init(capacity: Int) {
+            buffer = [UInt8](repeating: 0, count: max(0, capacity))
+        }
+
+        mutating func removeAll() {
+            head = 0
+            count = 0
+        }
+
+        mutating func append(_ byte: UInt8) {
+            guard !buffer.isEmpty else { return }
+            if count < buffer.count {
+                buffer[(head + count) % buffer.count] = byte
+                count += 1
+                return
+            }
+            buffer[head] = byte
+            head = (head + 1) % buffer.count
+        }
+
+        mutating func popLast() -> UInt8? {
+            guard count > 0 else { return nil }
+            let index = (head + count - 1) % buffer.count
+            let byte = buffer[index]
+            count -= 1
+            return byte
+        }
+
+        mutating func popFirst() -> UInt8? {
+            guard count > 0 else { return nil }
+            let byte = buffer[head]
+            head = (head + 1) % buffer.count
+            count -= 1
+            return byte
+        }
+
+        func appendInOrder(to array: inout [UInt8]) {
+            guard count > 0 else { return }
+            for index in 0..<count {
+                array.append(buffer[(head + index) % buffer.count])
+            }
+        }
+
+        func appendInReverseOrder(to array: inout [UInt8]) {
+            guard count > 0 else { return }
+            var index = count - 1
+            while true {
+                array.append(buffer[(head + index) % buffer.count])
+                if index == 0 { break }
+                index -= 1
+            }
+        }
     }
 }

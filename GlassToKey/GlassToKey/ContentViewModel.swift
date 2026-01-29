@@ -2499,6 +2499,21 @@ final class ContentViewModel: ObservableObject {
                         point: point,
                         rect: bindings.snapBindings[secondIndex].rect
                     )
+#if DEBUG
+                    let bestLabel = bindings.snapBindings[bestIndex].label
+                    let secondLabel = bindings.snapBindings[secondIndex].label
+                    NSLog(
+                        "Snap ambiguity at (%.2f, %.2f): best=%@ d2=%.3f edge2=%.3f, second=%@ d2=%.3f edge2=%.3f",
+                        point.x,
+                        point.y,
+                        bestLabel,
+                        bestDistanceSq,
+                        bestEdgeDistance,
+                        secondLabel,
+                        secondDistanceSq,
+                        secondEdgeDistance
+                    )
+#endif
                     if secondEdgeDistance < bestEdgeDistance {
                         selectedIndex = secondIndex
                         alternateIndex = bestIndex
