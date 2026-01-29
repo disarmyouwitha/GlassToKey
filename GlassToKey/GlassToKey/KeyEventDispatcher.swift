@@ -11,12 +11,23 @@ final class KeyEventDispatcher: @unchecked Sendable {
         dispatcher = CGEventKeyDispatcher()
     }
 
-    func postKeyStroke(code: CGKeyCode, flags: CGEventFlags, token: RepeatToken? = nil) {
-        dispatcher.postKeyStroke(code: code, flags: flags, token: token)
+    func postKeyStroke(
+        code: CGKeyCode,
+        flags: CGEventFlags,
+        altAscii: UInt8 = 0,
+        token: RepeatToken? = nil
+    ) {
+        dispatcher.postKeyStroke(code: code, flags: flags, altAscii: altAscii, token: token)
     }
 
-    func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool, token: RepeatToken? = nil) {
-        dispatcher.postKey(code: code, flags: flags, keyDown: keyDown, token: token)
+    func postKey(
+        code: CGKeyCode,
+        flags: CGEventFlags,
+        keyDown: Bool,
+        altAscii: UInt8 = 0,
+        token: RepeatToken? = nil
+    ) {
+        dispatcher.postKey(code: code, flags: flags, keyDown: keyDown, altAscii: altAscii, token: token)
     }
 
     func postLeftClick(clickCount: Int = 1) {
@@ -29,8 +40,8 @@ final class KeyEventDispatcher: @unchecked Sendable {
 }
 
 private protocol KeyDispatching: Sendable {
-    func postKeyStroke(code: CGKeyCode, flags: CGEventFlags, token: RepeatToken?)
-    func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool, token: RepeatToken?)
+    func postKeyStroke(code: CGKeyCode, flags: CGEventFlags, altAscii: UInt8, token: RepeatToken?)
+    func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool, altAscii: UInt8, token: RepeatToken?)
     func postLeftClick(clickCount: Int)
     func postRightClick()
 }
@@ -42,7 +53,12 @@ private final class CGEventKeyDispatcher: @unchecked Sendable, KeyDispatching {
     )
     private var eventSource: CGEventSource?
 
-    func postKeyStroke(code: CGKeyCode, flags: CGEventFlags, token: RepeatToken? = nil) {
+    func postKeyStroke(
+        code: CGKeyCode,
+        flags: CGEventFlags,
+        altAscii: UInt8,
+        token: RepeatToken? = nil
+    ) {
         queue.async { [self] in
             if let token, !token.isActive {
                 return
@@ -71,7 +87,8 @@ private final class CGEventKeyDispatcher: @unchecked Sendable, KeyDispatching {
                 AutocorrectEngine.shared.recordDispatchedKey(
                     code: code,
                     flags: flags,
-                    keyDown: true
+                    keyDown: true,
+                    altAscii: altAscii
                 )
                 keyDown.flags = flags
                 keyUp.flags = flags
@@ -81,7 +98,13 @@ private final class CGEventKeyDispatcher: @unchecked Sendable, KeyDispatching {
         }
     }
 
-    func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool, token: RepeatToken? = nil) {
+    func postKey(
+        code: CGKeyCode,
+        flags: CGEventFlags,
+        keyDown: Bool,
+        altAscii: UInt8,
+        token: RepeatToken? = nil
+    ) {
         queue.async { [self] in
             if let token, !token.isActive {
                 return
@@ -106,7 +129,8 @@ private final class CGEventKeyDispatcher: @unchecked Sendable, KeyDispatching {
                     AutocorrectEngine.shared.recordDispatchedKey(
                         code: code,
                         flags: flags,
-                        keyDown: true
+                        keyDown: true,
+                        altAscii: altAscii
                     )
                 }
                 event.flags = flags

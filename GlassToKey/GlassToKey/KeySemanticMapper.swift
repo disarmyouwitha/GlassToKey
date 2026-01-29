@@ -7,6 +7,7 @@ enum KeySemanticKind: UInt8 {
     case boundary = 2
     case backspace = 3
     case nonText = 4
+    case navigation = 5
 }
 
 struct KeySemanticEvent: Sendable {
@@ -15,13 +16,15 @@ struct KeySemanticEvent: Sendable {
     var flags: CGEventFlags
     var kind: KeySemanticKind
     var ascii: UInt8
+    var altAscii: UInt8
 
     static let empty = KeySemanticEvent(
         timestampNs: 0,
         code: 0,
         flags: [],
         kind: .nonText,
-        ascii: 0
+        ascii: 0,
+        altAscii: 0
     )
 
     var boundaryLength: Int {
@@ -301,7 +304,8 @@ struct KeySemanticMapper {
     static func semanticEvent(
         code: CGKeyCode,
         flags: CGEventFlags,
-        timestampNs: UInt64
+        timestampNs: UInt64,
+        altAscii: UInt8 = 0
     ) -> KeySemanticEvent? {
         if flags.contains(.maskCommand) || flags.contains(.maskControl) || flags.contains(.maskAlternate) {
             return KeySemanticEvent(
@@ -309,7 +313,19 @@ struct KeySemanticMapper {
                 code: code,
                 flags: flags,
                 kind: .nonText,
-                ascii: 0
+                ascii: 0,
+                altAscii: 0
+            )
+        }
+
+        if isLeftRightArrow(code) {
+            return KeySemanticEvent(
+                timestampNs: timestampNs,
+                code: code,
+                flags: flags,
+                kind: .navigation,
+                ascii: 0,
+                altAscii: 0
             )
         }
 
@@ -319,7 +335,8 @@ struct KeySemanticMapper {
                 code: code,
                 flags: flags,
                 kind: .backspace,
-                ascii: 0
+                ascii: 0,
+                altAscii: 0
             )
         }
 
@@ -329,7 +346,8 @@ struct KeySemanticMapper {
                 code: code,
                 flags: flags,
                 kind: .boundary,
-                ascii: ascii("\n")
+                ascii: ascii("\n"),
+                altAscii: 0
             )
         }
 
@@ -339,7 +357,8 @@ struct KeySemanticMapper {
                 code: code,
                 flags: flags,
                 kind: .boundary,
-                ascii: ascii("\t")
+                ascii: ascii("\t"),
+                altAscii: 0
             )
         }
 
@@ -349,7 +368,8 @@ struct KeySemanticMapper {
                 code: code,
                 flags: flags,
                 kind: .boundary,
-                ascii: ascii(" ")
+                ascii: ascii(" "),
+                altAscii: 0
             )
         }
 
@@ -368,7 +388,8 @@ struct KeySemanticMapper {
                     code: code,
                     flags: flags,
                     kind: .nonText,
-                    ascii: 0
+                    ascii: 0,
+                    altAscii: 0
                 )
             }
             return nil
@@ -380,8 +401,35 @@ struct KeySemanticMapper {
             code: code,
             flags: flags,
             kind: kind,
-            ascii: ascii
+            ascii: ascii,
+            altAscii: kind == .text && altAscii != 0 && altAscii != ascii ? altAscii : 0
         )
+    }
+
+    static func asciiForKey(code: CGKeyCode, flags: CGEventFlags) -> UInt8 {
+        if flags.contains(.maskCommand) || flags.contains(.maskControl) || flags.contains(.maskAlternate) {
+            return 0
+        }
+
+        if code == CGKeyCode(kVK_Delete)
+            || code == CGKeyCode(kVK_Return)
+            || code == CGKeyCode(kVK_Tab)
+            || code == CGKeyCode(kVK_Space) {
+            return 0
+        }
+
+        let index = Int(code)
+        guard index >= 0 && index < unshiftedASCII.count else {
+            return 0
+        }
+        let ascii = (flags.contains(.maskShift) || flags.contains(.maskAlphaShift))
+            ? shiftedASCII[index]
+            : unshiftedASCII[index]
+        guard ascii != 0 else { return 0 }
+        if boundaryASCII[Int(ascii)] {
+            return 0
+        }
+        return ascii
     }
 
     static func canTypeASCII(_ text: String) -> Bool {
@@ -406,15 +454,23 @@ struct KeySemanticMapper {
 
     private static func isCancelKey(_ code: CGKeyCode) -> Bool {
         switch code {
-        case CGKeyCode(kVK_LeftArrow),
-             CGKeyCode(kVK_RightArrow),
-             CGKeyCode(kVK_UpArrow),
+        case CGKeyCode(kVK_UpArrow),
              CGKeyCode(kVK_DownArrow),
              CGKeyCode(kVK_Escape),
              CGKeyCode(kVK_Home),
              CGKeyCode(kVK_End),
              CGKeyCode(kVK_PageUp),
              CGKeyCode(kVK_PageDown):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isLeftRightArrow(_ code: CGKeyCode) -> Bool {
+        switch code {
+        case CGKeyCode(kVK_LeftArrow),
+             CGKeyCode(kVK_RightArrow):
             return true
         default:
             return false
