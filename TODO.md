@@ -1,5 +1,5 @@
 ## TODO
-- custom buttons still not saving
+- expose slider for click stagger?
 
 # bettr auto complete: feed it my resurrection buffer for better results??
 

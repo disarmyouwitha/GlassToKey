@@ -34,6 +34,7 @@ final class AutocorrectEngine: @unchecked Sendable {
 
     private var wordBuffer: [UInt8] = []
     private var autocorrectBuffer: [UInt8] = []
+    private var ambiguityBuffer: [UInt8] = []
     private var contextBuffer: [UInt8] = []
     private var historyBuffers: [[UInt8]] = []
     private var historyHead = 0
@@ -59,6 +60,7 @@ final class AutocorrectEngine: @unchecked Sendable {
 
         wordBuffer.reserveCapacity(maxWordLength)
         autocorrectBuffer.reserveCapacity(maxWordLength)
+        ambiguityBuffer.reserveCapacity(maxWordLength)
         historyBuffers = Array(repeating: [], count: Self.historyCapacity)
         for index in 0..<historyBuffers.count {
             historyBuffers[index].reserveCapacity(maxWordLength)
@@ -76,20 +78,27 @@ final class AutocorrectEngine: @unchecked Sendable {
             queue.async { [weak self] in
                 self?.wordBuffer.removeAll(keepingCapacity: true)
                 self?.autocorrectBuffer.removeAll(keepingCapacity: true)
+                self?.ambiguityBuffer.removeAll(keepingCapacity: true)
                 self?.contextBuffer.removeAll(keepingCapacity: true)
                 self?.resetHistory()
             }
         }
     }
 
-    func recordDispatchedKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool) {
+    func recordDispatchedKey(
+        code: CGKeyCode,
+        flags: CGEventFlags,
+        keyDown: Bool,
+        altAscii: UInt8 = 0
+    ) {
         guard keyDown else { return }
         guard isEnabled else { return }
         guard !isSuppressed else { return }
         guard let event = KeySemanticMapper.semanticEvent(
             code: code,
             flags: flags,
-            timestampNs: DispatchTime.now().uptimeNanoseconds
+            timestampNs: DispatchTime.now().uptimeNanoseconds,
+            altAscii: altAscii
         ) else {
             return
         }
@@ -140,22 +149,33 @@ final class AutocorrectEngine: @unchecked Sendable {
             if autocorrectBuffer.count < maxWordLength {
                 autocorrectBuffer.append(event.ascii)
             }
+            if ambiguityBuffer.count < maxWordLength {
+                ambiguityBuffer.append(event.altAscii)
+            }
         case .backspace:
             if !wordBuffer.isEmpty {
                 wordBuffer.removeLast()
                 if !autocorrectBuffer.isEmpty {
                     autocorrectBuffer.removeLast()
                 }
+                if !ambiguityBuffer.isEmpty {
+                    ambiguityBuffer.removeLast()
+                }
             } else {
                 _ = resurrectPreviousWord()
                 autocorrectBuffer.removeAll(keepingCapacity: true)
+                ambiguityBuffer.removeAll(keepingCapacity: true)
             }
         case .boundary:
             if !wordBuffer.isEmpty {
                 let originalBytes = wordBuffer
                 var committedBytes = originalBytes
                 if autocorrectBuffer.count == wordBuffer.count,
-                   let correctedBytes = attemptCorrection(bytes: autocorrectBuffer, boundaryEvent: event) {
+                   let correctedBytes = attemptCorrection(
+                    bytes: autocorrectBuffer,
+                    ambiguity: ambiguityBuffer,
+                    boundaryEvent: event
+                   ) {
                     committedBytes = correctedBytes
                     pushHistory(bytes: correctedBytes)
                 } else {
@@ -164,16 +184,22 @@ final class AutocorrectEngine: @unchecked Sendable {
                 commitWordToContext(committedBytes, boundaryEvent: event)
                 wordBuffer.removeAll(keepingCapacity: true)
                 autocorrectBuffer.removeAll(keepingCapacity: true)
+                ambiguityBuffer.removeAll(keepingCapacity: true)
             }
         case .nonText:
             wordBuffer.removeAll(keepingCapacity: true)
             autocorrectBuffer.removeAll(keepingCapacity: true)
+            ambiguityBuffer.removeAll(keepingCapacity: true)
             resetHistory()
             contextBuffer.removeAll(keepingCapacity: true)
         }
     }
 
-    private func attemptCorrection(bytes: [UInt8], boundaryEvent: KeySemanticEvent) -> [UInt8]? {
+    private func attemptCorrection(
+        bytes: [UInt8],
+        ambiguity: [UInt8],
+        boundaryEvent: KeySemanticEvent
+    ) -> [UInt8]? {
         guard shouldConsiderWord(bytes) else { return nil }
         guard let word = String(bytes: bytes, encoding: .ascii) else { return nil }
         let fallbackRange = NSRange(location: 0, length: word.utf16.count)
@@ -184,7 +210,79 @@ final class AutocorrectEngine: @unchecked Sendable {
             in: contextString,
             orthography: nil
         ) ?? "en_US"
-        guard let correction = spellChecker.correction(
+        if let correction = spellChecker.correction(
+            forWordRange: wordRange,
+            in: contextString,
+            language: language,
+            inSpellDocumentWithTag: spellDocumentTag
+        ) {
+            guard correction != word else { return nil }
+            guard KeySemanticMapper.canTypeASCII(correction) else { return nil }
+
+            let correctionBytes = [UInt8](correction.utf8)
+            let boundaryLength = boundaryEvent.boundaryLength
+            if textReplacer.replaceLastWord(
+                wordLength: bytes.count,
+                boundaryLength: boundaryLength,
+                replacement: correction
+            ) {
+                return correctionBytes
+            }
+
+            fallbackBackspaceRetype(
+                originalWordLength: bytes.count,
+                boundaryEvent: boundaryEvent,
+                replacement: correction
+            )
+            return correctionBytes
+        }
+
+        if let ambiguousCorrection = attemptAmbiguousCorrection(
+            bytes: bytes,
+            ambiguity: ambiguity,
+            contextString: contextString,
+            wordRange: wordRange,
+            language: language
+        ) {
+            let correction = ambiguousCorrection
+            guard let correctionString = String(bytes: correction, encoding: .ascii) else {
+                return nil
+            }
+            let boundaryLength = boundaryEvent.boundaryLength
+            if textReplacer.replaceLastWord(
+                wordLength: bytes.count,
+                boundaryLength: boundaryLength,
+                replacement: correctionString
+            ) {
+                return correction
+            }
+
+            fallbackBackspaceRetype(
+                originalWordLength: bytes.count,
+                boundaryEvent: boundaryEvent,
+                replacement: correctionString
+            )
+            return correction
+        }
+
+        return nil
+    }
+
+    private func attemptAmbiguousCorrection(
+        bytes: [UInt8],
+        ambiguity: [UInt8],
+        contextString: String,
+        wordRange: NSRange,
+        language: String
+    ) -> [UInt8]? {
+        guard bytes.count == ambiguity.count else { return nil }
+        var hasAmbiguity = false
+        for alt in ambiguity where alt != 0 {
+            hasAmbiguity = true
+            break
+        }
+        guard hasAmbiguity else { return nil }
+        guard let guesses = spellChecker.guesses(
             forWordRange: wordRange,
             in: contextString,
             language: language,
@@ -192,25 +290,30 @@ final class AutocorrectEngine: @unchecked Sendable {
         ) else {
             return nil
         }
-        guard correction != word else { return nil }
-        guard KeySemanticMapper.canTypeASCII(correction) else { return nil }
-
-        let correctionBytes = [UInt8](correction.utf8)
-        let boundaryLength = boundaryEvent.boundaryLength
-        if textReplacer.replaceLastWord(
-            wordLength: bytes.count,
-            boundaryLength: boundaryLength,
-            replacement: correction
-        ) {
-            return correctionBytes
+        for guess in guesses {
+            guard KeySemanticMapper.canTypeASCII(guess) else { continue }
+            let guessBytes = [UInt8](guess.utf8)
+            guard guessBytes.count == bytes.count else { continue }
+            var matches = true
+            for index in 0..<bytes.count {
+                let alt = ambiguity[index]
+                let original = bytes[index]
+                let candidate = guessBytes[index]
+                if alt == 0 {
+                    if candidate != original {
+                        matches = false
+                        break
+                    }
+                } else if candidate != original && candidate != alt {
+                    matches = false
+                    break
+                }
+            }
+            if matches && guessBytes != bytes {
+                return guessBytes
+            }
         }
-
-        fallbackBackspaceRetype(
-            originalWordLength: bytes.count,
-            boundaryEvent: boundaryEvent,
-            replacement: correction
-        )
-        return correctionBytes
+        return nil
     }
 
     private func commitWordToContext(_ wordBytes: [UInt8], boundaryEvent: KeySemanticEvent) {

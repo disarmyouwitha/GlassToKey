@@ -1,0 +1,111 @@
+ Can you tell me how snap radius works in our code? I have some ideas for improvement. please review how key
+  detection work and how does snap radius affect it? to be upfront i think if snap radius is on and a key is
+  ambiguous it doesn't try to determine what us closer (distance) or closer (spelling) and i would like to
+  maybe use snap radius to search for nearby candidates — what do you think?
+
+
+• Explored
+  └ Search snap radius|snapRadius|snap_radius|snap in GlassToKey
+    Search snapRadiusFraction|snapAttemptCount|snapAccepted|snapRejected|snapBindings|snapRadiusSq|snapCenters
+in
+           ContentViewModel.swift
+    Read ContentViewModel.swift
+
+• I'm searching for where key candidates are used to understand the key detection and binding process.
+
+• Explored
+  └ Search keyCandidate|binding\(at:|attemptSnapOnRelease|snap in ContentViewModel.swift
+    Read ContentViewModel.swift
+
+• I'm mapping how snap radius applies only on key release when no pending/active keys or bindingAtPoint exist,
+  focusing on nearest-center geometry among snap bindings. I'm investigating intent states like typingCommitted
+  and keyCandidate to understand when snapping triggers and how shouldCommitTypingOnRelease factors in.
+
+• Explored
+  └ Search shouldCommitTypingOnRelease|intentState|IntentState|intentAllowsTyping|keyCandidate in
+           ContentViewModel.swift
+    Read ContentViewModel.swift
+
+• Key detection uses the binding grid with rect contains; snapping occurs only on release when no binding is
+  active or pending during keyCandidate or typingCommitted. Snap picks the single nearest key center within a
+  per-key radius based on a fraction (default 35%) of the key's min dimension, using canvas coordinates without
+  tie-breaking or spelling. Snap targets only keys, not custom buttons. Ambiguities aren't specially resolved
+  since snap picks the global nearest; overlapping keys are avoided by design. For improvement, candidate
+  search with disambiguation by distance plus language model/spelling is possible, but spelling is handled
+  post-dispatch by autocorrect, not at key selection.
+
+  Proposing neighbor precomputation for ambiguous snap
+
+  Snap currently picks only the nearest key center within radius without spelling or ambiguity checks. To
+  support nearby candidate search, precomputing sorted neighbor lists per key could let AutocorrectEngine apply
+  spelling-based corrections post-dispatch without adding allocations in the hot path. Suggest detecting
+  ambiguity by comparing distances to top candidates and passing alternatives as hints. Snap’s immediate
+  dispatch poses challenges for delaying decisions, so leveraging autocorrect for word-level correction remains
+  best. I'll reference relevant code paths and recommend expanding snap with neighbor precomputation while
+  confirming current behavior.
+
+─ Worked for 59s ──────────────────────────────────────────────────────────────────────────────────────────────
+
+• Here’s how snap radius and key detection work today, and how that lines up with your suspicion.
+
+  How key detection works (current path)
+
+  - Primary hit testing is rect-based: binding(at:point,index:) checks keyGrid rects first, then customGrid,
+    and returns the first binding whose rect contains the point. That is the only selection used for normal
+    taps. GlassToKey/GlassToKey/ContentViewModel.swift
+  - If a touch is active/pending on a key, we keep that binding and only dispatch on release if it still
+    qualifies (tap/hold rules, drag cancel, etc.).
+  - Intent gating: typing is only allowed once the intent state transitions to .typingCommitted or
+    a .keyCandidate is promoted; this lives in the intent state machine around updateIntentState /
+    shouldCommitTypingOnRelease. GlassToKey/GlassToKey/ContentViewModel.swift
+
+  How snap radius works
+
+  - Snap is only attempted on release when the touch is off-key and there is no active/pending binding (see
+    the .breaking, .leaving, .notTouching branches). attemptSnapOnRelease is called only in that case.
+  - Snap only looks at keys (not custom buttons): snap lists are built in makeBindings, and appendSnapBinding
+    only accepts .key actions.
+  - Snap chooses the nearest key center by distance across all keys, then accepts only if the distance is
+    within that key’s snap radius (per-key radius = min(width,height) * snapRadiusFraction). It does not
+    compare spelling, labels, or ambiguity. nearestSnapIndex + attemptSnapOnRelease.
+  - Snap is only enabled if snapRadiusFraction > 0 and intent mode is .typingCommitted or .keyCandidate
+    (shouldAttemptSnap).
+
+  So your read is correct: when snap is on and a touch is “ambiguous,” there is no spelling or multi-candidate
+  logic; it’s a single nearest-center check on release, and only for off-key releases.
+
+  What you’re proposing (“search nearby candidates”)
+  This is reasonable, but there are tradeoffs:
+
+  1. If you want “spelling-aware” disambiguation at the key level, you’d need to delay dispatch or allow post-
+     hoc replacement. We already have an autocorrect engine that can rewrite recent output, which is a good
+     hook for this.
+  2. The hot path is sensitive: we shouldn’t allocate or do heavy work per event. Any candidate generation
+     should be precomputed or done in-place with fixed-size stacks.
+
+  Pragmatic approach I’d recommend
+
+  - Keep snap fast and local (distance only), but capture ambiguity signals and feed them to autocorrect, so
+    the word-level correction can choose a nearby alternative.
+  - Minimal hot-path changes:
+      - During snap: keep the best and second-best distances in the same loop (no allocations).
+      - If bestDistance is close to secondBest (e.g. ratio threshold), mark the tap as “ambiguous” with a small
+        fixed candidate set (e.g. the two closest keys).
+      - Pass that candidate info to AutocorrectEngine/KeySemanticMapper so it can try nearby replacements when
+        building suggestions.
+
+  This gets you spelling-aware correction without delaying key dispatch or adding heavy logic in the touch
+  loop.
+
+  Open questions before we change code
+
+  - When you say “ambiguous,” do you mean:
+      1. off-key releases near multiple keys, or
+      2. on-key hits near a boundary that you’d like to bias to a neighbor?
+  - Do you want snap to consider custom buttons too, or keys only?
+  - Should ambiguity be handled immediately (selection change) or post-hoc (autocorrect replacement)?
+
+  If you want, I can sketch a concrete plan that fits the hot-path constraints and avoids allocations.
+
+
+› okay, i really like how it is working, mostly! i think i want to hijack

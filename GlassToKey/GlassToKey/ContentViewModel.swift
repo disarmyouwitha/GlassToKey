@@ -1275,6 +1275,7 @@ final class ContentViewModel: ObservableObject {
         private var dragCancelDistance: CGFloat = 2.5
         private var forceClickCap: Float = 0
         private var snapRadiusFraction: Float = 0.35
+        private let snapAmbiguityRatio: Float = 1.15
 #if DEBUG
         nonisolated(unsafe) private static var snapAttemptCount: Int64 = 0
         nonisolated(unsafe) private static var snapAcceptedCount: Int64 = 0
@@ -2400,27 +2401,41 @@ final class ContentViewModel: ObservableObject {
         }
 
         @inline(__always)
-        private func nearestSnapIndex(to point: CGPoint, in bindings: BindingIndex) -> (Int, Float)? {
+        private func nearestSnapIndices(
+            to point: CGPoint,
+            in bindings: BindingIndex
+        ) -> (bestIndex: Int, bestDistance: Float, secondIndex: Int, secondDistance: Float)? {
             let count = bindings.snapCentersX.count
             guard count > 0 else { return nil }
             let px = Float(point.x)
             let py = Float(point.y)
             var bestIndex = -1
             var bestDistance = Float.greatestFiniteMagnitude
+            var secondIndex = -1
+            var secondDistance = Float.greatestFiniteMagnitude
             for index in 0..<count {
                 let dx = px - bindings.snapCentersX[index]
                 let dy = py - bindings.snapCentersY[index]
                 let distance = dx * dx + dy * dy
                 if distance < bestDistance {
+                    secondDistance = bestDistance
+                    secondIndex = bestIndex
                     bestDistance = distance
                     bestIndex = index
+                } else if distance < secondDistance {
+                    secondDistance = distance
+                    secondIndex = index
                 }
             }
             guard bestIndex >= 0 else { return nil }
-            return (bestIndex, bestDistance)
+            return (bestIndex, bestDistance, secondIndex, secondDistance)
         }
 
-        private func dispatchSnappedBinding(_ binding: KeyBinding, touchKey: TouchKey) {
+        private func dispatchSnappedBinding(
+            _ binding: KeyBinding,
+            altBinding: KeyBinding?,
+            touchKey: TouchKey
+        ) {
             guard case let .key(code, flags) = binding.action else { return }
             #if DEBUG
             onDebugBindingDetected(binding)
@@ -2436,7 +2451,22 @@ final class ContentViewModel: ObservableObject {
                 reason: .snapAccepted
             )
             #endif
-            sendKey(code: code, flags: flags, side: binding.side)
+            let modifierFlags = currentModifierFlags()
+            let combinedFlags = flags.union(modifierFlags)
+            var altAscii: UInt8 = 0
+            if let altBinding, case let .key(altCode, altFlags) = altBinding.action {
+                altAscii = KeySemanticMapper.asciiForKey(
+                    code: altCode,
+                    flags: altFlags.union(modifierFlags)
+                )
+            }
+            sendKey(
+                code: code,
+                flags: flags,
+                side: binding.side,
+                combinedFlags: combinedFlags,
+                altAscii: altAscii
+            )
         }
 
         private func attemptSnapOnRelease(
@@ -2448,15 +2478,37 @@ final class ContentViewModel: ObservableObject {
             #if DEBUG
             OSAtomicIncrement64Barrier(&Self.snapAttemptCount)
             #endif
-            guard let (index, distanceSq) = nearestSnapIndex(to: point, in: bindings) else {
+            guard let (bestIndex, bestDistanceSq, secondIndex, secondDistanceSq) =
+                nearestSnapIndices(to: point, in: bindings) else {
                 #if DEBUG
                 OSAtomicIncrement64Barrier(&Self.snapRejectedCount)
                 #endif
                 return false
             }
-            if distanceSq <= bindings.snapRadiusSq[index] {
-                let binding = bindings.snapBindings[index]
-                dispatchSnappedBinding(binding, touchKey: touchKey)
+            if bestDistanceSq <= bindings.snapRadiusSq[bestIndex] {
+                var selectedIndex = bestIndex
+                var alternateIndex: Int? = nil
+                if secondIndex >= 0,
+                   secondDistanceSq <= bindings.snapRadiusSq[secondIndex],
+                   secondDistanceSq <= bestDistanceSq * snapAmbiguityRatio * snapAmbiguityRatio {
+                    let bestEdgeDistance = distanceSquaredToRectEdge(
+                        point: point,
+                        rect: bindings.snapBindings[bestIndex].rect
+                    )
+                    let secondEdgeDistance = distanceSquaredToRectEdge(
+                        point: point,
+                        rect: bindings.snapBindings[secondIndex].rect
+                    )
+                    if secondEdgeDistance < bestEdgeDistance {
+                        selectedIndex = secondIndex
+                        alternateIndex = bestIndex
+                    } else {
+                        alternateIndex = secondIndex
+                    }
+                }
+                let binding = bindings.snapBindings[selectedIndex]
+                let altBinding = alternateIndex.map { bindings.snapBindings[$0] }
+                dispatchSnappedBinding(binding, altBinding: altBinding, touchKey: touchKey)
                 // Prevent duplicate snap dispatch on subsequent release states.
                 disqualifiedTouches.set(touchKey, true)
                 #if DEBUG
@@ -2468,6 +2520,32 @@ final class ContentViewModel: ObservableObject {
             OSAtomicIncrement64Barrier(&Self.snapRejectedCount)
             #endif
             return false
+        }
+
+        private func distanceSquaredToRectEdge(point: CGPoint, rect: CGRect) -> Float {
+            let px = Float(point.x)
+            let py = Float(point.y)
+            let minX = Float(rect.minX)
+            let maxX = Float(rect.maxX)
+            let minY = Float(rect.minY)
+            let maxY = Float(rect.maxY)
+            let dx: Float
+            if px < minX {
+                dx = minX - px
+            } else if px > maxX {
+                dx = px - maxX
+            } else {
+                dx = 0
+            }
+            let dy: Float
+            if py < minY {
+                dy = minY - py
+            } else if py > maxY {
+                dy = py - maxY
+            } else {
+                dy = 0
+            }
+            return dx * dx + dy * dy
         }
 
         private static func isContactState(_ state: OMSState) -> Bool {
@@ -3282,9 +3360,15 @@ final class ContentViewModel: ObservableObject {
             }
         }
 
-        private func sendKey(code: CGKeyCode, flags: CGEventFlags, side: TrackpadSide?) {
-            let combinedFlags = flags.union(currentModifierFlags())
-            keyDispatcher.postKeyStroke(code: code, flags: combinedFlags)
+        private func sendKey(
+            code: CGKeyCode,
+            flags: CGEventFlags,
+            side: TrackpadSide?,
+            combinedFlags: CGEventFlags? = nil,
+            altAscii: UInt8 = 0
+        ) {
+            let resolvedFlags = combinedFlags ?? flags.union(currentModifierFlags())
+            keyDispatcher.postKeyStroke(code: code, flags: resolvedFlags, altAscii: altAscii)
         }
 
         private func currentModifierFlags() -> CGEventFlags {
