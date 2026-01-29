@@ -376,7 +376,8 @@ struct KeySemanticMapper {
                     code: code,
                     flags: flags,
                     kind: .nonText,
-                    ascii: 0
+                    ascii: 0,
+                    altAscii: 0
                 )
             }
             return nil
