@@ -27,7 +27,7 @@ Clicking Edit will allow you to click any Column/Button and set the Action/Hold 
 
 ## Typing Tuning
 - Tap/Hold (ms): Time in miliseconds until a tap becomes a hold
-- Drag Cancel (mm): How far you need to move before tap becomes a drag
+- Tap/Drag (mm): How far you need to move before tap becomes a drag
 - Force Cap (g): Pressure (in grams) beyond the initial touch that disqualifies the touch before it can type, preventing accidental strong presses.
 - Typing Grace (ms): Time after a key dispatch to keep typing intent active.
 - Intent Move (mm): Movement threshold before a touch is treated as mouse intent.
@@ -61,8 +61,7 @@ GlassToKey runs a simple intent state machine to decide when touches should be i
 
 Transitions and notes:
 - **Typing Grace** extends `typingCommitted` after a key dispatch, even if all fingers lift.
-- **Drag Cancel** immediately disqualifies the touch and forces `mouseActive`.
-- **Mouse Takeover** (if enabled) allows mouse intent to interrupt typing before all fingers are lifted.
+- **Tap/Drag** immediately disqualifies the touch and forces `mouseActive`.
 - **GestureCandidate** enters when 2+ touches start within the key buffer window (or 3+ simultaneous touches) and exits back to `idle` once fewer than two contacts remain.
 
 ## Diagnostics (Debug Builds)
