@@ -94,6 +94,8 @@ struct ContentView: View {
     private var snapRadiusPercentSetting = GlassToKeySettings.snapRadiusPercent
     @AppStorage(GlassToKeyDefaultsKeys.chordalShiftEnabled)
     private var chordalShiftEnabled = GlassToKeySettings.chordalShiftEnabled
+    @AppStorage(GlassToKeyDefaultsKeys.keyboardModeEnabled)
+    private var keyboardModeEnabled = GlassToKeySettings.keyboardModeEnabled
     static let trackpadWidthMM: CGFloat = 160.0
     static let trackpadHeightMM: CGFloat = 114.9
     static let displayScale: CGFloat = 2.7
@@ -388,6 +390,9 @@ struct ContentView: View {
             .onChange(of: chordalShiftEnabled) { newValue in
                 viewModel.updateChordalShiftEnabled(newValue)
             }
+            .onChange(of: keyboardModeEnabled) { newValue in
+                viewModel.updateKeyboardModeEnabled(newValue)
+            }
             .onChange(of: storedAutoResyncMissingTrackpads) { newValue in
                 viewModel.setAutoResyncEnabled(newValue)
             }
@@ -477,6 +482,7 @@ struct ContentView: View {
             tapClickEnabled: $tapClickEnabled,
             snapRadiusPercentSetting: $snapRadiusPercentSetting,
             chordalShiftEnabled: $chordalShiftEnabled,
+            keyboardModeEnabled: $keyboardModeEnabled,
             onRefreshDevices: {
                 viewModel.loadDevices(preserveSelection: true)
             },
@@ -701,6 +707,7 @@ struct ContentView: View {
         @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
         @Binding var chordalShiftEnabled: Bool
+        @Binding var keyboardModeEnabled: Bool
         @State private var typingTuningExpanded = true
         let onRefreshDevices: () -> Void
         let onAutoResyncChange: (Bool) -> Void
@@ -745,6 +752,7 @@ struct ContentView: View {
                             tapClickEnabled: $tapClickEnabled,
                             snapRadiusPercentSetting: $snapRadiusPercentSetting,
                             chordalShiftEnabled: $chordalShiftEnabled,
+                            keyboardModeEnabled: $keyboardModeEnabled,
                             onRestoreDefaults: onRestoreDefaults
                         )
                         .padding(.top, 8)
@@ -1291,6 +1299,7 @@ struct ContentView: View {
         @Binding var tapClickEnabled: Bool
         @Binding var snapRadiusPercentSetting: Double
         @Binding var chordalShiftEnabled: Bool
+        @Binding var keyboardModeEnabled: Bool
         let onRestoreDefaults: () -> Void
 
         private let labelWidth: CGFloat = 140
@@ -1490,15 +1499,24 @@ struct ContentView: View {
                             .toggleStyle(SwitchToggleStyle())
                             .labelsHidden()
                     }
-                GridRow {
-                    Button("Restore Defaults") {
-                        onRestoreDefaults()
+                    GridRow {
+                        Text("Keyboard Mode")
+                            .frame(width: labelWidth, alignment: .leading)
+                        Toggle("", isOn: $keyboardModeEnabled)
+                            .toggleStyle(SwitchToggleStyle())
+                            .labelsHidden()
+                        Spacer()
+                            .gridCellColumns(2)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .gridCellColumns(2)
-                    Spacer()
+                    GridRow {
+                        Button("Restore Defaults") {
+                            onRestoreDefaults()
+                        }
+                        .buttonStyle(.borderedProminent)
                         .gridCellColumns(2)
-                }
+                        Spacer()
+                            .gridCellColumns(2)
+                    }
                 }
             }
         }
@@ -2263,6 +2281,7 @@ struct ContentView: View {
         viewModel.updateAllowMouseTakeover(true)
         viewModel.updateSnapRadiusPercent(snapRadiusPercentSetting)
         viewModel.updateChordalShiftEnabled(chordalShiftEnabled)
+        viewModel.updateKeyboardModeEnabled(keyboardModeEnabled)
         viewModel.setTouchSnapshotRecordingEnabled(visualsEnabled)
     }
 
@@ -2278,6 +2297,7 @@ struct ContentView: View {
         tapClickEnabled = GlassToKeySettings.tapClickEnabled
         snapRadiusPercentSetting = GlassToKeySettings.snapRadiusPercent
         chordalShiftEnabled = GlassToKeySettings.chordalShiftEnabled
+        keyboardModeEnabled = GlassToKeySettings.keyboardModeEnabled
         AutocorrectEngine.shared.setMinimumWordLength(GlassToKeySettings.autocorrectMinWordLength)
     }
 

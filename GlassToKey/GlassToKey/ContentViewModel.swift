@@ -224,6 +224,7 @@ final class ContentViewModel: ObservableObject {
     nonisolated private let touchRevisionContinuationHolder: ContinuationHolder
     @Published var isListening: Bool = false
     @Published var isTypingEnabled: Bool = true
+    @Published var keyboardModeEnabled: Bool = false
     @Published private(set) var activeLayer: Int = 0
     @Published private(set) var contactFingerCountsBySide = SidePair(left: 0, right: 0)
     @Published private(set) var intentDisplayBySide = SidePair(left: IntentDisplay.idle, right: .idle)
@@ -733,6 +734,13 @@ final class ContentViewModel: ObservableObject {
     func updateChordalShiftEnabled(_ enabled: Bool) {
         Task { [processor] in
             await processor.updateChordalShiftEnabled(enabled)
+        }
+    }
+
+    func updateKeyboardModeEnabled(_ enabled: Bool) {
+        keyboardModeEnabled = enabled
+        Task { [processor] in
+            await processor.updateKeyboardModeEnabled(enabled)
         }
     }
 
@@ -1278,6 +1286,7 @@ final class ContentViewModel: ObservableObject {
         private let isDragDetectionEnabled = true
         private var isListening = false
         private var isTypingEnabled = true
+        private var keyboardModeEnabled = false
         private var activeLayer: Int = 0
         private var persistentLayer: Int = 0
         private var leftDeviceIndex: Int?
@@ -1516,6 +1525,10 @@ final class ContentViewModel: ObservableObject {
 
         func updateTapClickEnabled(_ enabled: Bool) {
             tapClickEnabled = enabled
+        }
+
+        func updateKeyboardModeEnabled(_ enabled: Bool) {
+            keyboardModeEnabled = enabled
         }
 
         func updateChordalShiftEnabled(_ enabled: Bool) {
@@ -2846,6 +2859,7 @@ final class ContentViewModel: ObservableObject {
         ) -> Bool {
             var state = intentState
             let graceActive = isTypingGraceActive(now: now)
+            let keyboardOnly = keyboardModeEnabled && isTypingEnabled
             bindingCacheBySide[.left].removeAll(keepingCapacity: true)
             bindingCacheBySide[.right].removeAll(keepingCapacity: true)
 
@@ -2951,7 +2965,12 @@ final class ContentViewModel: ObservableObject {
                 awaitingSecondTap = false
             }
 
-            if tapClickEnabled {
+            if keyboardOnly {
+                twoFingerTapCandidate = nil
+                threeFingerTapCandidate = nil
+                awaitingSecondTap = false
+                doubleTapDeadline = nil
+            } else if tapClickEnabled {
                 if intentCurrentKeys.count == 2,
                    state.touches.count == 3,
                    shouldTriggerTapClick(
@@ -3070,6 +3089,14 @@ final class ContentViewModel: ObservableObject {
                     return true
                 }
                 state.mode = .idle
+                intentState = state
+                updateIntentDisplayIfNeeded()
+                return true
+            }
+
+            if keyboardOnly {
+                state.lastContactCount = contactCount
+                state.mode = .typingCommitted(untilAllUp: true)
                 intentState = state
                 updateIntentDisplayIfNeeded()
                 return true

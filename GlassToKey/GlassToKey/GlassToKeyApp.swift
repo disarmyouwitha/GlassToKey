@@ -90,21 +90,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateStatusIndicator(
             isTypingEnabled: controller.viewModel.isTypingEnabled,
             activeLayer: controller.viewModel.activeLayer,
-            hasDisconnectedTrackpads: controller.viewModel.hasDisconnectedTrackpads
+            hasDisconnectedTrackpads: controller.viewModel.hasDisconnectedTrackpads,
+            keyboardModeEnabled: controller.viewModel.keyboardModeEnabled
         )
     }
 
     private func observeStatus() {
-        statusCancellable = Publishers.CombineLatest3(
+        statusCancellable = Publishers.CombineLatest4(
             controller.viewModel.$isTypingEnabled.removeDuplicates(),
             controller.viewModel.$activeLayer.removeDuplicates(),
-            controller.viewModel.$hasDisconnectedTrackpads.removeDuplicates()
+            controller.viewModel.$hasDisconnectedTrackpads.removeDuplicates(),
+            controller.viewModel.$keyboardModeEnabled.removeDuplicates()
         )
-        .sink { [weak self] isTypingEnabled, activeLayer, hasDisconnected in
+        .sink { [weak self] isTypingEnabled, activeLayer, hasDisconnected, keyboardModeEnabled in
             self?.updateStatusIndicator(
                 isTypingEnabled: isTypingEnabled,
                 activeLayer: activeLayer,
-                hasDisconnectedTrackpads: hasDisconnected
+                hasDisconnectedTrackpads: hasDisconnected,
+                keyboardModeEnabled: keyboardModeEnabled
             )
         }
     }
@@ -112,15 +115,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func updateStatusIndicator(
         isTypingEnabled: Bool,
         activeLayer: Int,
-        hasDisconnectedTrackpads: Bool
+        hasDisconnectedTrackpads: Bool,
+        keyboardModeEnabled: Bool
     ) {
         guard let button = statusItem?.button else { return }
         button.image = statusIndicatorImage(
             isTypingEnabled: isTypingEnabled,
             activeLayer: activeLayer,
-            hasWarning: hasDisconnectedTrackpads
+            hasWarning: hasDisconnectedTrackpads,
+            keyboardModeEnabled: keyboardModeEnabled
         )
-        let modeText = isTypingEnabled ? "Keyboard mode" : "Mouse mode"
+        let modeText: String
+        if isTypingEnabled {
+            modeText = keyboardModeEnabled ? "Keyboard mode" : "Mixed mode"
+        } else {
+            modeText = "Mouse mode"
+        }
         button.toolTip = hasDisconnectedTrackpads
             ? "\(modeText) – missing trackpad"
             : modeText
@@ -129,7 +139,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func statusIndicatorImage(
         isTypingEnabled: Bool,
         activeLayer: Int,
-        hasWarning: Bool
+        hasWarning: Bool,
+        keyboardModeEnabled: Bool
     ) -> NSImage {
         let size = NSSize(width: 10, height: 10)
         let image = NSImage(size: size)
@@ -139,7 +150,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let path = NSBezierPath(ovalIn: rect)
         let color = activeLayer == 1
             ? NSColor.systemBlue
-            : (isTypingEnabled ? NSColor.systemGreen : NSColor.systemRed)
+            : (isTypingEnabled
+                ? (keyboardModeEnabled ? NSColor.systemPurple : NSColor.systemGreen)
+                : NSColor.systemRed)
         color.setFill()
         path.fill()
 
