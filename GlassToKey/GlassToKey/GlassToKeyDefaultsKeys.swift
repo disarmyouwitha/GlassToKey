@@ -18,8 +18,6 @@ enum GlassToKeyDefaultsKeys {
     static let layoutPreset = "GlassToKey.layoutPreset"
     static let autoResyncMissingTrackpads = "GlassToKey.autoResyncMissingTrackpads"
     static let autocorrectEnabled = "GlassToKey.autocorrectEnabled"
-    static let autocorrectMinWordLength = "GlassToKey.autocorrectMinWordLength"
     static let snapRadiusPercent = "GlassToKey.snapRadiusPercent"
     static let chordalShiftEnabled = "GlassToKey.chordalShiftEnabled"
-    static let softSnapEnabled = "GlassToKey.softSnapEnabled"
 }

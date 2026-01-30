@@ -23,7 +23,7 @@
 		1CF415022B924E0000A4DB17 /* OpenMTTouchInternal.h in Headers */ = {isa = PBXBuildFile; fileRef = 1CF414F52B924E0000A4DB17 /* OpenMTTouchInternal.h */; };
 		1CF415032B924E0000A4DB17 /* OpenMTManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 1CF414F62B924E0000A4DB17 /* OpenMTManager.m */; };
 		1CF415042B924E0000A4DB17 /* OpenMTEventInternal.h in Headers */ = {isa = PBXBuildFile; fileRef = 1CF414F72B924E0000A4DB17 /* OpenMTEventInternal.h */; };
-		1CF415052B924E0000A4DB17 /* OpenMTInternal.h in Headers */ = {isa = PBXBuildFile; fileRef = 1CF414F82B924E0000A4DB17 /* OpenMTInternal.h */; };
+		1CF415052B924E0000A4DB17 /* OpenMTInternal.h in Headers */ = {isa = PBXBuildFile; fileRef = 1CF414F82B924E0000A4DB17 /* OpenMTInternal.h */; settings = {ATTRIBUTES = (Public, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */

@@ -32,6 +32,9 @@
 - (OpenMTListener *)addListenerWithTarget:(id)target selector:(SEL)selector;
 - (void)removeListener:(OpenMTListener *)listener;
 
+- (OpenMTListener *)addRawListenerWithCallback:(OpenMTRawFrameCallback)callback;
+- (void)removeRawListener:(OpenMTListener *)listener;
+
 - (BOOL)isHapticEnabled;
 - (BOOL)setHapticEnabled:(BOOL)enabled;
 

@@ -15,6 +15,7 @@
 @interface OpenMTManager()
 
 - (NSString *)deviceIDForDeviceRef:(MTDeviceRef)deviceRef;
+- (uint64_t)deviceNumericIDForDeviceRef:(MTDeviceRef)deviceRef;
 
 @end
 

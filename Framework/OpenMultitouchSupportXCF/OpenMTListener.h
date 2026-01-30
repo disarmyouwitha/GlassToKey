@@ -10,10 +10,30 @@
 #define OpenMTListener_h
 
 #import <Foundation/Foundation.h>
+#import <OpenMultitouchSupportXCF/OpenMTInternal.h>
+#import <OpenMultitouchSupportXCF/OpenMTEvent.h>
+
+typedef void (^OpenMTRawFrameCallback)(const MTTouch *touches,
+                                      int numTouches,
+                                      double timestamp,
+                                      int frame,
+                                      uint64_t deviceID);
 
 @interface OpenMTListener: NSObject
 
 @property (assign, readwrite) BOOL listening;
+
+- (instancetype)initWithTarget:(id)target selector:(SEL)selector;
+- (instancetype)initWithRawCallback:(OpenMTRawFrameCallback)callback;
+
+- (void)listenToEvent:(OpenMTEvent *)event;
+- (void)listenToRawFrameWithTouches:(const MTTouch *)touches
+                              count:(int)numTouches
+                          timestamp:(double)timestamp
+                              frame:(int)frame
+                           deviceID:(uint64_t)deviceID;
+
+- (BOOL)dead;
 
 @end
 
