@@ -14,6 +14,7 @@ enum GlassToKeySettings {
     static let tapClickEnabled: Bool = true
     static let snapRadiusPercent: Double = 35.0
     static let chordalShiftEnabled: Bool = true
+    static let keyboardModeEnabled: Bool = false
 
     static func persistedDouble(
         forKey key: String,
@@ -218,6 +219,9 @@ final class GlassToKeyController: ObservableObject {
         let chordalShiftEnabled = defaults.object(
             forKey: GlassToKeyDefaultsKeys.chordalShiftEnabled
         ) as? Bool ?? GlassToKeySettings.chordalShiftEnabled
+        let keyboardModeEnabled = defaults.object(
+            forKey: GlassToKeyDefaultsKeys.keyboardModeEnabled
+        ) as? Bool ?? GlassToKeySettings.keyboardModeEnabled
 
         viewModel.updateHoldThreshold(tapHoldMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragDistance))
@@ -230,6 +234,7 @@ final class GlassToKeyController: ObservableObject {
         viewModel.updateTapClickEnabled(tapClickEnabled)
         viewModel.updateSnapRadiusPercent(snapRadiusPercent)
         viewModel.updateChordalShiftEnabled(chordalShiftEnabled)
+        viewModel.updateKeyboardModeEnabled(keyboardModeEnabled)
     }
 
     private func stringValue(forKey key: String) -> String {

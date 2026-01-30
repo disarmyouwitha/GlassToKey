@@ -10,7 +10,10 @@ It's just Codex and I vibe coding~ You can submit an issue but this is really ju
 
 ## Usage
 
-Build the GlassToKey project and you are good to go! A Green circle will appear in the OSX status bar indicating that Typing is allowed.
+Build the GlassToKey project and you are good to go! A status bar indicator shows the active mode:
+- **Green**: Mixed mode (typing + mouse intent)
+- **Purple**: Keyboard mode (full keyboard, no mouse intent)
+- **Red**: Mouse-only mode (typing disabled)
 
 Clicking the indicator light will allow you to view the Config or Quit the program.
 
@@ -33,6 +36,7 @@ Clicking Edit will allow you to click any Column/Button and set the Action/Hold 
 - Autocorrect: Enables the built-in autocorrect engine for post-key dispatch word replacement.
 - Tap Click: two-finger tap = left click, three-finger tap = right click
 - Mouse Takeover: Allow mouse intent to interrupt typing before all fingers are lifted.
+- Keyboard Mode: When enabled, the typing toggle (and 5‑finger swipe) switches between **full keyboard** and **mouse‑only**. In keyboard mode, mouse down/up events are blocked globally (except inside the GlassToKey config window) and tap‑click gestures are disabled. Blocking clicks requires Input Monitoring/Accessibility permission.
 
 ## Intent State Machine
 GlassToKey runs a simple intent state machine to decide when touches should be interpreted as typing vs mouse input. The UI intent badges use these labels: `idle`, `cand`, `typing`, `mouse`, `gest`.
@@ -80,6 +84,12 @@ This library refers the following frameworks very much. Special Thanks!
 - Development with Xcode 16.0+
 - swift-tools-version: 6.0
 - Compatible with macOS 13.0+
+
+## Permissions
+Keyboard Mode’s global click blocking requires system permission:
+1. Open **System Settings → Privacy & Security → Input Monitoring** and enable GlassToKey.
+2. Also enable **System Settings → Privacy & Security → Accessibility** for GlassToKey.
+3. Restart GlassToKey after granting permissions.
 
 ## FUTURE
 - Add windows support based on https://github.com/vitoplantamura/MagicTrackpad2ForWindows (They should have USB drivers for USB-C support soon!)

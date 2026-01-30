@@ -14,6 +14,7 @@
     OpenMTRawFrameCallback _rawCallback;
     __weak id _target;
     SEL _selector;
+    IMP _targetImp;
 }
 
 - (instancetype)init {
@@ -27,6 +28,9 @@
     if (self = [self init]) {
         _target = target;
         _selector = selector;
+        if (_target && _selector && [_target respondsToSelector:_selector]) {
+            _targetImp = [_target methodForSelector:_selector];
+        }
     }
     return self;
 }
@@ -47,7 +51,9 @@
         return;
     }
     if (_target) {
-        ((void(*)(id, SEL, OpenMTEvent*))[_target methodForSelector:_selector])(_target, _selector, event);
+        if (_targetImp) {
+            ((void(*)(id, SEL, OpenMTEvent*))_targetImp)(_target, _selector, event);
+        }
         return;
     }
 }
@@ -66,7 +72,7 @@
 - (BOOL)dead {
     return !(_callback
              || _rawCallback
-             || (_target && _selector && [_target respondsToSelector:_selector]));
+             || (_target && _selector && _targetImp));
 }
 
 @end

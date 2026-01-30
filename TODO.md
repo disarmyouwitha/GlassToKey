@@ -1,7 +1,6 @@
 ## TODO
 - expose slider for double-click stagger
 - normalize % to px??
-- Have Codex refactor the code for swift efficiency and runtime efficiency. Leave no stone unturned!
 - Have Codex refactor the GUI for effiency
 - Have Codex redesign the GUI for looks, keeping efficiency
 ###
