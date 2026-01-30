@@ -750,6 +750,12 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
+    func updateTapClickCadenceMs(_ milliseconds: Double) {
+        Task { [processor] in
+            await processor.updateTapClickCadence(milliseconds)
+        }
+    }
+
     func clearTouchState() {
         Task { [processor] in
             await processor.resetState()
@@ -1370,7 +1376,7 @@ final class ContentViewModel: ObservableObject {
         private var typingGraceTask: Task<Void, Never>?
         private var doubleTapDeadline: TimeInterval?
         private var awaitingSecondTap = false
-        private let doubleTapWindow: TimeInterval = 0.28
+        private var tapClickCadenceSeconds: TimeInterval = 0.28
         private struct TapCandidate {
             let deadline: TimeInterval
         }
@@ -1525,6 +1531,13 @@ final class ContentViewModel: ObservableObject {
 
         func updateTapClickEnabled(_ enabled: Bool) {
             tapClickEnabled = enabled
+        }
+
+        func updateTapClickCadence(_ milliseconds: Double) {
+            let clampedMs = min(max(milliseconds, 50.0), 1000.0)
+            tapClickCadenceSeconds = clampedMs / 1000.0
+            awaitingSecondTap = false
+            doubleTapDeadline = nil
         }
 
         func updateKeyboardModeEnabled(_ enabled: Bool) {
@@ -2878,7 +2891,7 @@ final class ContentViewModel: ObservableObject {
             var hasKeyboardAnchor = false
             var twoFingerTapDetected = false
             var threeFingerTapDetected = false
-            let staggerWindow = max(intentConfig.keyBufferSeconds, contactCountHoldDuration)
+            let staggerWindow = max(tapClickCadenceSeconds, contactCountHoldDuration)
 
             func process(_ touch: OMSRawTouch, deviceIndex: Int, side: TrackpadSide, bindings: BindingIndex) {
                 let isChordState = Self.isChordShiftContactState(touch.state)
@@ -3079,7 +3092,7 @@ final class ContentViewModel: ObservableObject {
                     } else {
                         keyDispatcher.postLeftClick()
                         awaitingSecondTap = true
-                        doubleTapDeadline = now + doubleTapWindow
+                        doubleTapDeadline = now + tapClickCadenceSeconds
                     }
                 }
                 if graceActive {
