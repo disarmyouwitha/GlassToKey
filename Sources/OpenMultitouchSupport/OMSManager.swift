@@ -243,6 +243,9 @@ public final class OMSManager: Sendable {
         deviceID: UInt64
     ) {
 #if DEBUG
+        if Thread.isMainThread {
+            assertionFailure("OpenMT raw callback is running on the main thread; avoid UI access and move UI work to the main actor.")
+        }
         let signpostState = signposter.beginInterval("OpenMTRawFrame")
         defer { signposter.endInterval("OpenMTRawFrame", signpostState) }
 #endif
