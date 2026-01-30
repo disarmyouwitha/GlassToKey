@@ -37,7 +37,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
               window == configWindow else {
             return
         }
-        disableVisuals()
         mouseEventBlocker.setAllowedRect(nil)
         controller.viewModel.setTouchSnapshotRecordingEnabled(false)
         controller.viewModel.setStatusVisualsEnabled(false)
@@ -208,10 +207,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
-    }
-
-    private func disableVisuals() {
-        UserDefaults.standard.set(false, forKey: GlassToKeyDefaultsKeys.visualsEnabled)
     }
 
     private func makeConfigWindow() -> NSWindow {

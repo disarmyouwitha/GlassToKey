@@ -2286,6 +2286,7 @@ struct ContentView: View {
     }
 
     private func restoreTypingTuningDefaults() {
+        visualsEnabled = true
         tapHoldDurationMs = GlassToKeySettings.tapHoldDurationMs
         dragCancelDistanceSetting = GlassToKeySettings.dragCancelDistanceMm
         forceClickCapSetting = GlassToKeySettings.forceClickCap
