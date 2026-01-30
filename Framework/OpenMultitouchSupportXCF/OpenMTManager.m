@@ -8,6 +8,7 @@
 
 #import <Cocoa/Cocoa.h>
 #import <IOKit/IOKitLib.h>
+#import <os/lock.h>
 #import <stdlib.h>
 
 #import "OpenMTManagerInternal.h"
@@ -15,6 +16,15 @@
 #import "OpenMTTouchInternal.h"
 #import "OpenMTEventInternal.h"
 #import "OpenMTInternal.h"
+
+static void contactEventHandler(MTDeviceRef eventDevice, MTTouch eventTouches[], int numTouches, double timestamp, int frame);
+static void contactEventHandlerWithRefcon(MTDeviceRef eventDevice, MTTouch eventTouches[], size_t numTouches, double timestamp, size_t frame, void* refCon);
+
+typedef struct {
+    __unsafe_unretained OpenMTManager *manager;
+    uint64_t deviceID;
+    BOOL usesRefcon;
+} MTDeviceCallbackContext;
 
 @implementation OpenMTDeviceInfo
 
@@ -25,8 +35,10 @@
         OSStatus err = MTDeviceGetDeviceID(deviceRef, &deviceID);
         if (!err) {
             _deviceID = [NSString stringWithFormat:@"%llu", deviceID];
+            _deviceNumericID = deviceID;
         } else {
             _deviceID = @"Unknown";
+            _deviceNumericID = 0;
         }
         // Determine if built-in
         _isBuiltIn = MTDeviceIsBuiltIn ? MTDeviceIsBuiltIn(deviceRef) : YES;
@@ -86,7 +98,9 @@
 
 @end
 
-@interface OpenMTManager()
+@interface OpenMTManager() {
+    os_unfair_lock _actuatorLock;
+}
 
 @property (strong, readwrite) NSMutableArray *listeners;
 @property (strong, readwrite) NSMutableArray *rawListeners;
@@ -95,10 +109,12 @@
 @property (strong, readwrite) NSArray<OpenMTDeviceInfo *> *availableDeviceInfos;
 @property (strong, readwrite) NSArray<OpenMTDeviceInfo *> *activeDeviceInfos;
 @property (strong, readwrite) NSMutableDictionary<NSString *, NSValue *> *deviceRefs;
-@property (strong, readwrite) NSMutableDictionary<NSValue *, NSString *> *deviceIDsByRef;
-@property (strong, readwrite) NSMutableDictionary<NSValue *, NSNumber *> *deviceNumericIDsByRef;
+@property (assign, readwrite) CFMutableDictionaryRef deviceIDsByRef;
+@property (assign, readwrite) CFMutableDictionaryRef deviceNumericIDsByRef;
 @property (strong, readwrite) NSMutableDictionary<NSString *, NSValue *> *availableDeviceRefs;
 @property (copy, readwrite) NSString *primaryDeviceID;
+@property (strong, readwrite) NSMutableDictionary<NSValue *, NSValue *> *deviceCallbackContexts;
+@property (strong, readwrite) NSMutableDictionary<NSNumber *, NSValue *> *actuatorCache;
 
 - (NSArray<OpenMTDeviceInfo *> *)collectAvailableDevices;
 - (void)clearAvailableDeviceRefs;
@@ -127,15 +143,32 @@
         self.listenersSnapshot = @[];
         self.rawListenersSnapshot = @[];
         self.deviceRefs = NSMutableDictionary.new;
-        self.deviceIDsByRef = NSMutableDictionary.new;
-        self.deviceNumericIDsByRef = NSMutableDictionary.new;
+        self.deviceIDsByRef = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, NULL, &kCFTypeDictionaryValueCallBacks);
+        self.deviceNumericIDsByRef = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, NULL, &kCFTypeDictionaryValueCallBacks);
         self.availableDeviceRefs = NSMutableDictionary.new;
+        self.deviceCallbackContexts = NSMutableDictionary.new;
+        self.actuatorCache = NSMutableDictionary.new;
+        _actuatorLock = OS_UNFAIR_LOCK_INIT;
         [self enumerateDevices];
         
         [NSWorkspace.sharedWorkspace.notificationCenter addObserver:self selector:@selector(willSleep:) name:NSWorkspaceWillSleepNotification object:nil];
         [NSWorkspace.sharedWorkspace.notificationCenter addObserver:self selector:@selector(didWakeUp:) name:NSWorkspaceDidWakeNotification object:nil];
     }
     return self;
+}
+
+- (void)dealloc {
+    [self clearActuatorCache];
+    [self clearDeviceRefs];
+    [self clearAvailableDeviceRefs];
+    if (self.deviceIDsByRef) {
+        CFRelease(self.deviceIDsByRef);
+        self.deviceIDsByRef = NULL;
+    }
+    if (self.deviceNumericIDsByRef) {
+        CFRelease(self.deviceNumericIDsByRef);
+        self.deviceNumericIDsByRef = NULL;
+    }
 }
 
 - (void)rebuildListenerSnapshotsPruningDead {
@@ -267,14 +300,26 @@
     }
     NSValue *refValue = [NSValue valueWithPointer:deviceRef];
     self.deviceRefs[deviceID] = refValue;
-    self.deviceIDsByRef[refValue] = deviceID;
+    if (self.deviceIDsByRef) {
+        CFDictionarySetValue(self.deviceIDsByRef, deviceRef, (__bridge const void *)(deviceID));
+    }
     unsigned long long parsedID = strtoull(deviceID.UTF8String, NULL, 0);
     if (parsedID > 0) {
-        self.deviceNumericIDsByRef[refValue] = @(parsedID);
+        if (self.deviceNumericIDsByRef) {
+            NSNumber *numericID = @(parsedID);
+            CFDictionarySetValue(self.deviceNumericIDsByRef, deviceRef, (__bridge const void *)(numericID));
+        }
     }
 }
 
 - (void)clearDeviceRefs {
+    for (NSValue *contextValue in self.deviceCallbackContexts.allValues) {
+        MTDeviceCallbackContext *context = (MTDeviceCallbackContext *)contextValue.pointerValue;
+        if (context) {
+            free(context);
+        }
+    }
+    [self.deviceCallbackContexts removeAllObjects];
     for (NSValue *refValue in self.deviceRefs.allValues) {
         MTDeviceRef deviceRef = (MTDeviceRef)refValue.pointerValue;
         if (deviceRef) {
@@ -282,8 +327,12 @@
         }
     }
     [self.deviceRefs removeAllObjects];
-    [self.deviceIDsByRef removeAllObjects];
-    [self.deviceNumericIDsByRef removeAllObjects];
+    if (self.deviceIDsByRef) {
+        CFDictionaryRemoveAllValues(self.deviceIDsByRef);
+    }
+    if (self.deviceNumericIDsByRef) {
+        CFDictionaryRemoveAllValues(self.deviceNumericIDsByRef);
+    }
 }
 
 - (void)clearAvailableDeviceRefs {
@@ -329,15 +378,25 @@
     if (!deviceRef) {
         return nil;
     }
-    NSValue *refValue = [NSValue valueWithPointer:deviceRef];
-    NSString *deviceID = self.deviceIDsByRef[refValue];
+    NSString *deviceID = nil;
+    if (self.deviceIDsByRef) {
+        deviceID = (__bridge NSString *)CFDictionaryGetValue(self.deviceIDsByRef, deviceRef);
+    }
     if (deviceID.length) {
         return deviceID;
     }
     uint64_t rawID = 0;
     OSStatus err = MTDeviceGetDeviceID(deviceRef, &rawID);
     if (!err) {
-        return [NSString stringWithFormat:@"%llu", rawID];
+        deviceID = [NSString stringWithFormat:@"%llu", rawID];
+        if (self.deviceIDsByRef) {
+            CFDictionarySetValue(self.deviceIDsByRef, deviceRef, (__bridge const void *)(deviceID));
+        }
+        if (self.deviceNumericIDsByRef && rawID > 0) {
+            NSNumber *numericID = @(rawID);
+            CFDictionarySetValue(self.deviceNumericIDsByRef, deviceRef, (__bridge const void *)(numericID));
+        }
+        return deviceID;
     }
     return nil;
 }
@@ -346,15 +405,20 @@
     if (!deviceRef) {
         return 0;
     }
-    NSValue *refValue = [NSValue valueWithPointer:deviceRef];
-    NSNumber *cached = self.deviceNumericIDsByRef[refValue];
+    NSNumber *cached = nil;
+    if (self.deviceNumericIDsByRef) {
+        cached = (__bridge NSNumber *)CFDictionaryGetValue(self.deviceNumericIDsByRef, deviceRef);
+    }
     if (cached) {
         return cached.unsignedLongLongValue;
     }
     uint64_t rawID = 0;
     OSStatus err = MTDeviceGetDeviceID(deviceRef, &rawID);
     if (!err && rawID > 0) {
-        self.deviceNumericIDsByRef[refValue] = @(rawID);
+        if (self.deviceNumericIDsByRef) {
+            NSNumber *numericID = @(rawID);
+            CFDictionarySetValue(self.deviceNumericIDsByRef, deviceRef, (__bridge const void *)(numericID));
+        }
         return rawID;
     }
     return 0;
@@ -383,12 +447,12 @@
                          touches:(const MTTouch *)touches
                            count:(int)numTouches
                        timestamp:(double)timestamp
-                           frame:(int)frame {
+                           frame:(int)frame
+                        deviceID:(uint64_t)deviceID {
     NSArray<OpenMTListener *> *snapshot = self.rawListenersSnapshot;
     if (snapshot.count == 0) {
         return;
     }
-    uint64_t deviceID = [self deviceNumericIDForDeviceRef:deviceRef];
     for (OpenMTListener *listener in snapshot) {
         if (listener.dead) {
             continue;
@@ -414,7 +478,19 @@
             if (!deviceRef) {
                 continue;
             }
-            MTRegisterContactFrameCallback(deviceRef, contactEventHandler); // work
+            MTDeviceCallbackContext *context = malloc(sizeof(MTDeviceCallbackContext));
+            if (!context) {
+                MTRegisterContactFrameCallback(deviceRef, contactEventHandler);
+                MTDeviceStart(deviceRef, 0);
+                continue;
+            }
+            context->manager = self;
+            context->deviceID = [self deviceNumericIDForDeviceRef:deviceRef];
+            context->usesRefcon = MTRegisterContactFrameCallbackWithRefcon(deviceRef, contactEventHandlerWithRefcon, context);
+            if (!context->usesRefcon) {
+                MTRegisterContactFrameCallback(deviceRef, contactEventHandler); // work
+            }
+            self.deviceCallbackContexts[[NSValue valueWithPointer:deviceRef]] = [NSValue valueWithPointer:context];
             // MTEasyInstallPrintCallbacks(deviceRef, YES, NO, NO, NO, NO, NO); // work
             // MTRegisterPathCallback(deviceRef, pathEventHandler); // work
             // MTRegisterMultitouchImageCallback(deviceRef, MTImagePrintCallback); // not work
@@ -431,11 +507,18 @@
             if (!deviceRef || !MTDeviceIsRunning(deviceRef)) {
                 continue;
             }
-            MTUnregisterContactFrameCallback(deviceRef, contactEventHandler); // work
+            NSValue *contextValue = self.deviceCallbackContexts[[NSValue valueWithPointer:deviceRef]];
+            MTDeviceCallbackContext *context = contextValue ? (MTDeviceCallbackContext *)contextValue.pointerValue : NULL;
+            if (context && context->usesRefcon) {
+                MTUnregisterContactFrameCallback(deviceRef, contactEventHandlerWithRefcon);
+            } else {
+                MTUnregisterContactFrameCallback(deviceRef, contactEventHandler); // work
+            }
             // MTUnregisterPathCallback(deviceRef, pathEventHandler); // work
             // MTUnregisterImageCallback(deviceRef, MTImagePrintCallback); // not work
             MTDeviceStop(deviceRef);
         }
+        [self clearActuatorCache];
         [self clearDeviceRefs];
     } @catch (NSException *exception) {
     }
@@ -627,6 +710,52 @@
     IOObjectRelease(iterator);
     return selectedDeviceID;
 }
+
+- (CFTypeRef)cachedActuatorForDeviceID:(UInt64)deviceID {
+    if (deviceID == 0) {
+        return NULL;
+    }
+    NSNumber *key = @(deviceID);
+    os_unfair_lock_lock(&_actuatorLock);
+    NSValue *cachedValue = self.actuatorCache[key];
+    if (cachedValue) {
+        CFTypeRef actuatorRef = (CFTypeRef)cachedValue.pointerValue;
+        os_unfair_lock_unlock(&_actuatorLock);
+        return actuatorRef;
+    }
+    os_unfair_lock_unlock(&_actuatorLock);
+
+    CFTypeRef actuatorRef = MTActuatorCreateFromDeviceID(deviceID);
+    if (!actuatorRef) {
+        return NULL;
+    }
+    IOReturn openResult = MTActuatorOpen(actuatorRef);
+    if (openResult != kIOReturnSuccess) {
+        CFRelease(actuatorRef);
+        return NULL;
+    }
+    os_unfair_lock_lock(&_actuatorLock);
+    self.actuatorCache[key] = [NSValue valueWithPointer:actuatorRef];
+    os_unfair_lock_unlock(&_actuatorLock);
+    return actuatorRef;
+}
+
+- (void)clearActuatorCache {
+    NSDictionary<NSNumber *, NSValue *> *snapshot = nil;
+    os_unfair_lock_lock(&_actuatorLock);
+    if (self.actuatorCache.count > 0) {
+        snapshot = [self.actuatorCache copy];
+        [self.actuatorCache removeAllObjects];
+    }
+    os_unfair_lock_unlock(&_actuatorLock);
+    for (NSValue *value in snapshot.allValues) {
+        CFTypeRef actuatorRef = (CFTypeRef)value.pointerValue;
+        if (actuatorRef) {
+            MTActuatorClose(actuatorRef);
+            CFRelease(actuatorRef);
+        }
+    }
+}
 // actuation IDs range from 1-6 going weakest to strongest
 // unknown 2 controls the sharpness. Test: activation id 1 with unknown2=10
 // unknown 3 is used as onset/offset in other cases. onset=0 offset=2. Can be negative
@@ -651,26 +780,11 @@
     if (multitouchDeviceID == 0) {
         return NO;
     }
-    // Create actuator from device ID (HapticKey approach)
-    CFTypeRef actuatorRef = MTActuatorCreateFromDeviceID(multitouchDeviceID);
+    CFTypeRef actuatorRef = [self cachedActuatorForDeviceID:multitouchDeviceID];
     if (!actuatorRef) {
         return NO;
     }
-
-    // Open the actuator (HapticKey approach)
-    IOReturn openResult = MTActuatorOpen(actuatorRef);
-    if (openResult != kIOReturnSuccess) {
-        CFRelease(actuatorRef);
-        return NO;
-    }
-
-    // Single actuate call with raw parameters
     IOReturn result = MTActuatorActuate(actuatorRef, actuationID, unknown1, unknown2, unknown3);
-
-    // Close and release
-    MTActuatorClose(actuatorRef);
-    CFRelease(actuatorRef);
-
     return result == kIOReturnSuccess;
 }
 // Utility Tools C Language
@@ -691,14 +805,48 @@ static void dispatchResponseAsync(dispatch_block_t block) {
     dispatch_async(responseQueue, block);
 }
 
+static void contactEventHandlerWithRefcon(MTDeviceRef eventDevice, MTTouch eventTouches[], size_t numTouches, double timestamp, size_t frame, void* refCon) {
+    @autoreleasepool {
+        MTDeviceCallbackContext *context = (MTDeviceCallbackContext *)refCon;
+        OpenMTManager *manager = context && context->manager ? context->manager : OpenMTManager.sharedManager;
+        uint64_t deviceID = context ? context->deviceID : [manager deviceNumericIDForDeviceRef:eventDevice];
+
+        [manager handleRawFrameWithDevice:eventDevice
+                                  touches:eventTouches
+                                    count:(int)numTouches
+                                timestamp:timestamp
+                                    frame:(int)frame
+                                 deviceID:deviceID];
+        if (manager.listenersSnapshot.count == 0) {
+            return;
+        }
+        NSMutableArray *touches = [NSMutableArray arrayWithCapacity:(NSUInteger)numTouches];
+
+        for (size_t i = 0; i < numTouches; i++) {
+            OpenMTTouch *touch = [[OpenMTTouch alloc] initWithMTTouch:&eventTouches[i]];
+            [touches addObject:touch];
+        }
+
+        OpenMTEvent *event = OpenMTEvent.new;
+        event.touches = touches;
+        event.deviceID = [manager deviceIDForDeviceRef:eventDevice] ?: @"Unknown";
+        event.frameID = (int)frame;
+        event.timestamp = timestamp;
+
+        [manager handleMultitouchEvent:event];
+    }
+}
+
 static void contactEventHandler(MTDeviceRef eventDevice, MTTouch eventTouches[], int numTouches, double timestamp, int frame) {
     @autoreleasepool {
         OpenMTManager *manager = OpenMTManager.sharedManager;
+        uint64_t deviceID = [manager deviceNumericIDForDeviceRef:eventDevice];
         [manager handleRawFrameWithDevice:eventDevice
                                   touches:eventTouches
                                     count:numTouches
                                 timestamp:timestamp
-                                    frame:frame];
+                                    frame:frame
+                                 deviceID:deviceID];
         if (manager.listenersSnapshot.count == 0) {
             return;
         }

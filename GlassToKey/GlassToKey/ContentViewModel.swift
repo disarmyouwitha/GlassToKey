@@ -10,6 +10,7 @@ import CoreGraphics
 import Darwin
 import Foundation
 import OpenMultitouchSupport
+import OpenMultitouchSupportXCF
 import QuartzCore
 import SwiftUI
 import os
@@ -166,12 +167,6 @@ final class ContentViewModel: ObservableObject {
         var right: [OMSTouchData] = []
         var revision: UInt64 = 0
         var hasTransitionState: Bool = false
-    }
-
-    struct TouchFrame: Sendable {
-        let data: [OMSTouchData]
-        let left: [OMSTouchData]
-        let right: [OMSTouchData]
     }
 
     enum IntentDisplay: String, Sendable {
@@ -337,21 +332,35 @@ final class ContentViewModel: ObservableObject {
                 let signpostState = pipelineSignposter.beginInterval("InputFrame")
                 defer { pipelineSignposter.endInterval("InputFrame", signpostState) }
 #endif
-                let touchData = OMSManager.buildTouchData(from: rawFrame)
-                rawFrame.release()
                 let selection = selectionLock.withLockUnchecked { $0 }
-                let split = Self.splitTouches(touchData, selection: selection)
-                let frame = TouchFrame(
-                    data: touchData,
-                    left: split.left,
-                    right: split.right
-                )
+                let deviceIndex = rawFrame.deviceIndex
+                let isLeft = deviceIndex == selection.leftIndex
+                let isRight = deviceIndex == selection.rightIndex
+                let hasTouchData = !rawFrame.touches.isEmpty
+                let shouldRecord = recordingLock.withLockUnchecked(\.self)
+                var leftTouches: [OMSTouchData] = []
+                var rightTouches: [OMSTouchData] = []
+                if shouldRecord, hasTouchData, (isLeft || isRight) {
+                    let touchData = OMSManager.buildTouchData(from: rawFrame)
+                    if isLeft {
+                        leftTouches = touchData
+                    } else if isRight {
+                        rightTouches = touchData
+                    }
+                }
                 let now = CACurrentMediaTime()
-                snapshotQueue.async { [recordingLock, snapshotLock, self] in
-                    let snapshotCandidate = self.updatePendingTouches(with: frame, at: now)
+                if shouldRecord {
+                    let leftSnapshot = leftTouches
+                    let rightSnapshot = rightTouches
+                    snapshotQueue.async { [snapshotLock, self] in
+                        let snapshotCandidate = self.updatePendingTouches(
+                            hasTouchData: hasTouchData,
+                            left: leftSnapshot,
+                            right: rightSnapshot,
+                            at: now
+                        )
                     var updatedRevision: UInt64?
-                    if let candidate = snapshotCandidate,
-                       recordingLock.withLockUnchecked(\.self) {
+                    if let candidate = snapshotCandidate {
                         snapshotLock.withLockUnchecked { snapshot in
                             snapshot.left = candidate.left
                             snapshot.right = candidate.right
@@ -369,8 +378,10 @@ final class ContentViewModel: ObservableObject {
                     if let revision = updatedRevision {
                         self.touchRevisionContinuationHolder.continuation?.yield(revision)
                     }
+                    }
                 }
-                await processor.processTouchFrame(frame)
+                await processor.processRawFrame(rawFrame)
+                rawFrame.release()
             }
         }
     }
@@ -543,26 +554,6 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    nonisolated private static func splitTouches(
-        _ touches: [OMSTouchData],
-        selection: DeviceSelection
-    ) -> (left: [OMSTouchData], right: [OMSTouchData]) {
-        var left: [OMSTouchData] = []
-        var right: [OMSTouchData] = []
-        left.reserveCapacity(touches.count / 2)
-        right.reserveCapacity(touches.count / 2)
-        for touch in touches {
-            if let leftIndex = selection.leftIndex,
-               touch.deviceIndex == leftIndex {
-                left.append(touch)
-            } else if let rightIndex = selection.rightIndex,
-                      touch.deviceIndex == rightIndex {
-                right.append(touch)
-            }
-        }
-        return (left, right)
-    }
-
     nonisolated private static func hasTransitionState(
         left: [OMSTouchData],
         right: [OMSTouchData]
@@ -587,11 +578,13 @@ final class ContentViewModel: ObservableObject {
     }
 
     nonisolated private func updatePendingTouches(
-        with frame: TouchFrame,
+        hasTouchData: Bool,
+        left: [OMSTouchData],
+        right: [OMSTouchData],
         at now: TimeInterval
     ) -> PendingTouchSnapshot? {
         pendingTouchLock.withLockUnchecked { state in
-            if frame.data.isEmpty {
+            if !hasTouchData {
                 let hadPendingTouches = !state.left.isEmpty || !state.right.isEmpty
                 if hadPendingTouches {
                     state.left.removeAll()
@@ -608,14 +601,14 @@ final class ContentViewModel: ObservableObject {
             }
 
             var hasUpdates = false
-            if !frame.left.isEmpty {
-                state.left = frame.left
+            if !left.isEmpty {
+                state.left = left
                 state.leftDirty = true
                 state.lastLeftUpdateTime = now
                 hasUpdates = true
             }
-            if !frame.right.isEmpty {
-                state.right = frame.right
+            if !right.isEmpty {
+                state.right = right
                 state.rightDirty = true
                 state.lastRightUpdateTime = now
                 hasUpdates = true
@@ -765,6 +758,7 @@ final class ContentViewModel: ObservableObject {
         snapshotRecordingLock.withLockUnchecked { $0 = enabled }
         if !enabled {
             touchSnapshotLock.withLockUnchecked { $0 = TouchSnapshot() }
+            pendingTouchLock.withLockUnchecked { $0 = PendingTouchState() }
         }
     }
 
@@ -1345,6 +1339,7 @@ final class ContentViewModel: ObservableObject {
             left: TouchTable<KeyBinding>(minimumCapacity: 16),
             right: TouchTable<KeyBinding>(minimumCapacity: 16)
         )
+        private var framePointCache = TouchTable<CGPoint>(minimumCapacity: 16)
         private var hapticStrength: Double = 0
         private struct IntentState {
             var mode: IntentMode = .idle
@@ -1355,6 +1350,11 @@ final class ContentViewModel: ObservableObject {
         private var intentState = IntentState()
         private var intentDisplayBySide = SidePair(left: IntentDisplay.idle, right: .idle)
         private var intentConfig = IntentConfig()
+        private var intentCurrentKeys = TouchTable<Bool>(minimumCapacity: 16)
+        private var intentRemovalBuffer: [TouchKey] = []
+        private var unitsPerMillimeter: CGFloat = 1.0
+        private var intentMoveThresholdSquared: CGFloat = 0
+        private var intentVelocityThreshold: CGFloat = 0
         private var allowMouseTakeoverDuringTyping = false
         private var tapClickEnabled = false
         private var typingGraceDeadline: TimeInterval?
@@ -1449,6 +1449,7 @@ final class ContentViewModel: ObservableObject {
             self.rightLabels = rightLabels
             self.trackpadSize = trackpadSize
             self.trackpadWidthMm = max(1.0, trackpadWidthMm)
+            updateIntentThresholdCache()
             invalidateBindingsCache()
         }
 
@@ -1486,10 +1487,12 @@ final class ContentViewModel: ObservableObject {
 
         func updateIntentMoveThreshold(_ millimeters: Double) {
             intentConfig.moveThresholdMm = max(0, CGFloat(millimeters))
+            updateIntentThresholdCache()
         }
 
         func updateIntentVelocityThreshold(_ millimetersPerSecond: Double) {
             intentConfig.velocityThresholdMmPerSec = max(0, CGFloat(millimetersPerSecond))
+            updateIntentThresholdCache()
         }
 
         func updateAllowMouseTakeover(_ enabled: Bool) {
@@ -1526,7 +1529,7 @@ final class ContentViewModel: ObservableObject {
             }
         }
 
-        func processTouchFrame(_ frame: TouchFrame) {
+        func processRawFrame(_ frame: OMSRawTouchFrame) {
             guard isListening,
                   let leftLayout,
                   let rightLayout else {
@@ -1539,16 +1542,23 @@ final class ContentViewModel: ObservableObject {
 #if DEBUG
             tapTraceFrameIndex &+= 1
 #endif
-            if frame.data.isEmpty {
+            let touches = frame.touches
+            let hasTouchData = !touches.isEmpty
+            if !hasTouchData {
                 chordShiftState[.left] = ChordShiftState()
                 chordShiftState[.right] = ChordShiftState()
                 chordShiftLastContactTime[.left] = 0
                 chordShiftLastContactTime[.right] = 0
                 updateChordShiftKeyState()
             }
+            let deviceIndex = frame.deviceIndex
+            let isLeftDevice = leftDeviceIndex.map { $0 == deviceIndex } ?? false
+            let isRightDevice = rightDeviceIndex.map { $0 == deviceIndex } ?? false
+            let leftTouches = isLeftDevice ? touches : []
+            let rightTouches = isRightDevice ? touches : []
             if chordShiftEnabled {
-                let leftContactCount = contactCount(in: frame.left)
-                let rightContactCount = contactCount(in: frame.right)
+                let leftContactCount = contactCount(in: leftTouches)
+                let rightContactCount = contactCount(in: rightTouches)
                 updateChordShift(for: .left, contactCount: leftContactCount, now: now)
                 updateChordShift(for: .right, contactCount: rightContactCount, now: now)
                 updateChordShiftKeyState()
@@ -1568,31 +1578,40 @@ final class ContentViewModel: ObservableObject {
                 canvasSize: trackpadSize
             )
             let allowTypingGlobal = updateIntent(
-                for: frame,
+                leftTouches: leftTouches,
+                rightTouches: rightTouches,
+                leftDeviceIndex: leftDeviceIndex,
+                rightDeviceIndex: rightDeviceIndex,
                 now: now,
                 leftBindings: leftBindings,
                 rightBindings: rightBindings
             )
             let allowTypingLeft = allowTypingGlobal || isChordShiftActive(on: .right)
             let allowTypingRight = allowTypingGlobal || isChordShiftActive(on: .left)
-            processTouches(
-                frame.left,
-                bindings: leftBindings,
-                layout: leftLayout,
-                canvasSize: trackpadSize,
-                isLeftSide: true,
-                now: now,
-                intentAllowsTyping: allowTypingLeft
-            )
-            processTouches(
-                frame.right,
-                bindings: rightBindings,
-                layout: rightLayout,
-                canvasSize: trackpadSize,
-                isLeftSide: false,
-                now: now,
-                intentAllowsTyping: allowTypingRight
-            )
+            if isLeftDevice {
+                processTouches(
+                    leftTouches,
+                    deviceIndex: deviceIndex,
+                    bindings: leftBindings,
+                    layout: leftLayout,
+                    canvasSize: trackpadSize,
+                    isLeftSide: true,
+                    now: now,
+                    intentAllowsTyping: allowTypingLeft
+                )
+            }
+            if isRightDevice {
+                processTouches(
+                    rightTouches,
+                    deviceIndex: deviceIndex,
+                    bindings: rightBindings,
+                    layout: rightLayout,
+                    canvasSize: trackpadSize,
+                    isLeftSide: false,
+                    now: now,
+                    intentAllowsTyping: allowTypingRight
+                )
+            }
             notifyContactCounts()
         }
 
@@ -1620,7 +1639,8 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func processTouches(
-            _ touches: [OMSTouchData],
+            _ touches: [OMSRawTouch],
+            deviceIndex: Int,
             bindings: BindingIndex,
             layout: Layout,
             canvasSize: CGSize,
@@ -1638,21 +1658,24 @@ final class ContentViewModel: ObservableObject {
             #endif
             let dragCancelDistanceSquared = dragCancelDistance * dragCancelDistance
             let side: TrackpadSide = isLeftSide ? .left : .right
-            let contactCount = touches.reduce(0) { current, touch in
-                current + (Self.isContactState(touch.state) ? 1 : 0)
-            }
-            contactFingerCountsBySide[side] = cachedContactCount(
-                for: side,
-                actualCount: contactCount,
-                now: now
-            )
             let chordShiftSuppressed = chordShiftEnabled && isChordShiftActive(on: side)
+            var contactCount = 0
             for touch in touches {
-                let point = CGPoint(
-                    x: CGFloat(touch.position.x) * canvasSize.width,
-                    y: CGFloat(1.0 - touch.position.y) * canvasSize.height
-                )
-                let touchKey = Self.makeTouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
+                if Self.isContactState(touch.state) {
+                    contactCount += 1
+                }
+                let touchKey = Self.makeTouchKey(deviceIndex: deviceIndex, id: touch.id)
+                let point: CGPoint
+                if let cachedPoint = framePointCache.value(for: touchKey) {
+                    point = cachedPoint
+                } else {
+                    let computed = CGPoint(
+                        x: CGFloat(touch.posX) * canvasSize.width,
+                        y: CGFloat(1.0 - touch.posY) * canvasSize.height
+                    )
+                    framePointCache.set(touchKey, computed)
+                    point = computed
+                }
                 var bindingAtPoint: KeyBinding?
                 var didResolveBinding = false
                 @inline(__always)
@@ -1671,7 +1694,9 @@ final class ContentViewModel: ObservableObject {
                     case .breaking, .leaving, .notTouching:
                         disqualifiedTouches.remove(touchKey)
                         touchInitialContactPoint.remove(touchKey)
-                    default:
+                    case .starting, .hovering, .making, .touching, .lingering:
+                        break
+                    @unknown default:
                         break
                     }
                     continue
@@ -1687,6 +1712,8 @@ final class ContentViewModel: ObservableObject {
                     case .breaking, .leaving, .notTouching:
                         disqualifiedTouches.remove(touchKey)
                     case .starting, .making, .touching, .hovering, .lingering:
+                        break
+                    @unknown default:
                         break
                     }
                     continue
@@ -2135,8 +2162,15 @@ final class ContentViewModel: ObservableObject {
                     }
                 case .hovering, .lingering:
                     break
+                @unknown default:
+                    break
                 }
             }
+            contactFingerCountsBySide[side] = cachedContactCount(
+                for: side,
+                actualCount: contactCount,
+                now: now
+            )
         }
 
         private func handleForceGuard(
@@ -2687,7 +2721,7 @@ final class ContentViewModel: ObservableObject {
             return dx * dx + dy * dy
         }
 
-        private static func isContactState(_ state: OMSState) -> Bool {
+        private static func isContactState(_ state: OpenMTState) -> Bool {
             switch state {
             case .starting, .making, .touching:
                 return true
@@ -2696,7 +2730,7 @@ final class ContentViewModel: ObservableObject {
             }
         }
 
-        private static func isIntentContactState(_ state: OMSState) -> Bool {
+        private static func isIntentContactState(_ state: OpenMTState) -> Bool {
             switch state {
             case .starting, .making, .touching, .breaking, .leaving:
                 return true
@@ -2705,7 +2739,7 @@ final class ContentViewModel: ObservableObject {
             }
         }
 
-        private static func isChordShiftContactState(_ state: OMSState) -> Bool {
+        private static func isChordShiftContactState(_ state: OpenMTState) -> Bool {
             switch state {
             case .starting, .making, .touching, .breaking, .leaving, .lingering:
                 return true
@@ -2714,7 +2748,7 @@ final class ContentViewModel: ObservableObject {
             }
         }
 
-        private func contactCount(in touches: [OMSTouchData]) -> Int {
+        private func contactCount(in touches: [OMSRawTouch]) -> Int {
             var count = 0
             for touch in touches where Self.isChordShiftContactState(touch.state) {
                 count += 1
@@ -2764,11 +2798,15 @@ final class ContentViewModel: ObservableObject {
         }
 
         private func updateIntent(
-            for frame: TouchFrame,
+            leftTouches: [OMSRawTouch],
+            rightTouches: [OMSRawTouch],
+            leftDeviceIndex: Int?,
+            rightDeviceIndex: Int?,
             now: TimeInterval,
             leftBindings: BindingIndex,
             rightBindings: BindingIndex
         ) -> Bool {
+            framePointCache.removeAll(keepingCapacity: true)
             guard trackpadSize.width > 0,
                   trackpadSize.height > 0 else {
                 intentState = IntentState()
@@ -2778,27 +2816,26 @@ final class ContentViewModel: ObservableObject {
                 return isTypingEnabled
             }
 
-            let unitsPerMm = mmUnitsPerMillimeter()
-            let moveThreshold = intentConfig.moveThresholdMm * unitsPerMm
-            let moveThresholdSquared = moveThreshold * moveThreshold
-            let velocityThreshold = intentConfig.velocityThresholdMmPerSec * unitsPerMm
-
             return updateIntentGlobal(
-                leftTouches: frame.left,
-                rightTouches: frame.right,
+                leftTouches: leftTouches,
+                rightTouches: rightTouches,
+                leftDeviceIndex: leftDeviceIndex,
+                rightDeviceIndex: rightDeviceIndex,
                 leftBindings: leftBindings,
                 rightBindings: rightBindings,
                 now: now,
-                moveThresholdSquared: moveThresholdSquared,
-                velocityThreshold: velocityThreshold,
-                unitsPerMm: unitsPerMm,
+                moveThresholdSquared: intentMoveThresholdSquared,
+                velocityThreshold: intentVelocityThreshold,
+                unitsPerMm: unitsPerMillimeter,
                 bindingCacheBySide: &bindingCacheBySide
             )
         }
 
         private func updateIntentGlobal(
-            leftTouches: [OMSTouchData],
-            rightTouches: [OMSTouchData],
+            leftTouches: [OMSRawTouch],
+            rightTouches: [OMSRawTouch],
+            leftDeviceIndex: Int?,
+            rightDeviceIndex: Int?,
             leftBindings: BindingIndex,
             rightBindings: BindingIndex,
             now: TimeInterval,
@@ -2823,21 +2860,22 @@ final class ContentViewModel: ObservableObject {
             var gestureSumX: CGFloat = 0
             var gestureSumY: CGFloat = 0
             var firstOnKeyTouchKey: TouchKey?
-            var currentKeys = TouchTable<Bool>(minimumCapacity: leftTouches.count + rightTouches.count)
+            intentCurrentKeys.removeAll(keepingCapacity: true)
             var hasKeyboardAnchor = false
             var twoFingerTapDetected = false
             var threeFingerTapDetected = false
             let staggerWindow = max(intentConfig.keyBufferSeconds, contactCountHoldDuration)
 
-            func process(_ touch: OMSTouchData, side: TrackpadSide, bindings: BindingIndex) {
+            func process(_ touch: OMSRawTouch, deviceIndex: Int, side: TrackpadSide, bindings: BindingIndex) {
                 let isChordState = Self.isChordShiftContactState(touch.state)
                 let isIntentState = Self.isIntentContactState(touch.state)
                 guard isChordState || isIntentState else { return }
-                let touchKey = Self.makeTouchKey(deviceIndex: touch.deviceIndex, id: touch.id)
+                let touchKey = Self.makeTouchKey(deviceIndex: deviceIndex, id: touch.id)
                 let point = CGPoint(
-                    x: CGFloat(touch.position.x) * trackpadSize.width,
-                    y: CGFloat(1.0 - touch.position.y) * trackpadSize.height
+                    x: CGFloat(touch.posX) * trackpadSize.width,
+                    y: CGFloat(1.0 - touch.posY) * trackpadSize.height
                 )
+                framePointCache.set(touchKey, point)
                 if isChordState {
                     gestureContactCount += 1
                     gestureSumX += point.x
@@ -2854,7 +2892,7 @@ final class ContentViewModel: ObservableObject {
                 contactCount += 1
                 sumX += point.x
                 sumY += point.y
-                currentKeys.set(touchKey, true)
+                intentCurrentKeys.set(touchKey, true)
 
                 let binding = binding(at: point, index: bindings)
                 if let binding {
@@ -2891,11 +2929,15 @@ final class ContentViewModel: ObservableObject {
                 }
             }
 
-            for touch in leftTouches {
-                process(touch, side: .left, bindings: leftBindings)
+            if let leftDeviceIndex {
+                for touch in leftTouches {
+                    process(touch, deviceIndex: leftDeviceIndex, side: .left, bindings: leftBindings)
+                }
             }
-            for touch in rightTouches {
-                process(touch, side: .right, bindings: rightBindings)
+            if let rightDeviceIndex {
+                for touch in rightTouches {
+                    process(touch, deviceIndex: rightDeviceIndex, side: .right, bindings: rightBindings)
+                }
             }
 
             if let candidate = twoFingerTapCandidate, now > candidate.deadline {
@@ -2910,7 +2952,7 @@ final class ContentViewModel: ObservableObject {
             }
 
             if tapClickEnabled {
-                if currentKeys.count == 2,
+                if intentCurrentKeys.count == 2,
                    state.touches.count == 3,
                    shouldTriggerTapClick(
                     state: state.touches,
@@ -2919,7 +2961,7 @@ final class ContentViewModel: ObservableObject {
                     fingerCount: 3
                    ) {
                     threeFingerTapCandidate = TapCandidate(deadline: now + staggerWindow)
-                } else if currentKeys.count == 0,
+                } else if intentCurrentKeys.count == 0,
                           state.touches.count == 3,
                           shouldTriggerTapClick(
                             state: state.touches,
@@ -2929,12 +2971,12 @@ final class ContentViewModel: ObservableObject {
                           ) {
                     threeFingerTapDetected = true
                     threeFingerTapCandidate = nil
-                } else if currentKeys.count == 0,
+                } else if intentCurrentKeys.count == 0,
                           let candidate = threeFingerTapCandidate,
                           now <= candidate.deadline {
                     threeFingerTapDetected = true
                     threeFingerTapCandidate = nil
-                } else if currentKeys.count == 1,
+                } else if intentCurrentKeys.count == 1,
                           state.touches.count == 2,
                           shouldTriggerTapClick(
                             state: state.touches,
@@ -2943,7 +2985,7 @@ final class ContentViewModel: ObservableObject {
                             fingerCount: 2
                           ) {
                     twoFingerTapCandidate = TapCandidate(deadline: now + staggerWindow)
-                } else if currentKeys.count == 0,
+                } else if intentCurrentKeys.count == 0,
                           state.touches.count == 2,
                           shouldTriggerTapClick(
                             state: state.touches,
@@ -2953,7 +2995,7 @@ final class ContentViewModel: ObservableObject {
                           ) {
                     twoFingerTapDetected = true
                     twoFingerTapCandidate = nil
-                } else if currentKeys.count == 0,
+                } else if intentCurrentKeys.count == 0,
                           let candidate = twoFingerTapCandidate,
                           now <= candidate.deadline {
                     twoFingerTapDetected = true
@@ -2961,14 +3003,14 @@ final class ContentViewModel: ObservableObject {
                 }
             }
 
-            if state.touches.count != currentKeys.count {
-                var toRemove: [TouchKey] = []
+            if state.touches.count != intentCurrentKeys.count {
+                intentRemovalBuffer.removeAll(keepingCapacity: true)
                 state.touches.forEach { key, _ in
-                    if currentKeys.value(for: key) == nil {
-                        toRemove.append(key)
+                    if intentCurrentKeys.value(for: key) == nil {
+                        intentRemovalBuffer.append(key)
                     }
                 }
-                for key in toRemove {
+                for key in intentRemovalBuffer {
                     state.touches.remove(key)
                 }
             }
@@ -3073,7 +3115,7 @@ final class ContentViewModel: ObservableObject {
                     allowTyping = false
                 } else {
                     state.mode = .mouseCandidate(start: now)
-                    suppressKeyProcessing(for: currentKeys)
+                    suppressKeyProcessing(for: intentCurrentKeys)
                     allowTyping = false
                 }
             case let .keyCandidate(start, _, _):
@@ -3100,7 +3142,7 @@ final class ContentViewModel: ObservableObject {
                     allowTyping = true
                 } else if mouseSignal {
                     state.mode = .mouseActive
-                    suppressKeyProcessing(for: currentKeys)
+                    suppressKeyProcessing(for: intentCurrentKeys)
                     allowTyping = false
                 } else {
                     allowTyping = true
@@ -3114,7 +3156,7 @@ final class ContentViewModel: ObservableObject {
                 }
                 if mouseSignal || now - start >= intentConfig.keyBufferSeconds {
                     state.mode = .mouseActive
-                    suppressKeyProcessing(for: currentKeys)
+                    suppressKeyProcessing(for: intentCurrentKeys)
                     allowTyping = false
                 } else {
                     allowTyping = false
@@ -3260,10 +3302,8 @@ final class ContentViewModel: ObservableObject {
             guard case .keyCandidate = state.mode else {
                 return false
             }
-            let moveThreshold = intentConfig.moveThresholdMm * mmUnitsPerMillimeter()
-            let moveThresholdSquared = moveThreshold * moveThreshold
             let maxDistanceSquared = state.touches.value(for: touchKey)?.maxDistanceSquared ?? 0
-            guard maxDistanceSquared <= moveThresholdSquared else { return false }
+            guard maxDistanceSquared <= intentMoveThresholdSquared else { return false }
             guard binding.rect.contains(point),
                   initialContactPointIsInsideBinding(touchKey, binding: binding) else {
                 return false
@@ -3273,14 +3313,26 @@ final class ContentViewModel: ObservableObject {
             return true
         }
 
+        private func updateIntentThresholdCache() {
+            guard trackpadWidthMm > 0 else {
+                unitsPerMillimeter = 1
+                intentMoveThresholdSquared = 0
+                intentVelocityThreshold = 0
+                return
+            }
+            unitsPerMillimeter = trackpadSize.width / trackpadWidthMm
+            let moveThreshold = intentConfig.moveThresholdMm * unitsPerMillimeter
+            intentMoveThresholdSquared = moveThreshold * moveThreshold
+            intentVelocityThreshold = intentConfig.velocityThresholdMmPerSec * unitsPerMillimeter
+        }
+
         private func mmUnitsPerMillimeter() -> CGFloat {
-            guard trackpadWidthMm > 0 else { return 1 }
-            return trackpadSize.width / trackpadWidthMm
+            unitsPerMillimeter
         }
 
         private func handleTypingToggleTouch(
             touchKey: TouchKey,
-            state: OMSState,
+            state: OpenMTState,
             point: CGPoint
         ) {
             switch state {
@@ -3305,12 +3357,14 @@ final class ContentViewModel: ObservableObject {
                 touchInitialContactPoint.remove(touchKey)
             case .hovering, .lingering:
                 break
+            @unknown default:
+                break
             }
         }
 
         private func handleLayerToggleTouch(
             touchKey: TouchKey,
-            state: OMSState,
+            state: OpenMTState,
             targetLayer: Int?
         ) {
             switch state {
@@ -3328,12 +3382,14 @@ final class ContentViewModel: ObservableObject {
                 layerToggleTouchStarts.remove(touchKey)
             case .hovering, .lingering:
                 break
+            @unknown default:
+                break
             }
         }
 
         private func handleMomentaryLayerTouch(
             touchKey: TouchKey,
-            state: OMSState,
+            state: OpenMTState,
             targetLayer: Int?,
             bindingRect: CGRect?
         ) {
@@ -3353,6 +3409,8 @@ final class ContentViewModel: ObservableObject {
                     updateActiveLayer()
                 }
             case .hovering, .lingering:
+                break
+            @unknown default:
                 break
             }
         }

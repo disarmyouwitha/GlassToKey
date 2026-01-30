@@ -16,6 +16,7 @@
 @interface OpenMTDeviceInfo: NSObject
 @property (nonatomic, readonly) NSString *deviceName;
 @property (nonatomic, readonly) NSString *deviceID;
+@property (nonatomic, readonly) UInt64 deviceNumericID;
 @property (nonatomic, readonly) BOOL isBuiltIn;
 @end
 
