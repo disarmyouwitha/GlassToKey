@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import os
 
 @main
 struct GlassToKeyApp: App {
@@ -19,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var configWindow: NSWindow?
     private var statusCancellable: AnyCancellable?
+    private let mouseEventBlocker = MouseEventBlocker()
     private static let configWindowDefaultHeight: CGFloat = 600
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -36,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         disableVisuals()
+        mouseEventBlocker.setAllowedRect(nil)
         controller.viewModel.setTouchSnapshotRecordingEnabled(false)
         controller.viewModel.setStatusVisualsEnabled(false)
         controller.viewModel.clearVisualCaches()
@@ -93,6 +96,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             hasDisconnectedTrackpads: controller.viewModel.hasDisconnectedTrackpads,
             keyboardModeEnabled: controller.viewModel.keyboardModeEnabled
         )
+        mouseEventBlocker.setBlockingEnabled(
+            controller.viewModel.isTypingEnabled && controller.viewModel.keyboardModeEnabled
+        )
     }
 
     private func observeStatus() {
@@ -109,6 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 hasDisconnectedTrackpads: hasDisconnected,
                 keyboardModeEnabled: keyboardModeEnabled
             )
+            self?.mouseEventBlocker.setBlockingEnabled(isTypingEnabled && keyboardModeEnabled)
         }
     }
 
@@ -183,6 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         controller.viewModel.setTouchSnapshotRecordingEnabled(true)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        updateMouseBlockerWindowFrame(window)
     }
 
     @objc private func syncDevices() {
@@ -225,5 +233,131 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.delegate = self
         return window
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow,
+              window == configWindow else {
+            return
+        }
+        updateMouseBlockerWindowFrame(window)
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow,
+              window == configWindow else {
+            return
+        }
+        updateMouseBlockerWindowFrame(window)
+    }
+
+    func windowDidMiniaturize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow,
+              window == configWindow else {
+            return
+        }
+        updateMouseBlockerWindowFrame(window)
+    }
+
+    func windowDidDeminiaturize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow,
+              window == configWindow else {
+            return
+        }
+        updateMouseBlockerWindowFrame(window)
+    }
+
+    private func updateMouseBlockerWindowFrame(_ window: NSWindow?) {
+        guard let window,
+              window == configWindow,
+              window.isVisible,
+              !window.isMiniaturized else {
+            mouseEventBlocker.setAllowedRect(nil)
+            return
+        }
+        mouseEventBlocker.setAllowedRect(window.frame)
+    }
+}
+
+private final class MouseEventBlocker {
+    private struct State {
+        var isBlocking = false
+        var allowedRect: CGRect?
+    }
+
+    private let stateLock = OSAllocatedUnfairLock<State>(uncheckedState: State())
+    private var eventTap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
+
+    func setBlockingEnabled(_ enabled: Bool) {
+        stateLock.withLockUnchecked { $0.isBlocking = enabled }
+        if enabled {
+            ensureEventTap()
+        }
+    }
+
+    func setAllowedRect(_ rect: CGRect?) {
+        stateLock.withLockUnchecked { $0.allowedRect = rect }
+    }
+
+    private func ensureEventTap() {
+        guard eventTap == nil else {
+            if let tap = eventTap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
+            return
+        }
+
+        let mask = (1 << CGEventType.leftMouseDown.rawValue)
+            | (1 << CGEventType.leftMouseUp.rawValue)
+            | (1 << CGEventType.rightMouseDown.rawValue)
+            | (1 << CGEventType.rightMouseUp.rawValue)
+            | (1 << CGEventType.otherMouseDown.rawValue)
+            | (1 << CGEventType.otherMouseUp.rawValue)
+
+        let refcon = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: CGEventMask(mask),
+            callback: Self.eventTapCallback,
+            userInfo: refcon
+        ) else {
+            return
+        }
+
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        eventTap = tap
+        runLoopSource = source
+        CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    private func shouldAllow(event: CGEvent) -> Bool {
+        let state = stateLock.withLockUnchecked { $0 }
+        guard state.isBlocking else { return true }
+        if let rect = state.allowedRect, rect.contains(event.location) {
+            return true
+        }
+        return false
+    }
+
+    private func reenableIfNeeded(for type: CGEventType) {
+        guard type == .tapDisabledByTimeout || type == .tapDisabledByUserInput else { return }
+        if let tap = eventTap {
+            CGEvent.tapEnable(tap: tap, enable: true)
+        }
+    }
+
+    private static let eventTapCallback: CGEventTapCallBack = { _, type, event, refcon in
+        guard let refcon else { return Unmanaged.passUnretained(event) }
+        let blocker = Unmanaged<MouseEventBlocker>.fromOpaque(refcon).takeUnretainedValue()
+        blocker.reenableIfNeeded(for: type)
+
+        if blocker.shouldAllow(event: event) {
+            return Unmanaged.passUnretained(event)
+        }
+        return nil
     }
 }
