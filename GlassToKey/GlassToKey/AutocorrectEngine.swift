@@ -20,7 +20,7 @@ final class AutocorrectEngine: @unchecked Sendable {
 
     nonisolated(unsafe) private static var enabledFlag: Int32 = 0
     nonisolated(unsafe) private static var suppressionCount: Int64 = 0
-    nonisolated(unsafe) private static var minWordLengthFlag: Int32 = 3
+    nonisolated(unsafe) private static var minWordLengthFlag: Int32 = 2
 
     private let queue: DispatchQueue
     private let wakeSource: DispatchSourceUserDataAdd

@@ -737,12 +737,6 @@ final class ContentViewModel: ObservableObject {
         }
     }
 
-    func updateSoftSnapEnabled(_ enabled: Bool) {
-        Task { [processor] in
-            await processor.updateSoftSnapEnabled(enabled)
-        }
-    }
-
     func updateChordalShiftEnabled(_ enabled: Bool) {
         Task { [processor] in
             await processor.updateChordalShiftEnabled(enabled)
@@ -1318,8 +1312,6 @@ final class ContentViewModel: ObservableObject {
         private var forceClickCap: Float = 0
         private var snapRadiusFraction: Float = 0.35
         private let snapAmbiguityRatio: Float = 1.15
-        private var softSnapEnabled = false
-        private let softSnapEdgeFraction: Float = 0.2
 #if DEBUG
         nonisolated(unsafe) private static var snapAttemptCount: Int64 = 0
         nonisolated(unsafe) private static var snapAcceptedCount: Int64 = 0
@@ -1517,10 +1509,6 @@ final class ContentViewModel: ObservableObject {
             let clamped = min(max(percent, 0.0), 100.0)
             snapRadiusFraction = Float(clamped / 100.0)
             invalidateBindingsCache()
-        }
-
-        func updateSoftSnapEnabled(_ enabled: Bool) {
-            softSnapEnabled = enabled
         }
 
         func updateTapClickEnabled(_ enabled: Bool) {
@@ -2023,19 +2011,7 @@ final class ContentViewModel: ObservableObject {
                                     maxDistanceSquared: active.maxDistanceSquared,
                                     now: now
                                 )
-                                if let override = softSnapOverrideBinding(
-                                    currentBinding: active.binding,
-                                    point: point,
-                                    bindings: bindings
-                                ) {
-                                    dispatchSnappedBinding(
-                                        override.binding,
-                                        altBinding: override.altBinding,
-                                        touchKey: touchKey
-                                    )
-                                } else {
-                                    triggerBinding(active.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
-                                }
+                                triggerBinding(active.binding, touchKey: touchKey, dispatchInfo: dispatchInfo)
                                 didDispatch = true
                             }
                         }
@@ -2685,33 +2661,6 @@ final class ContentViewModel: ObservableObject {
             return false
         }
 
-        private func softSnapOverrideBinding(
-            currentBinding: KeyBinding,
-            point: CGPoint,
-            bindings: BindingIndex
-        ) -> (binding: KeyBinding, altBinding: KeyBinding?)? {
-            guard softSnapEnabled,
-                  isSnapRadiusEnabled,
-                  case .key = currentBinding.action else {
-                return nil
-            }
-            let margin = Float(min(currentBinding.rect.width, currentBinding.rect.height)) * softSnapEdgeFraction
-            let insideDistance = insideDistanceToRectEdge(point: point, rect: currentBinding.rect)
-            guard insideDistance > 0, insideDistance <= margin else {
-                return nil
-            }
-            guard let (index, distanceSq) = nearestSnapIndexExcluding(
-                currentBinding,
-                point: point,
-                bindings: bindings
-            ) else {
-                return nil
-            }
-            guard distanceSq <= bindings.snapRadiusSq[index] else { return nil }
-            let binding = bindings.snapBindings[index]
-            return (binding, currentBinding)
-        }
-
         private func distanceSquaredToRectEdge(point: CGPoint, rect: CGRect) -> Float {
             let px = Float(point.x)
             let py = Float(point.y)
@@ -2736,19 +2685,6 @@ final class ContentViewModel: ObservableObject {
                 dy = 0
             }
             return dx * dx + dy * dy
-        }
-
-        private func insideDistanceToRectEdge(point: CGPoint, rect: CGRect) -> Float {
-            guard rect.contains(point) else { return 0 }
-            let px = Float(point.x)
-            let py = Float(point.y)
-            let minX = Float(rect.minX)
-            let maxX = Float(rect.maxX)
-            let minY = Float(rect.minY)
-            let maxY = Float(rect.maxY)
-            let dx = min(px - minX, maxX - px)
-            let dy = min(py - minY, maxY - py)
-            return min(dx, dy)
         }
 
         private static func isContactState(_ state: OMSState) -> Bool {

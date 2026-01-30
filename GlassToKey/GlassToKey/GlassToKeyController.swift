@@ -10,11 +10,10 @@ enum GlassToKeySettings {
     static let intentMoveThresholdMm: Double = 4.0
     static let intentVelocityThresholdMmPerSec: Double = 50.0
     static let autocorrectEnabled: Bool = true
-    static let autocorrectMinWordLength: Int = 3
+    static let autocorrectMinWordLength: Int = 2
     static let tapClickEnabled: Bool = true
     static let snapRadiusPercent: Double = 35.0
     static let chordalShiftEnabled: Bool = true
-    static let softSnapEnabled: Bool = false
 
     static func persistedDouble(
         forKey key: String,
@@ -107,10 +106,7 @@ final class GlassToKeyController: ObservableObject {
             forKey: GlassToKeyDefaultsKeys.autocorrectEnabled
         )
         AutocorrectEngine.shared.setEnabled(autocorrectEnabled)
-        let autocorrectMinLength = UserDefaults.standard.object(
-            forKey: GlassToKeyDefaultsKeys.autocorrectMinWordLength
-        ) as? Int ?? GlassToKeySettings.autocorrectMinWordLength
-        AutocorrectEngine.shared.setMinimumWordLength(autocorrectMinLength)
+        AutocorrectEngine.shared.setMinimumWordLength(GlassToKeySettings.autocorrectMinWordLength)
 
         let leftDeviceID = stringValue(forKey: GlassToKeyDefaultsKeys.leftDeviceID)
         let rightDeviceID = stringValue(forKey: GlassToKeyDefaultsKeys.rightDeviceID)
@@ -222,9 +218,6 @@ final class GlassToKeyController: ObservableObject {
         let chordalShiftEnabled = defaults.object(
             forKey: GlassToKeyDefaultsKeys.chordalShiftEnabled
         ) as? Bool ?? GlassToKeySettings.chordalShiftEnabled
-        let softSnapEnabled = defaults.object(
-            forKey: GlassToKeyDefaultsKeys.softSnapEnabled
-        ) as? Bool ?? GlassToKeySettings.softSnapEnabled
 
         viewModel.updateHoldThreshold(tapHoldMs / 1000.0)
         viewModel.updateDragCancelDistance(CGFloat(dragDistance))
@@ -237,7 +230,6 @@ final class GlassToKeyController: ObservableObject {
         viewModel.updateTapClickEnabled(tapClickEnabled)
         viewModel.updateSnapRadiusPercent(snapRadiusPercent)
         viewModel.updateChordalShiftEnabled(chordalShiftEnabled)
-        viewModel.updateSoftSnapEnabled(softSnapEnabled)
     }
 
     private func stringValue(forKey key: String) -> String {
