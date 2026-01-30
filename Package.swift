@@ -23,8 +23,8 @@ let package = Package(
             // For development: use local framework
             // path: "OpenMultitouchSupportXCF.xcframework"
             // For release: use GitHub URL (replaced by release script)
-            url: "https://github.com/disarmyouwitha/GlassToKey/releases/download/v2.0.0/OpenMultitouchSupportXCF.xcframework.zip",
-            checksum: "4f4c889b41948af8020eae8d932aaa393e74f3cf12e90706f1343e86cdd833de"
+            url: "https://github.com/disarmyouwitha/GlassToKey/releases/download/v2.0.1/OpenMultitouchSupportXCF.xcframework.zip",
+            checksum: "5b69b4e180daffaff85fa76e4a211e0290a7ab8c4b49be31aa962bda1fe40fc0"
         ),
         .target(
             name: "OpenMultitouchSupport",
