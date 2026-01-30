@@ -2,12 +2,12 @@ import OpenMultitouchSupport
 import SwiftUI
 
 enum GlassToKeySettings {
-    static let tapHoldDurationMs: Double = 250.0
+    static let tapHoldDurationMs: Double = 220.0
     static let dragCancelDistanceMm: Double = 8.0
     static let forceClickCap: Double = 120.0
     static let hapticStrengthPercent: Double = 40.0
     static let typingGraceMs: Double = 1000.0
-    static let intentMoveThresholdMm: Double = 4.0
+    static let intentMoveThresholdMm: Double = 3.0
     static let intentVelocityThresholdMmPerSec: Double = 50.0
     static let autocorrectEnabled: Bool = true
     static let autocorrectMinWordLength: Int = 2

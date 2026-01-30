@@ -37,7 +37,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
               window == configWindow else {
             return
         }
-        disableVisuals()
         mouseEventBlocker.setAllowedRect(nil)
         controller.viewModel.setTouchSnapshotRecordingEnabled(false)
         controller.viewModel.setStatusVisualsEnabled(false)
@@ -210,10 +209,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.terminate(nil)
     }
 
-    private func disableVisuals() {
-        UserDefaults.standard.set(false, forKey: GlassToKeyDefaultsKeys.visualsEnabled)
-    }
-
     private func makeConfigWindow() -> NSWindow {
         let contentView = ContentView(viewModel: controller.viewModel)
         let window = NSWindow(
@@ -310,10 +305,13 @@ private final class MouseEventBlocker {
 
         let mask = (1 << CGEventType.leftMouseDown.rawValue)
             | (1 << CGEventType.leftMouseUp.rawValue)
+            | (1 << CGEventType.leftMouseDragged.rawValue)
             | (1 << CGEventType.rightMouseDown.rawValue)
             | (1 << CGEventType.rightMouseUp.rawValue)
+            | (1 << CGEventType.rightMouseDragged.rawValue)
             | (1 << CGEventType.otherMouseDown.rawValue)
             | (1 << CGEventType.otherMouseUp.rawValue)
+            | (1 << CGEventType.otherMouseDragged.rawValue)
 
         let refcon = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
         guard let tap = CGEvent.tapCreate(
