@@ -90,6 +90,8 @@
 
 @property (strong, readwrite) NSMutableArray *listeners;
 @property (strong, readwrite) NSMutableArray *rawListeners;
+@property (atomic, copy) NSArray<OpenMTListener *> *listenersSnapshot;
+@property (atomic, copy) NSArray<OpenMTListener *> *rawListenersSnapshot;
 @property (strong, readwrite) NSArray<OpenMTDeviceInfo *> *availableDeviceInfos;
 @property (strong, readwrite) NSArray<OpenMTDeviceInfo *> *activeDeviceInfos;
 @property (strong, readwrite) NSMutableDictionary<NSString *, NSValue *> *deviceRefs;
@@ -100,6 +102,7 @@
 
 - (NSArray<OpenMTDeviceInfo *> *)collectAvailableDevices;
 - (void)clearAvailableDeviceRefs;
+- (void)rebuildListenerSnapshotsPruningDead;
 @end
 
 @implementation OpenMTManager
@@ -121,6 +124,8 @@
     if (self = [super init]) {
         self.listeners = NSMutableArray.new;
         self.rawListeners = NSMutableArray.new;
+        self.listenersSnapshot = @[];
+        self.rawListenersSnapshot = @[];
         self.deviceRefs = NSMutableDictionary.new;
         self.deviceIDsByRef = NSMutableDictionary.new;
         self.deviceNumericIDsByRef = NSMutableDictionary.new;
@@ -131,6 +136,23 @@
         [NSWorkspace.sharedWorkspace.notificationCenter addObserver:self selector:@selector(didWakeUp:) name:NSWorkspaceDidWakeNotification object:nil];
     }
     return self;
+}
+
+- (void)rebuildListenerSnapshotsPruningDead {
+    for (NSInteger i = self.listeners.count - 1; i >= 0; i--) {
+        OpenMTListener *listener = self.listeners[i];
+        if (listener.dead) {
+            [self.listeners removeObjectAtIndex:i];
+        }
+    }
+    for (NSInteger i = self.rawListeners.count - 1; i >= 0; i--) {
+        OpenMTListener *listener = self.rawListeners[i];
+        if (listener.dead) {
+            [self.rawListeners removeObjectAtIndex:i];
+        }
+    }
+    self.listenersSnapshot = [self.listeners copy];
+    self.rawListenersSnapshot = [self.rawListeners copy];
 }
 
 
@@ -343,10 +365,9 @@
 //}
 
 - (void)handleMultitouchEvent:(OpenMTEvent *)event {
-    for (NSInteger i = self.listeners.count - 1; i >= 0; i--) {
-        OpenMTListener *listener = self.listeners[i];
+    NSArray<OpenMTListener *> *snapshot = self.listenersSnapshot;
+    for (OpenMTListener *listener in snapshot) {
         if (listener.dead) {
-            [self.listeners removeObjectAtIndex:i];
             continue;
         }
         if (!listener.listening) {
@@ -363,14 +384,13 @@
                            count:(int)numTouches
                        timestamp:(double)timestamp
                            frame:(int)frame {
-    if (self.rawListeners.count == 0) {
+    NSArray<OpenMTListener *> *snapshot = self.rawListenersSnapshot;
+    if (snapshot.count == 0) {
         return;
     }
     uint64_t deviceID = [self deviceNumericIDForDeviceRef:deviceRef];
-    for (NSInteger i = self.rawListeners.count - 1; i >= 0; i--) {
-        OpenMTListener *listener = self.rawListeners[i];
+    for (OpenMTListener *listener in snapshot) {
         if (listener.dead) {
-            [self.rawListeners removeObjectAtIndex:i];
             continue;
         }
         if (!listener.listening) {
@@ -488,6 +508,7 @@
             [self startHandlingMultitouchEvents];
         }
         [self.listeners addObject:listener];
+        [self rebuildListenerSnapshotsPruningDead];
     });
     return listener;
 }
@@ -495,6 +516,7 @@
 - (void)removeListener:(OpenMTListener *)listener {
     dispatchSync(dispatch_get_main_queue(), ^{
         [self.listeners removeObject:listener];
+        [self rebuildListenerSnapshotsPruningDead];
         if (self.listeners.count == 0 && self.rawListeners.count == 0) {
             [self stopHandlingMultitouchEvents];
         }
@@ -510,6 +532,7 @@
             [self startHandlingMultitouchEvents];
         }
         [self.rawListeners addObject:listener];
+        [self rebuildListenerSnapshotsPruningDead];
     });
     return listener;
 }
@@ -517,6 +540,7 @@
 - (void)removeRawListener:(OpenMTListener *)listener {
     dispatchSync(dispatch_get_main_queue(), ^{
         [self.rawListeners removeObject:listener];
+        [self rebuildListenerSnapshotsPruningDead];
         if (self.listeners.count == 0 && self.rawListeners.count == 0) {
             [self stopHandlingMultitouchEvents];
         }
@@ -675,7 +699,7 @@ static void contactEventHandler(MTDeviceRef eventDevice, MTTouch eventTouches[],
                                     count:numTouches
                                 timestamp:timestamp
                                     frame:frame];
-        if (manager.listeners.count == 0) {
+        if (manager.listenersSnapshot.count == 0) {
             return;
         }
         NSMutableArray *touches = [NSMutableArray arrayWithCapacity:(NSUInteger)numTouches];
