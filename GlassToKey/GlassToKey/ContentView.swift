@@ -408,37 +408,21 @@ struct ContentView: View {
             editModeEnabled: $editModeEnabled,
             visualsEnabled: $visualsEnabled,
             layerToggleBinding: layerToggleBinding,
-            isListening: viewModel.isListening,
             leftContactCount: viewModel.contactFingerCountsBySide.left,
             rightContactCount: viewModel.contactFingerCountsBySide.right,
             intentDisplay: viewModel.intentDisplayBySide.left,
             tapTraceDumpInProgress: tapTraceDumpInProgress,
             tapTraceDumpStatus: tapTraceDumpStatus,
-            onDumpTapTrace: dumpTapTrace,
-            onStart: {
-                viewModel.start()
-            },
-            onStop: {
-                viewModel.stop()
-                visualsEnabled = false
-            }
+            onDumpTapTrace: dumpTapTrace
         )
 #else
         HeaderControlsView(
             editModeEnabled: $editModeEnabled,
             visualsEnabled: $visualsEnabled,
             layerToggleBinding: layerToggleBinding,
-            isListening: viewModel.isListening,
             leftContactCount: viewModel.contactFingerCountsBySide.left,
             rightContactCount: viewModel.contactFingerCountsBySide.right,
             intentDisplay: viewModel.intentDisplayBySide.left,
-            onStart: {
-                viewModel.start()
-            },
-            onStop: {
-                viewModel.stop()
-                visualsEnabled = false
-            }
         )
 #endif
     }
@@ -526,7 +510,6 @@ struct ContentView: View {
         @Binding var editModeEnabled: Bool
         @Binding var visualsEnabled: Bool
         let layerToggleBinding: Binding<Bool>
-        let isListening: Bool
         let leftContactCount: Int
         let rightContactCount: Int
         let intentDisplay: ContentViewModel.IntentDisplay
@@ -535,8 +518,6 @@ struct ContentView: View {
         let tapTraceDumpStatus: String?
         let onDumpTapTrace: () -> Void
 #endif
-        let onStart: () -> Void
-        let onStop: () -> Void
 
         var body: some View {
             HStack(spacing: 12) {
@@ -574,17 +555,6 @@ struct ContentView: View {
                         .toggleStyle(SwitchToggleStyle())
                         .labelsHidden()
                     Text("Layer1")
-                }
-                if isListening {
-                    Button("Stop") {
-                        onStop()
-                    }
-                    .buttonStyle(.borderedProminent)
-                } else {
-                    Button("Start") {
-                        onStart()
-                    }
-                    .buttonStyle(.borderedProminent)
                 }
             }
         }
