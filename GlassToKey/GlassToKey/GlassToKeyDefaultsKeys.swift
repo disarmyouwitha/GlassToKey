@@ -15,6 +15,7 @@ enum GlassToKeyDefaultsKeys {
     static let intentMoveThresholdMm = "GlassToKey.intentMoveThresholdMm"
     static let intentVelocityThresholdMmPerSec = "GlassToKey.intentVelocityThresholdMmPerSec"
     static let tapClickEnabled = "GlassToKey.tapClickEnabled"
+    static let tapClickCadenceMs = "GlassToKey.twoFingerClickCadenceMs"
     static let layoutPreset = "GlassToKey.layoutPreset"
     static let autoResyncMissingTrackpads = "GlassToKey.autoResyncMissingTrackpads"
     static let autocorrectEnabled = "GlassToKey.autocorrectEnabled"

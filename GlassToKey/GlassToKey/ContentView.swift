@@ -90,6 +90,8 @@ struct ContentView: View {
     private var autocorrectEnabled = GlassToKeySettings.autocorrectEnabled
     @AppStorage(GlassToKeyDefaultsKeys.tapClickEnabled)
     private var tapClickEnabled = GlassToKeySettings.tapClickEnabled
+    @AppStorage(GlassToKeyDefaultsKeys.tapClickCadenceMs)
+    private var tapClickCadenceMsSetting = GlassToKeySettings.tapClickCadenceMs
     @AppStorage(GlassToKeyDefaultsKeys.snapRadiusPercent)
     private var snapRadiusPercentSetting = GlassToKeySettings.snapRadiusPercent
     @AppStorage(GlassToKeyDefaultsKeys.chordalShiftEnabled)
@@ -115,6 +117,7 @@ struct ContentView: View {
     fileprivate static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
     fileprivate static let hapticStrengthRange: ClosedRange<Double> = 0.0...100.0
     fileprivate static let typingGraceRange: ClosedRange<Double> = 0.0...2000.0
+    fileprivate static let twoFingerClickCadenceRange: ClosedRange<Double> = 100.0...600.0
     fileprivate static let intentMoveThresholdRange: ClosedRange<Double> = 0.5...10.0
     fileprivate static let intentVelocityThresholdRange: ClosedRange<Double> = 10.0...200.0
     fileprivate static let snapRadiusPercentRange: ClosedRange<Double> = 0.0...100.0
@@ -198,6 +201,15 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 0
         formatter.minimum = NSNumber(value: ContentView.typingGraceRange.lowerBound)
         formatter.maximum = NSNumber(value: ContentView.typingGraceRange.upperBound)
+        return formatter
+    }()
+    fileprivate static let twoFingerClickCadenceFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.minimum = NSNumber(value: ContentView.twoFingerClickCadenceRange.lowerBound)
+        formatter.maximum = NSNumber(value: ContentView.twoFingerClickCadenceRange.upperBound)
         return formatter
     }()
     fileprivate static let intentMoveThresholdFormatter: NumberFormatter = {
@@ -384,6 +396,9 @@ struct ContentView: View {
             .onChange(of: tapClickEnabled) { newValue in
                 viewModel.updateTapClickEnabled(newValue)
             }
+            .onChange(of: tapClickCadenceMsSetting) { newValue in
+                viewModel.updateTapClickCadenceMs(newValue)
+            }
             .onChange(of: snapRadiusPercentSetting) { newValue in
                 viewModel.updateSnapRadiusPercent(newValue)
             }
@@ -480,6 +495,7 @@ struct ContentView: View {
             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
             autocorrectEnabled: $autocorrectEnabled,
             tapClickEnabled: $tapClickEnabled,
+            tapClickCadenceMsSetting: $tapClickCadenceMsSetting,
             snapRadiusPercentSetting: $snapRadiusPercentSetting,
             chordalShiftEnabled: $chordalShiftEnabled,
             keyboardModeEnabled: $keyboardModeEnabled,
@@ -705,6 +721,7 @@ struct ContentView: View {
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var autocorrectEnabled: Bool
         @Binding var tapClickEnabled: Bool
+        @Binding var tapClickCadenceMsSetting: Double
         @Binding var snapRadiusPercentSetting: Double
         @Binding var chordalShiftEnabled: Bool
         @Binding var keyboardModeEnabled: Bool
@@ -750,6 +767,7 @@ struct ContentView: View {
                             intentVelocityThresholdMmPerSecSetting: $intentVelocityThresholdMmPerSecSetting,
                             autocorrectEnabled: $autocorrectEnabled,
                             tapClickEnabled: $tapClickEnabled,
+                            tapClickCadenceMsSetting: $tapClickCadenceMsSetting,
                             snapRadiusPercentSetting: $snapRadiusPercentSetting,
                             chordalShiftEnabled: $chordalShiftEnabled,
                             keyboardModeEnabled: $keyboardModeEnabled,
@@ -1297,6 +1315,7 @@ struct ContentView: View {
         @Binding var intentVelocityThresholdMmPerSecSetting: Double
         @Binding var autocorrectEnabled: Bool
         @Binding var tapClickEnabled: Bool
+        @Binding var tapClickCadenceMsSetting: Double
         @Binding var snapRadiusPercentSetting: Double
         @Binding var chordalShiftEnabled: Bool
         @Binding var keyboardModeEnabled: Bool
@@ -1407,6 +1426,23 @@ struct ContentView: View {
                             value: $dragCancelDistanceSetting,
                             in: ContentView.dragCancelDistanceRange,
                             step: 1
+                        )
+                        .frame(minWidth: 120)
+                        .gridCellColumns(2)
+                    }
+                    GridRow {
+                        Text("Tap Cadence (ms)")
+                            .frame(width: labelWidth, alignment: .leading)
+                        TextField(
+                            "280",
+                            value: $tapClickCadenceMsSetting,
+                            formatter: ContentView.twoFingerClickCadenceFormatter
+                        )
+                        .frame(width: valueFieldWidth)
+                        Slider(
+                            value: $tapClickCadenceMsSetting,
+                            in: ContentView.twoFingerClickCadenceRange,
+                            step: 10
                         )
                         .frame(minWidth: 120)
                         .gridCellColumns(2)
@@ -2282,6 +2318,7 @@ struct ContentView: View {
         viewModel.updateSnapRadiusPercent(snapRadiusPercentSetting)
         viewModel.updateChordalShiftEnabled(chordalShiftEnabled)
         viewModel.updateKeyboardModeEnabled(keyboardModeEnabled)
+        viewModel.updateTapClickCadenceMs(tapClickCadenceMsSetting)
         viewModel.setTouchSnapshotRecordingEnabled(visualsEnabled)
     }
 
@@ -2296,6 +2333,7 @@ struct ContentView: View {
         intentVelocityThresholdMmPerSecSetting = GlassToKeySettings.intentVelocityThresholdMmPerSec
         autocorrectEnabled = GlassToKeySettings.autocorrectEnabled
         tapClickEnabled = GlassToKeySettings.tapClickEnabled
+        tapClickCadenceMsSetting = GlassToKeySettings.tapClickCadenceMs
         snapRadiusPercentSetting = GlassToKeySettings.snapRadiusPercent
         chordalShiftEnabled = GlassToKeySettings.chordalShiftEnabled
         keyboardModeEnabled = GlassToKeySettings.keyboardModeEnabled
