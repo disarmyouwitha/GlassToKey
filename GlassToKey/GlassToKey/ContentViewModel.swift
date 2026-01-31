@@ -245,6 +245,10 @@ final class ContentViewModel: ObservableObject {
 
     private var requestedLeftDeviceID: String?
     private var requestedRightDeviceID: String?
+    private var requestedLeftDeviceName: String?
+    private var requestedRightDeviceName: String?
+    private var requestedLeftIsBuiltIn: Bool?
+    private var requestedRightIsBuiltIn: Bool?
     private var autoResyncTask: Task<Void, Never>?
     private var autoResyncEnabled = false
     private var uiStatusVisualsEnabled = true
@@ -425,23 +429,59 @@ final class ContentViewModel: ObservableObject {
     func loadDevices(preserveSelection: Bool = false) {
         let previousLeftDeviceID = preserveSelection ? requestedLeftDeviceID : nil
         let previousRightDeviceID = preserveSelection ? requestedRightDeviceID : nil
+        let previousLeftDeviceName = preserveSelection ? requestedLeftDeviceName : nil
+        let previousRightDeviceName = preserveSelection ? requestedRightDeviceName : nil
+        let previousLeftIsBuiltIn = preserveSelection ? requestedLeftIsBuiltIn : nil
+        let previousRightIsBuiltIn = preserveSelection ? requestedRightIsBuiltIn : nil
         availableDevices = manager.availableDevices
 
-        if let matchingLeftID = previousLeftDeviceID,
-           let matchingLeft = availableDevices.first(where: { $0.deviceID == matchingLeftID }) {
-            leftDevice = matchingLeft
-        } else if preserveSelection, previousLeftDeviceID != nil {
-            leftDevice = nil
+        func matchByID(_ id: String?) -> OMSDeviceInfo? {
+            guard let id else { return nil }
+            return availableDevices.first { $0.deviceID == id }
+        }
+
+        func matchByName(
+            _ name: String?,
+            isBuiltIn: Bool?,
+            excluding excludedIDs: Set<String>
+        ) -> OMSDeviceInfo? {
+            guard let name, !name.isEmpty else { return nil }
+            let candidates = availableDevices.filter { candidate in
+                guard !excludedIDs.contains(candidate.deviceID) else { return false }
+                guard candidate.deviceName == name else { return false }
+                if let isBuiltIn {
+                    return candidate.isBuiltIn == isBuiltIn
+                }
+                return true
+            }
+            return candidates.count == 1 ? candidates[0] : nil
+        }
+
+        func matchSingleRemaining(excluding excludedIDs: Set<String>) -> OMSDeviceInfo? {
+            let candidates = availableDevices.filter { !excludedIDs.contains($0.deviceID) }
+            return candidates.count == 1 ? candidates[0] : nil
+        }
+
+        var usedIDs = Set<String>()
+        let leftRequested = preserveSelection && previousLeftDeviceID != nil
+        let rightRequested = preserveSelection && previousRightDeviceID != nil
+
+        if leftRequested {
+            leftDevice = matchByID(previousLeftDeviceID)
+                ?? matchByName(previousLeftDeviceName, isBuiltIn: previousLeftIsBuiltIn, excluding: usedIDs)
         } else if !preserveSelection {
             leftDevice = availableDevices.first
         } else {
             leftDevice = nil
         }
+        if let leftDevice {
+            usedIDs.insert(leftDevice.deviceID)
+        }
 
         let shouldFallbackRight = !preserveSelection || (preserveSelection && previousRightDeviceID != nil)
-        if let matchingRightID = previousRightDeviceID,
-           let matchingRight = availableDevices.first(where: { $0.deviceID == matchingRightID }) {
-            rightDevice = matchingRight
+        if rightRequested {
+            rightDevice = matchByID(previousRightDeviceID)
+                ?? matchByName(previousRightDeviceName, isBuiltIn: previousRightIsBuiltIn, excluding: usedIDs)
         } else if shouldFallbackRight {
             rightDevice = availableDevices.first(where: { candidate in
                 guard let leftID = leftDevice?.deviceID else { return true }
@@ -450,10 +490,41 @@ final class ContentViewModel: ObservableObject {
         } else {
             rightDevice = nil
         }
+        if let rightDevice {
+            usedIDs.insert(rightDevice.deviceID)
+        }
+
+        if leftDevice == nil, leftRequested {
+            leftDevice = matchSingleRemaining(excluding: usedIDs)
+            if let leftDevice {
+                usedIDs.insert(leftDevice.deviceID)
+            }
+        }
+        if rightDevice == nil, rightRequested {
+            rightDevice = matchSingleRemaining(excluding: usedIDs)
+            if let rightDevice {
+                usedIDs.insert(rightDevice.deviceID)
+            }
+        }
 
         if !preserveSelection {
             requestedLeftDeviceID = leftDevice?.deviceID
             requestedRightDeviceID = rightDevice?.deviceID
+            requestedLeftDeviceName = leftDevice?.deviceName
+            requestedRightDeviceName = rightDevice?.deviceName
+            requestedLeftIsBuiltIn = leftDevice?.isBuiltIn
+            requestedRightIsBuiltIn = rightDevice?.isBuiltIn
+        } else {
+            if let leftDevice {
+                requestedLeftDeviceID = leftDevice.deviceID
+                requestedLeftDeviceName = leftDevice.deviceName
+                requestedLeftIsBuiltIn = leftDevice.isBuiltIn
+            }
+            if let rightDevice {
+                requestedRightDeviceID = rightDevice.deviceID
+                requestedRightDeviceName = rightDevice.deviceName
+                requestedRightIsBuiltIn = rightDevice.isBuiltIn
+            }
         }
 
         updateDisconnectedTrackpadState()
@@ -462,6 +533,8 @@ final class ContentViewModel: ObservableObject {
     
     func selectLeftDevice(_ device: OMSDeviceInfo?) {
         requestedLeftDeviceID = device?.deviceID
+        requestedLeftDeviceName = device?.deviceName
+        requestedLeftIsBuiltIn = device?.isBuiltIn
         leftDevice = device
         updateDisconnectedTrackpadState()
         updateActiveDevices()
@@ -469,6 +542,8 @@ final class ContentViewModel: ObservableObject {
 
     func selectRightDevice(_ device: OMSDeviceInfo?) {
         requestedRightDeviceID = device?.deviceID
+        requestedRightDeviceName = device?.deviceName
+        requestedRightIsBuiltIn = device?.isBuiltIn
         rightDevice = device
         updateDisconnectedTrackpadState()
         updateActiveDevices()
@@ -3087,8 +3162,13 @@ final class ContentViewModel: ObservableObject {
                 || centroidMoved
 
             let wasTwoFingerTapDetected = twoFingerTapDetected
-            let suppressTapClicks = isTypingEnabled
-                && (graceActive || (state.mode == .typingCommitted))
+            let isTypingCommitted: Bool
+            if case .typingCommitted = state.mode {
+                isTypingCommitted = true
+            } else {
+                isTypingCommitted = false
+            }
+            let suppressTapClicks = isTypingEnabled && (graceActive || isTypingCommitted)
             guard contactCount > 0 else {
                 state.touches.removeAll()
                 if gestureContactCount == 0, !momentaryLayerTouches.isEmpty {
@@ -3286,6 +3366,7 @@ final class ContentViewModel: ObservableObject {
                 return .gesture
             }
         }
+
 
         @inline(__always)
         private func isTypingGraceActive(now: TimeInterval? = nil) -> Bool {
