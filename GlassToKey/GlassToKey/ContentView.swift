@@ -116,7 +116,7 @@ struct ContentView: View {
     fileprivate static let tapHoldDurationRange: ClosedRange<Double> = 50.0...500.0
     fileprivate static let forceClickCapRange: ClosedRange<Double> = 0.0...150.0
     fileprivate static let hapticStrengthRange: ClosedRange<Double> = 0.0...100.0
-    fileprivate static let typingGraceRange: ClosedRange<Double> = 0.0...2000.0
+    fileprivate static let typingGraceRange: ClosedRange<Double> = 0.0...4000.0
     fileprivate static let twoFingerClickCadenceRange: ClosedRange<Double> = 100.0...600.0
     fileprivate static let intentMoveThresholdRange: ClosedRange<Double> = 0.5...10.0
     fileprivate static let intentVelocityThresholdRange: ClosedRange<Double> = 10.0...200.0
@@ -500,7 +500,7 @@ struct ContentView: View {
             chordalShiftEnabled: $chordalShiftEnabled,
             keyboardModeEnabled: $keyboardModeEnabled,
             onRefreshDevices: {
-                viewModel.loadDevices(preserveSelection: true)
+                viewModel.refreshDevicesAndListeners()
             },
             onAutoResyncChange: { newValue in
                 storedAutoResyncMissingTrackpads = newValue

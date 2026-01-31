@@ -1,5 +1,6 @@
 ## TODO
-- expose slider for double-click stagger
+- start windows port
+###
 - normalize % to px??
 - Have Codex refactor the GUI for effiency
 - Have Codex redesign the GUI for looks, keeping efficiency

@@ -410,6 +410,17 @@ final class ContentViewModel: ObservableObject {
             }
         }
     }
+
+    func refreshDevicesAndListeners() {
+        let shouldRestart = isListening
+        if shouldRestart {
+            stop()
+        }
+        loadDevices(preserveSelection: true)
+        if shouldRestart {
+            start()
+        }
+    }
     
     func loadDevices(preserveSelection: Bool = false) {
         let previousLeftDeviceID = preserveSelection ? requestedLeftDeviceID : nil
@@ -3076,13 +3087,18 @@ final class ContentViewModel: ObservableObject {
                 || centroidMoved
 
             let wasTwoFingerTapDetected = twoFingerTapDetected
+            let suppressTapClicks = isTypingEnabled
+                && (graceActive || (state.mode == .typingCommitted))
             guard contactCount > 0 else {
                 state.touches.removeAll()
                 if gestureContactCount == 0, !momentaryLayerTouches.isEmpty {
                     momentaryLayerTouches.removeAll()
                     updateActiveLayer()
                 }
-                if threeFingerTapDetected {
+                if suppressTapClicks {
+                    awaitingSecondTap = false
+                    doubleTapDeadline = nil
+                } else if threeFingerTapDetected {
                     keyDispatcher.postRightClick()
                 } else if wasTwoFingerTapDetected {
                     if awaitingSecondTap, let deadline = doubleTapDeadline, now <= deadline {
