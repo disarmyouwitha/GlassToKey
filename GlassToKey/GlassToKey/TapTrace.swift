@@ -71,6 +71,8 @@ enum TapTraceEventType: UInt8 {
     case finalized = 5
     case expired = 6
     case snapAmbiguity = 7
+    case tapClick = 8
+    case intent = 9
 
     var label: String {
         switch self {
@@ -81,6 +83,8 @@ enum TapTraceEventType: UInt8 {
         case .finalized: return "finalized"
         case .expired: return "expired"
         case .snapAmbiguity: return "snap_ambiguity"
+        case .tapClick: return "tap_click"
+        case .intent: return "intent"
         }
     }
 }
@@ -101,6 +105,17 @@ enum TapTraceReasonCode: UInt8 {
     case snapAccepted = 12
     case momentaryLayerCancelled = 13
     case snapAmbiguity = 14
+    case tapClickCandidate2 = 15
+    case tapClickCandidate3 = 16
+    case tapClickDetected2 = 17
+    case tapClickDetected3 = 18
+    case tapClickSuppressed = 19
+    case tapClickLeft = 20
+    case tapClickRight = 21
+    case tapClickDouble = 22
+    case intentMultiKeyCandidate = 23
+    case intentMultiMouseCandidate = 24
+    case intentMultiTypingCommitted = 25
 
     var label: String {
         switch self {
@@ -119,6 +134,17 @@ enum TapTraceReasonCode: UInt8 {
         case .snapAccepted: return "snap_accepted"
         case .momentaryLayerCancelled: return "momentary_layer_cancelled"
         case .snapAmbiguity: return "snap_ambiguity"
+        case .tapClickCandidate2: return "tap_click_candidate_2"
+        case .tapClickCandidate3: return "tap_click_candidate_3"
+        case .tapClickDetected2: return "tap_click_detected_2"
+        case .tapClickDetected3: return "tap_click_detected_3"
+        case .tapClickSuppressed: return "tap_click_suppressed"
+        case .tapClickLeft: return "tap_click_left"
+        case .tapClickRight: return "tap_click_right"
+        case .tapClickDouble: return "tap_click_double"
+        case .intentMultiKeyCandidate: return "intent_multi_key_candidate"
+        case .intentMultiMouseCandidate: return "intent_multi_mouse_candidate"
+        case .intentMultiTypingCommitted: return "intent_multi_typing_committed"
         }
     }
 }

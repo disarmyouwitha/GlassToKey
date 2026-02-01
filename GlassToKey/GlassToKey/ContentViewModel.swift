@@ -3079,6 +3079,15 @@ final class ContentViewModel: ObservableObject {
                     fingerCount: 3
                    ) {
                     threeFingerTapCandidate = TapCandidate(deadline: now + staggerWindow)
+                    #if DEBUG
+                    recordTapClickTrace(
+                        reason: .tapClickCandidate3,
+                        contactCount: contactCount,
+                        onKeyCount: onKeyCount,
+                        offKeyCount: offKeyCount,
+                        stateTouchCount: state.touches.count
+                    )
+                    #endif
                 } else if intentCurrentKeys.count == 0,
                           state.touches.count == 3,
                           shouldTriggerTapClick(
@@ -3089,11 +3098,29 @@ final class ContentViewModel: ObservableObject {
                           ) {
                     threeFingerTapDetected = true
                     threeFingerTapCandidate = nil
+                    #if DEBUG
+                    recordTapClickTrace(
+                        reason: .tapClickDetected3,
+                        contactCount: contactCount,
+                        onKeyCount: onKeyCount,
+                        offKeyCount: offKeyCount,
+                        stateTouchCount: state.touches.count
+                    )
+                    #endif
                 } else if intentCurrentKeys.count == 0,
                           let candidate = threeFingerTapCandidate,
                           now <= candidate.deadline {
                     threeFingerTapDetected = true
                     threeFingerTapCandidate = nil
+                    #if DEBUG
+                    recordTapClickTrace(
+                        reason: .tapClickDetected3,
+                        contactCount: contactCount,
+                        onKeyCount: onKeyCount,
+                        offKeyCount: offKeyCount,
+                        stateTouchCount: state.touches.count
+                    )
+                    #endif
                 } else if intentCurrentKeys.count == 1,
                           state.touches.count == 2,
                           shouldTriggerTapClick(
@@ -3103,6 +3130,15 @@ final class ContentViewModel: ObservableObject {
                             fingerCount: 2
                           ) {
                     twoFingerTapCandidate = TapCandidate(deadline: now + staggerWindow)
+                    #if DEBUG
+                    recordTapClickTrace(
+                        reason: .tapClickCandidate2,
+                        contactCount: contactCount,
+                        onKeyCount: onKeyCount,
+                        offKeyCount: offKeyCount,
+                        stateTouchCount: state.touches.count
+                    )
+                    #endif
                 } else if intentCurrentKeys.count == 0,
                           state.touches.count == 2,
                           shouldTriggerTapClick(
@@ -3113,11 +3149,29 @@ final class ContentViewModel: ObservableObject {
                           ) {
                     twoFingerTapDetected = true
                     twoFingerTapCandidate = nil
+                    #if DEBUG
+                    recordTapClickTrace(
+                        reason: .tapClickDetected2,
+                        contactCount: contactCount,
+                        onKeyCount: onKeyCount,
+                        offKeyCount: offKeyCount,
+                        stateTouchCount: state.touches.count
+                    )
+                    #endif
                 } else if intentCurrentKeys.count == 0,
                           let candidate = twoFingerTapCandidate,
                           now <= candidate.deadline {
                     twoFingerTapDetected = true
                     twoFingerTapCandidate = nil
+                    #if DEBUG
+                    recordTapClickTrace(
+                        reason: .tapClickDetected2,
+                        contactCount: contactCount,
+                        onKeyCount: onKeyCount,
+                        offKeyCount: offKeyCount,
+                        stateTouchCount: state.touches.count
+                    )
+                    #endif
                 }
             }
 
@@ -3176,17 +3230,55 @@ final class ContentViewModel: ObservableObject {
                     updateActiveLayer()
                 }
                 if suppressTapClicks {
+                    #if DEBUG
+                    if threeFingerTapDetected || wasTwoFingerTapDetected {
+                        recordTapClickTrace(
+                            reason: .tapClickSuppressed,
+                            contactCount: contactCount,
+                            onKeyCount: onKeyCount,
+                            offKeyCount: offKeyCount,
+                            stateTouchCount: state.touches.count
+                        )
+                    }
+                    #endif
                     awaitingSecondTap = false
                     doubleTapDeadline = nil
                 } else if threeFingerTapDetected {
                     keyDispatcher.postRightClick()
+                    #if DEBUG
+                    recordTapClickTrace(
+                        reason: .tapClickRight,
+                        contactCount: contactCount,
+                        onKeyCount: onKeyCount,
+                        offKeyCount: offKeyCount,
+                        stateTouchCount: state.touches.count
+                    )
+                    #endif
                 } else if wasTwoFingerTapDetected {
                     if awaitingSecondTap, let deadline = doubleTapDeadline, now <= deadline {
                         keyDispatcher.postLeftClick(clickCount: 2)
+                        #if DEBUG
+                        recordTapClickTrace(
+                            reason: .tapClickDouble,
+                            contactCount: contactCount,
+                            onKeyCount: onKeyCount,
+                            offKeyCount: offKeyCount,
+                            stateTouchCount: state.touches.count
+                        )
+                        #endif
                         awaitingSecondTap = false
                         doubleTapDeadline = nil
                     } else {
                         keyDispatcher.postLeftClick()
+                        #if DEBUG
+                        recordTapClickTrace(
+                            reason: .tapClickLeft,
+                            contactCount: contactCount,
+                            onKeyCount: onKeyCount,
+                            offKeyCount: offKeyCount,
+                            stateTouchCount: state.touches.count
+                        )
+                        #endif
                         awaitingSecondTap = true
                         doubleTapDeadline = now + tapClickCadenceSeconds
                     }
@@ -3247,9 +3339,31 @@ final class ContentViewModel: ObservableObject {
                     return true
                 }
                 if anyOnKey && !mouseSignal, let touchKey = firstOnKeyTouchKey, let centroid {
+                    #if DEBUG
+                    if contactCount >= 2 {
+                        recordIntentTrace(
+                            reason: .intentMultiKeyCandidate,
+                            contactCount: contactCount,
+                            onKeyCount: onKeyCount,
+                            offKeyCount: offKeyCount,
+                            stateTouchCount: state.touches.count
+                        )
+                    }
+                    #endif
                     state.mode = .keyCandidate(start: now, touchKey: touchKey, centroid: centroid)
                     allowTyping = false
                 } else {
+                    #if DEBUG
+                    if contactCount >= 2 {
+                        recordIntentTrace(
+                            reason: .intentMultiMouseCandidate,
+                            contactCount: contactCount,
+                            onKeyCount: onKeyCount,
+                            offKeyCount: offKeyCount,
+                            stateTouchCount: state.touches.count
+                        )
+                    }
+                    #endif
                     state.mode = .mouseCandidate(start: now)
                     suppressKeyProcessing(for: intentCurrentKeys)
                     allowTyping = false
@@ -3265,6 +3379,17 @@ final class ContentViewModel: ObservableObject {
                     state.mode = .mouseCandidate(start: now)
                     allowTyping = false
                 } else if now - start >= intentConfig.keyBufferSeconds {
+                    #if DEBUG
+                    if contactCount >= 2 {
+                        recordIntentTrace(
+                            reason: .intentMultiTypingCommitted,
+                            contactCount: contactCount,
+                            onKeyCount: onKeyCount,
+                            offKeyCount: offKeyCount,
+                            stateTouchCount: state.touches.count
+                        )
+                    }
+                    #endif
                     state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
                     allowTyping = true
                 } else {
@@ -4190,6 +4315,46 @@ final class ContentViewModel: ObservableObject {
                 keyCol: keyCell.col,
                 keyCode: keyCode,
                 char: char,
+                reason: reason
+            )
+        }
+
+        @inline(__always)
+        private func recordTapClickTrace(
+            reason: TapTraceReasonCode,
+            contactCount: Int,
+            onKeyCount: Int,
+            offKeyCount: Int,
+            stateTouchCount: Int
+        ) {
+            TapTrace.record(
+                .tapClick,
+                frame: tapTraceFrameIndex,
+                touchKey: 0,
+                aux0: Float(contactCount),
+                aux1: Float(onKeyCount),
+                aux2: Float(offKeyCount),
+                aux3: Float(stateTouchCount),
+                reason: reason
+            )
+        }
+
+        @inline(__always)
+        private func recordIntentTrace(
+            reason: TapTraceReasonCode,
+            contactCount: Int,
+            onKeyCount: Int,
+            offKeyCount: Int,
+            stateTouchCount: Int
+        ) {
+            TapTrace.record(
+                .intent,
+                frame: tapTraceFrameIndex,
+                touchKey: 0,
+                aux0: Float(contactCount),
+                aux1: Float(onKeyCount),
+                aux2: Float(offKeyCount),
+                aux3: Float(stateTouchCount),
                 reason: reason
             )
         }
