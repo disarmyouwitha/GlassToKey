@@ -32,7 +32,7 @@ Clicking Edit will allow you to click any Column/Button and set the Action/Hold 
 - Typing Grace (ms): Time after a key dispatch to keep typing intent active.
 - Intent Move (mm): Movement threshold before a touch is treated as mouse intent.
 - Intent Velocity (mm/s): Speed threshold before a touch is treated as mouse intent.
-- Snap Radius (%): On release during typing intent, off-key taps will snap to the nearest key center if the release point is within this percent of the key’s smaller dimension.
+- Snap Radius: On release during typing intent, off-key taps will snap to the nearest key center if the release point is within this percent of the key’s smaller dimension.
 - Autocorrect: Enables the built-in autocorrect engine for post-key dispatch word replacement.
 - Tap Click: two-finger tap = left click, three-finger tap = right click
 - Mouse Takeover: Allow mouse intent to interrupt typing before all fingers are lifted.
@@ -56,7 +56,7 @@ GlassToKey runs a simple intent state machine to decide when touches should be i
 - **KeyCandidate (`cand`)**: A short buffer window (fixed at 40ms) watches for mouse-like motion. If the touch stays within thresholds, it becomes `typingCommitted`.
 - **TypingCommitted (`typing`)**: Key dispatches are allowed. Typing Grace keeps this state alive for a short window after a key is released.
 - **MouseCandidate (`mouse`)**: Short buffer window (fixed at 40ms) watching for mouse-like motion. If motion exceeds thresholds or the buffer elapses, it becomes `mouseActive`.
-- **MouseActive (`mouse`)**: Typing is suppressed while mouse intent is active (unless mouse takeover is disabled).
+- **MouseActive (`mouse`)**: Typing is suppressed while mouse intent is active.
 - **GestureCandidate (`gest`)**: Multi-finger gesture guard. If 2+ touches begin within the 40ms buffer (or 3+ touches arrive together), typing is suppressed and intent displays as gesture until the contact count drops.
 
 Transitions and notes:
@@ -91,4 +91,8 @@ Keyboard Mode’s global click blocking requires system permission:
 3. Restart GlassToKey after granting permissions.
 
 ## FUTURE
-- Add windows support based on https://github.com/vitoplantamura/MagicTrackpad2ForWindows (They should have USB drivers for USB-C support soon!)
+- Add windows support based on https://github.com/vitoplantamura/MagicTrackpad2ForWindows (They should have USB drivers for USB-C support soon?)
+
+## RECOMMENDED
+- BetterTouchTool: https://folivora.ai
+Not affiliated but I personally use it for all of my trackpad gestures and def. think it is worth the $24 lifetime license!

@@ -1,5 +1,7 @@
 ## TODO
 - start windows port
+- not sure it should be able to go into gesture mode during typing intent/typing granil
+- sometimes click types letters 
 ###
 - normalize % to px??
 - Have Codex refactor the GUI for effiency

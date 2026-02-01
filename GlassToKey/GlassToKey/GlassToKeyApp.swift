@@ -193,7 +193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func syncDevices() {
-        controller.viewModel.loadDevices(preserveSelection: true)
+        controller.viewModel.refreshDevicesAndListeners()
     }
 
     @objc private func restartApp() {
