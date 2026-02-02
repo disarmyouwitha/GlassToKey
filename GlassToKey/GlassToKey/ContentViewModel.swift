@@ -962,6 +962,7 @@ final class ContentViewModel: ObservableObject {
             var typingGraceSeconds: TimeInterval = 0.12
             var moveThresholdMm: CGFloat = 3.0
             var velocityThresholdMmPerSec: CGFloat = 50.0
+            var tapClickMoveThresholdMm: CGFloat = 1.0
         }
 
         private struct IntentTouchInfo {
@@ -1456,6 +1457,7 @@ final class ContentViewModel: ObservableObject {
         private var unitsPerMillimeter: CGFloat = 1.0
         private var intentMoveThresholdSquared: CGFloat = 0
         private var intentVelocityThreshold: CGFloat = 0
+        private var tapClickMoveThresholdSquared: CGFloat = 0
         private var allowMouseTakeoverDuringTyping = false
         private var tapClickEnabled = false
         private var typingGraceDeadline: TimeInterval?
@@ -3461,7 +3463,10 @@ final class ContentViewModel: ObservableObject {
             if maxDuration > tapMaxDuration {
                 return false
             }
-            if maxDistanceSquared > moveThresholdSquared {
+            let tapMoveThresholdSquared = tapClickMoveThresholdSquared > 0
+                ? tapClickMoveThresholdSquared
+                : moveThresholdSquared
+            if maxDistanceSquared > tapMoveThresholdSquared {
                 return false
             }
             return true
@@ -3580,12 +3585,15 @@ final class ContentViewModel: ObservableObject {
                 unitsPerMillimeter = 1
                 intentMoveThresholdSquared = 0
                 intentVelocityThreshold = 0
+                tapClickMoveThresholdSquared = 0
                 return
             }
             unitsPerMillimeter = trackpadSize.width / trackpadWidthMm
             let moveThreshold = intentConfig.moveThresholdMm * unitsPerMillimeter
             intentMoveThresholdSquared = moveThreshold * moveThreshold
             intentVelocityThreshold = intentConfig.velocityThresholdMmPerSec * unitsPerMillimeter
+            let tapMoveThreshold = intentConfig.tapClickMoveThresholdMm * unitsPerMillimeter
+            tapClickMoveThresholdSquared = tapMoveThreshold * tapMoveThreshold
         }
 
         private func mmUnitsPerMillimeter() -> CGFloat {
