@@ -1465,9 +1465,11 @@ final class ContentViewModel: ObservableObject {
         private var tapClickCadenceSeconds: TimeInterval = 0.28
         private struct TapCandidate {
             let deadline: TimeInterval
+            let suppressTyping: Bool
         }
         private var twoFingerTapCandidate: TapCandidate?
         private var threeFingerTapCandidate: TapCandidate?
+        private var tapClickTypingSuppressed = false
         private struct FiveFingerSwipeState {
             var active: Bool = false
             var triggered: Bool = false
@@ -2977,6 +2979,7 @@ final class ContentViewModel: ObservableObject {
             var hasKeyboardAnchor = false
             var twoFingerTapDetected = false
             var threeFingerTapDetected = false
+            var tapClickSuppressedNow = false
             let staggerWindow = max(tapClickCadenceSeconds, contactCountHoldDuration)
 
             func process(_ touch: OMSRawTouch, deviceIndex: Int, side: TrackpadSide, bindings: BindingIndex) {
@@ -3064,12 +3067,36 @@ final class ContentViewModel: ObservableObject {
                 awaitingSecondTap = false
             }
 
+            func tapClickStartSpreadSeconds() -> TimeInterval {
+                var minTime = TimeInterval.greatestFiniteMagnitude
+                var maxTime: TimeInterval = 0
+                state.touches.forEach { _, info in
+                    minTime = min(minTime, info.startTime)
+                    maxTime = max(maxTime, info.startTime)
+                }
+                return maxTime > minTime ? (maxTime - minTime) : 0
+            }
+
             if keyboardOnly {
                 twoFingerTapCandidate = nil
                 threeFingerTapCandidate = nil
                 awaitingSecondTap = false
                 doubleTapDeadline = nil
             } else if tapClickEnabled {
+                if state.touches.count == 2,
+                   onKeyCount > 0,
+                   tapClickStartSpreadSeconds() <= intentConfig.keyBufferSeconds {
+                    tapClickSuppressedNow = true
+#if DEBUG
+                    recordTapClickTrace(
+                        reason: .tapClickTypingSuppressed,
+                        contactCount: contactCount,
+                        onKeyCount: onKeyCount,
+                        offKeyCount: offKeyCount,
+                        stateTouchCount: state.touches.count
+                    )
+#endif
+                }
                 if intentCurrentKeys.count == 2,
                    state.touches.count == 3,
                    shouldTriggerTapClick(
@@ -3078,7 +3105,11 @@ final class ContentViewModel: ObservableObject {
                     moveThresholdSquared: moveThresholdSquared,
                     fingerCount: 3
                    ) {
-                    threeFingerTapCandidate = TapCandidate(deadline: now + staggerWindow)
+                    let suppressTyping = onKeyCount > 0
+                    threeFingerTapCandidate = TapCandidate(
+                        deadline: now + staggerWindow,
+                        suppressTyping: suppressTyping
+                    )
                     #if DEBUG
                     recordTapClickTrace(
                         reason: .tapClickCandidate3,
@@ -3087,6 +3118,15 @@ final class ContentViewModel: ObservableObject {
                         offKeyCount: offKeyCount,
                         stateTouchCount: state.touches.count
                     )
+                    if suppressTyping {
+                        recordTapClickTrace(
+                            reason: .tapClickTypingSuppressed,
+                            contactCount: contactCount,
+                            onKeyCount: onKeyCount,
+                            offKeyCount: offKeyCount,
+                            stateTouchCount: state.touches.count
+                        )
+                    }
                     #endif
                 } else if intentCurrentKeys.count == 0,
                           state.touches.count == 3,
@@ -3097,6 +3137,7 @@ final class ContentViewModel: ObservableObject {
                             fingerCount: 3
                           ) {
                     threeFingerTapDetected = true
+                    tapClickSuppressedNow = tapClickSuppressedNow || (threeFingerTapCandidate?.suppressTyping ?? false)
                     threeFingerTapCandidate = nil
                     #if DEBUG
                     recordTapClickTrace(
@@ -3111,6 +3152,7 @@ final class ContentViewModel: ObservableObject {
                           let candidate = threeFingerTapCandidate,
                           now <= candidate.deadline {
                     threeFingerTapDetected = true
+                    tapClickSuppressedNow = tapClickSuppressedNow || candidate.suppressTyping
                     threeFingerTapCandidate = nil
                     #if DEBUG
                     recordTapClickTrace(
@@ -3121,47 +3163,60 @@ final class ContentViewModel: ObservableObject {
                         stateTouchCount: state.touches.count
                     )
                     #endif
-                } else if intentCurrentKeys.count == 1,
-                          state.touches.count == 2,
+                } else if state.touches.count == 2,
                           shouldTriggerTapClick(
                             state: state.touches,
                             now: now,
                             moveThresholdSquared: moveThresholdSquared,
                             fingerCount: 2
                           ) {
-                    twoFingerTapCandidate = TapCandidate(deadline: now + staggerWindow)
-                    #if DEBUG
-                    recordTapClickTrace(
-                        reason: .tapClickCandidate2,
-                        contactCount: contactCount,
-                        onKeyCount: onKeyCount,
-                        offKeyCount: offKeyCount,
-                        stateTouchCount: state.touches.count
-                    )
-                    #endif
-                } else if intentCurrentKeys.count == 0,
-                          state.touches.count == 2,
-                          shouldTriggerTapClick(
-                            state: state.touches,
-                            now: now,
-                            moveThresholdSquared: moveThresholdSquared,
-                            fingerCount: 2
-                          ) {
-                    twoFingerTapDetected = true
-                    twoFingerTapCandidate = nil
-                    #if DEBUG
-                    recordTapClickTrace(
-                        reason: .tapClickDetected2,
-                        contactCount: contactCount,
-                        onKeyCount: onKeyCount,
-                        offKeyCount: offKeyCount,
-                        stateTouchCount: state.touches.count
-                    )
-                    #endif
+                    let startSpread = tapClickStartSpreadSeconds()
+                    let allowOnKeyTap = onKeyCount == 0 || startSpread <= intentConfig.keyBufferSeconds
+                    if allowOnKeyTap {
+                        if intentCurrentKeys.count == 0 {
+                            twoFingerTapDetected = true
+                            tapClickSuppressedNow = tapClickSuppressedNow || (twoFingerTapCandidate?.suppressTyping ?? false)
+                            twoFingerTapCandidate = nil
+                            #if DEBUG
+                            recordTapClickTrace(
+                                reason: .tapClickDetected2,
+                                contactCount: contactCount,
+                                onKeyCount: onKeyCount,
+                                offKeyCount: offKeyCount,
+                                stateTouchCount: state.touches.count
+                            )
+                            #endif
+                        } else {
+                            let suppressTyping = onKeyCount > 0
+                            twoFingerTapCandidate = TapCandidate(
+                                deadline: now + staggerWindow,
+                                suppressTyping: suppressTyping
+                            )
+                            #if DEBUG
+                            recordTapClickTrace(
+                                reason: .tapClickCandidate2,
+                                contactCount: contactCount,
+                                onKeyCount: onKeyCount,
+                                offKeyCount: offKeyCount,
+                                stateTouchCount: state.touches.count
+                            )
+                            if suppressTyping {
+                                recordTapClickTrace(
+                                    reason: .tapClickTypingSuppressed,
+                                    contactCount: contactCount,
+                                    onKeyCount: onKeyCount,
+                                    offKeyCount: offKeyCount,
+                                    stateTouchCount: state.touches.count
+                                )
+                            }
+                            #endif
+                        }
+                    }
                 } else if intentCurrentKeys.count == 0,
                           let candidate = twoFingerTapCandidate,
                           now <= candidate.deadline {
                     twoFingerTapDetected = true
+                    tapClickSuppressedNow = tapClickSuppressedNow || candidate.suppressTyping
                     twoFingerTapCandidate = nil
                     #if DEBUG
                     recordTapClickTrace(
@@ -3173,6 +3228,13 @@ final class ContentViewModel: ObservableObject {
                     )
                     #endif
                 }
+            }
+
+            if let candidate = twoFingerTapCandidate, candidate.suppressTyping {
+                tapClickSuppressedNow = true
+            }
+            if let candidate = threeFingerTapCandidate, candidate.suppressTyping {
+                tapClickSuppressedNow = true
             }
 
             if state.touches.count != intentCurrentKeys.count {
@@ -3223,6 +3285,31 @@ final class ContentViewModel: ObservableObject {
                 isTypingCommitted = false
             }
             let suppressTapClicks = isTypingEnabled && (graceActive || isTypingCommitted)
+            let tapClickBlocksTyping = tapClickEnabled && tapClickSuppressedNow
+            tapClickTypingSuppressed = tapClickBlocksTyping
+#if DEBUG
+            if tapClickBlocksTyping && (twoFingerTapDetected || threeFingerTapDetected) {
+                recordTapClickTrace(
+                    reason: .tapClickTypingSuppressed,
+                    contactCount: contactCount,
+                    onKeyCount: onKeyCount,
+                    offKeyCount: offKeyCount,
+                    stateTouchCount: state.touches.count
+                )
+            }
+            if tapClickBlocksTyping, let touchKey = firstOnKeyTouchKey {
+                let binding = bindingCacheBySide[.left].value(for: touchKey)
+                    ?? bindingCacheBySide[.right].value(for: touchKey)
+                if let binding {
+                    recordTapTrace(
+                        .tapClick,
+                        touchKey: touchKey,
+                        binding: binding,
+                        reason: .tapClickTypingSuppressed
+                    )
+                }
+            }
+#endif
             guard contactCount > 0 else {
                 state.touches.removeAll()
                 if gestureContactCount == 0, !momentaryLayerTouches.isEmpty {
@@ -3287,7 +3374,7 @@ final class ContentViewModel: ObservableObject {
                     state.mode = .typingCommitted(untilAllUp: true)
                     intentState = state
                     updateIntentDisplayIfNeeded()
-                    return true
+                    return !tapClickBlocksTyping
                 }
                 state.mode = .idle
                 intentState = state
@@ -3303,7 +3390,7 @@ final class ContentViewModel: ObservableObject {
                 return true
             }
 
-            if let gestureStart = gestureCandidateStartTime(
+            if !anyOnKey, let gestureStart = gestureCandidateStartTime(
                 for: state,
                 contactCount: contactCount,
                 previousContactCount: previousContactCount
@@ -3325,7 +3412,7 @@ final class ContentViewModel: ObservableObject {
                 state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
                 intentState = state
                 updateIntentDisplayIfNeeded()
-                return true
+                return !tapClickBlocksTyping
             }
 
             let typingAnchorActive = hasKeyboardAnchor && contactCount <= 1
@@ -3336,7 +3423,7 @@ final class ContentViewModel: ObservableObject {
                     state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
                     intentState = state
                     updateIntentDisplayIfNeeded()
-                    return true
+                    return !tapClickBlocksTyping
                 }
                 if anyOnKey && !mouseSignal, let touchKey = firstOnKeyTouchKey, let centroid {
                     #if DEBUG
@@ -3373,7 +3460,7 @@ final class ContentViewModel: ObservableObject {
                     state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
                     intentState = state
                     updateIntentDisplayIfNeeded()
-                    return true
+                    return !tapClickBlocksTyping
                 }
                 if mouseSignal {
                     state.mode = .mouseCandidate(start: now)
@@ -3413,7 +3500,7 @@ final class ContentViewModel: ObservableObject {
                     state.mode = .typingCommitted(untilAllUp: !allowMouseTakeoverDuringTyping)
                     intentState = state
                     updateIntentDisplayIfNeeded()
-                    return true
+                    return !tapClickBlocksTyping
                 }
                 if mouseSignal || now - start >= intentConfig.keyBufferSeconds {
                     state.mode = .mouseActive
@@ -3435,7 +3522,7 @@ final class ContentViewModel: ObservableObject {
 
             intentState = state
             updateIntentDisplayIfNeeded()
-            return allowTyping
+            return allowTyping && !tapClickBlocksTyping
         }
 
         private func shouldTriggerTapClick(
@@ -3560,6 +3647,9 @@ final class ContentViewModel: ObservableObject {
             point: CGPoint,
             side _: TrackpadSide
         ) -> Bool {
+            if tapClickTypingSuppressed {
+                return false
+            }
             var state = intentState
             guard case .keyCandidate = state.mode else {
                 return false

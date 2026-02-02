@@ -116,6 +116,7 @@ enum TapTraceReasonCode: UInt8 {
     case intentMultiKeyCandidate = 23
     case intentMultiMouseCandidate = 24
     case intentMultiTypingCommitted = 25
+    case tapClickTypingSuppressed = 26
 
     var label: String {
         switch self {
@@ -139,6 +140,7 @@ enum TapTraceReasonCode: UInt8 {
         case .tapClickDetected2: return "tap_click_detected_2"
         case .tapClickDetected3: return "tap_click_detected_3"
         case .tapClickSuppressed: return "tap_click_suppressed"
+        case .tapClickTypingSuppressed: return "tap_click_typing_suppressed"
         case .tapClickLeft: return "tap_click_left"
         case .tapClickRight: return "tap_click_right"
         case .tapClickDouble: return "tap_click_double"
