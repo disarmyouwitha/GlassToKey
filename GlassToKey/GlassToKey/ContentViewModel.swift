@@ -3100,6 +3100,20 @@ final class ContentViewModel: ObservableObject {
                     )
 #endif
                 }
+                if state.touches.count == 3,
+                   onKeyCount > 0,
+                   tapClickStartSpreadSeconds() <= intentConfig.keyBufferSeconds {
+                    tapClickSuppressedNow = true
+#if DEBUG
+                    recordTapClickTrace(
+                        reason: .tapClickTypingSuppressed,
+                        contactCount: contactCount,
+                        onKeyCount: onKeyCount,
+                        offKeyCount: offKeyCount,
+                        stateTouchCount: state.touches.count
+                    )
+#endif
+                }
                 if tapClickMotionAllowed,
                    intentCurrentKeys.count == 2,
                    state.touches.count == 3,
