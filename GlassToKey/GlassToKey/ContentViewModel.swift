@@ -2981,6 +2981,8 @@ final class ContentViewModel: ObservableObject {
             var threeFingerTapDetected = false
             var tapClickSuppressedNow = false
             let staggerWindow = max(tapClickCadenceSeconds, contactCountHoldDuration)
+            let tapClickMoveThresholdSquared = intentMoveThresholdSquared * 0.25
+            let tapClickVelocityThreshold = intentVelocityThreshold * 0.6
 
             func process(_ touch: OMSRawTouch, deviceIndex: Int, side: TrackpadSide, bindings: BindingIndex) {
                 let isChordState = Self.isChordShiftContactState(touch.state)
@@ -3083,6 +3085,7 @@ final class ContentViewModel: ObservableObject {
                 awaitingSecondTap = false
                 doubleTapDeadline = nil
             } else if tapClickEnabled {
+                let tapClickMotionAllowed = maxVelocity <= tapClickVelocityThreshold
                 if state.touches.count == 2,
                    onKeyCount > 0,
                    tapClickStartSpreadSeconds() <= intentConfig.keyBufferSeconds {
@@ -3097,12 +3100,13 @@ final class ContentViewModel: ObservableObject {
                     )
 #endif
                 }
-                if intentCurrentKeys.count == 2,
+                if tapClickMotionAllowed,
+                   intentCurrentKeys.count == 2,
                    state.touches.count == 3,
                    shouldTriggerTapClick(
                     state: state.touches,
                     now: now,
-                    moveThresholdSquared: moveThresholdSquared,
+                    moveThresholdSquared: tapClickMoveThresholdSquared,
                     fingerCount: 3
                    ) {
                     let suppressTyping = onKeyCount > 0
@@ -3128,12 +3132,13 @@ final class ContentViewModel: ObservableObject {
                         )
                     }
                     #endif
-                } else if intentCurrentKeys.count == 0,
+                } else if tapClickMotionAllowed,
+                          intentCurrentKeys.count == 0,
                           state.touches.count == 3,
                           shouldTriggerTapClick(
                             state: state.touches,
                             now: now,
-                            moveThresholdSquared: moveThresholdSquared,
+                            moveThresholdSquared: tapClickMoveThresholdSquared,
                             fingerCount: 3
                           ) {
                     threeFingerTapDetected = true
@@ -3148,7 +3153,8 @@ final class ContentViewModel: ObservableObject {
                         stateTouchCount: state.touches.count
                     )
                     #endif
-                } else if intentCurrentKeys.count == 0,
+                } else if tapClickMotionAllowed,
+                          intentCurrentKeys.count == 0,
                           let candidate = threeFingerTapCandidate,
                           now <= candidate.deadline {
                     threeFingerTapDetected = true
@@ -3163,11 +3169,12 @@ final class ContentViewModel: ObservableObject {
                         stateTouchCount: state.touches.count
                     )
                     #endif
-                } else if state.touches.count == 2,
+                } else if tapClickMotionAllowed,
+                          state.touches.count == 2,
                           shouldTriggerTapClick(
                             state: state.touches,
                             now: now,
-                            moveThresholdSquared: moveThresholdSquared,
+                            moveThresholdSquared: tapClickMoveThresholdSquared,
                             fingerCount: 2
                           ) {
                     let startSpread = tapClickStartSpreadSeconds()
@@ -3212,7 +3219,8 @@ final class ContentViewModel: ObservableObject {
                             #endif
                         }
                     }
-                } else if intentCurrentKeys.count == 0,
+                } else if tapClickMotionAllowed,
+                          intentCurrentKeys.count == 0,
                           let candidate = twoFingerTapCandidate,
                           now <= candidate.deadline {
                     twoFingerTapDetected = true
