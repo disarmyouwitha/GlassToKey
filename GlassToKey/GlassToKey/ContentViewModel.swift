@@ -963,6 +963,7 @@ final class ContentViewModel: ObservableObject {
             var moveThresholdMm: CGFloat = 3.0
             var velocityThresholdMmPerSec: CGFloat = 50.0
             var tapClickMoveThresholdMm: CGFloat = 1.0
+            var tapClickVelocityThresholdMmPerSec: CGFloat = 120.0
         }
 
         private struct IntentTouchInfo {
@@ -1458,6 +1459,8 @@ final class ContentViewModel: ObservableObject {
         private var intentMoveThresholdSquared: CGFloat = 0
         private var intentVelocityThreshold: CGFloat = 0
         private var tapClickMoveThresholdSquared: CGFloat = 0
+        private var tapClickVelocityThreshold: CGFloat = 0
+        private var tapClickDisqualified = false
         private var allowMouseTakeoverDuringTyping = false
         private var tapClickEnabled = false
         private var typingGraceDeadline: TimeInterval?
@@ -3066,6 +3069,19 @@ final class ContentViewModel: ObservableObject {
                 awaitingSecondTap = false
             }
 
+            if tapClickEnabled {
+                let tapMoveThresholdSquared = tapClickMoveThresholdSquared > 0
+                    ? tapClickMoveThresholdSquared
+                    : moveThresholdSquared
+                let exceededTapMove = maxDistanceSquared > tapMoveThresholdSquared
+                let exceededTapVelocity = tapClickVelocityThreshold > 0
+                    && maxVelocity > tapClickVelocityThreshold
+                if exceededTapMove || exceededTapVelocity {
+                    twoFingerTapCandidate = nil
+                    threeFingerTapCandidate = nil
+                }
+            }
+
             if keyboardOnly {
                 twoFingerTapCandidate = nil
                 threeFingerTapCandidate = nil
@@ -3078,6 +3094,8 @@ final class ContentViewModel: ObservableObject {
                     state: state.touches,
                     now: now,
                     moveThresholdSquared: moveThresholdSquared,
+                    maxVelocity: maxVelocity,
+                    tapVelocityThreshold: tapClickVelocityThreshold,
                     fingerCount: 3
                    ) {
                     threeFingerTapCandidate = TapCandidate(deadline: now + staggerWindow)
@@ -3096,6 +3114,8 @@ final class ContentViewModel: ObservableObject {
                             state: state.touches,
                             now: now,
                             moveThresholdSquared: moveThresholdSquared,
+                            maxVelocity: maxVelocity,
+                            tapVelocityThreshold: tapClickVelocityThreshold,
                             fingerCount: 3
                           ) {
                     threeFingerTapDetected = true
@@ -3129,6 +3149,8 @@ final class ContentViewModel: ObservableObject {
                             state: state.touches,
                             now: now,
                             moveThresholdSquared: moveThresholdSquared,
+                            maxVelocity: maxVelocity,
+                            tapVelocityThreshold: tapClickVelocityThreshold,
                             fingerCount: 2
                           ) {
                     twoFingerTapCandidate = TapCandidate(deadline: now + staggerWindow)
@@ -3147,6 +3169,8 @@ final class ContentViewModel: ObservableObject {
                             state: state.touches,
                             now: now,
                             moveThresholdSquared: moveThresholdSquared,
+                            maxVelocity: maxVelocity,
+                            tapVelocityThreshold: tapClickVelocityThreshold,
                             fingerCount: 2
                           ) {
                     twoFingerTapDetected = true
@@ -3217,6 +3241,24 @@ final class ContentViewModel: ObservableObject {
                 || (secondFingerAppeared && anyOffKey)
                 || centroidMoved
 
+            if tapClickEnabled {
+                let tapMoveThresholdSquared = tapClickMoveThresholdSquared > 0
+                    ? tapClickMoveThresholdSquared
+                    : moveThresholdSquared
+                let isMouseActive: Bool
+                switch state.mode {
+                case .mouseActive:
+                    isMouseActive = true
+                default:
+                    isMouseActive = false
+                }
+                if maxDistanceSquared > tapMoveThresholdSquared
+                    || (tapClickVelocityThreshold > 0 && maxVelocity > tapClickVelocityThreshold)
+                    || isMouseActive {
+                    tapClickDisqualified = true
+                }
+            }
+
             let wasTwoFingerTapDetected = twoFingerTapDetected
             let isTypingCommitted: Bool
             if case .typingCommitted = state.mode {
@@ -3224,9 +3266,10 @@ final class ContentViewModel: ObservableObject {
             } else {
                 isTypingCommitted = false
             }
-            let suppressTapClicks = isTypingEnabled && (graceActive || isTypingCommitted)
+            let suppressTapClicks = (isTypingEnabled && (graceActive || isTypingCommitted)) || tapClickDisqualified
             guard contactCount > 0 else {
                 state.touches.removeAll()
+                tapClickDisqualified = false
                 if gestureContactCount == 0, !momentaryLayerTouches.isEmpty {
                     momentaryLayerTouches.removeAll()
                     updateActiveLayer()
@@ -3444,6 +3487,8 @@ final class ContentViewModel: ObservableObject {
             state: TouchTable<IntentTouchInfo>,
             now: TimeInterval,
             moveThresholdSquared: CGFloat,
+            maxVelocity: CGFloat,
+            tapVelocityThreshold: CGFloat,
             fingerCount: Int
         ) -> Bool {
             if state.count != fingerCount {
@@ -3467,6 +3512,9 @@ final class ContentViewModel: ObservableObject {
                 ? tapClickMoveThresholdSquared
                 : moveThresholdSquared
             if maxDistanceSquared > tapMoveThresholdSquared {
+                return false
+            }
+            if tapVelocityThreshold > 0, maxVelocity > tapVelocityThreshold {
                 return false
             }
             return true
@@ -3586,6 +3634,7 @@ final class ContentViewModel: ObservableObject {
                 intentMoveThresholdSquared = 0
                 intentVelocityThreshold = 0
                 tapClickMoveThresholdSquared = 0
+                tapClickVelocityThreshold = 0
                 return
             }
             unitsPerMillimeter = trackpadSize.width / trackpadWidthMm
@@ -3594,6 +3643,7 @@ final class ContentViewModel: ObservableObject {
             intentVelocityThreshold = intentConfig.velocityThresholdMmPerSec * unitsPerMillimeter
             let tapMoveThreshold = intentConfig.tapClickMoveThresholdMm * unitsPerMillimeter
             tapClickMoveThresholdSquared = tapMoveThreshold * tapMoveThreshold
+            tapClickVelocityThreshold = intentConfig.tapClickVelocityThresholdMmPerSec * unitsPerMillimeter
         }
 
         private func mmUnitsPerMillimeter() -> CGFloat {
