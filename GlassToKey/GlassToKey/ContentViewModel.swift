@@ -958,7 +958,7 @@ final class ContentViewModel: ObservableObject {
         }
 
         private struct IntentConfig {
-            var keyBufferSeconds: TimeInterval = 0.04
+            var keyBufferSeconds: TimeInterval = 0.02
             var typingGraceSeconds: TimeInterval = 0.12
             var moveThresholdMm: CGFloat = 3.0
             var velocityThresholdMmPerSec: CGFloat = 50.0
