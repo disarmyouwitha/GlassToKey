@@ -1442,6 +1442,12 @@ final class ContentViewModel: ObservableObject {
         )
         private var framePointCache = TouchTable<CGPoint>(minimumCapacity: 16)
         private var hapticStrength: Double = 0
+        private static let hapticMinIntervalNanos: UInt64 = 20_000_000
+        private static let hapticsQueue = DispatchQueue(
+            label: "com.kyome.glasstokey.haptics",
+            qos: .userInteractive
+        )
+        private var lastHapticTimeBySide = SidePair<UInt64>(repeating: 0)
         private struct IntentState {
             var mode: IntentMode = .idle
             var touches = TouchTable<IntentTouchInfo>()
@@ -3739,18 +3745,23 @@ final class ContentViewModel: ObservableObject {
 
         private func playHapticIfNeeded(on side: TrackpadSide?, touchKey: TouchKey? = nil) {
             guard hapticStrength > 0 else { return }
+            guard let side else { return }
             if let touchKey, disqualifiedTouches.value(for: touchKey) != nil { return }
+            let now = Self.nowUptimeNanoseconds()
+            let last = lastHapticTimeBySide[side]
+            if now &- last < Self.hapticMinIntervalNanos { return }
+            lastHapticTimeBySide[side] = now
             let deviceID: String?
             switch side {
             case .left:
                 deviceID = leftDeviceID
             case .right:
                 deviceID = rightDeviceID
-            case .none:
-                deviceID = nil
             }
             let strength = hapticStrength
-            _ = OMSManager.shared.playHapticFeedback(strength: strength, deviceID: deviceID)
+            Self.hapticsQueue.async {
+                _ = OMSManager.shared.playHapticFeedback(strength: strength, deviceID: deviceID)
+            }
         }
 
         private func initialContactPointIsInsideBinding(_ touchKey: TouchKey, binding: KeyBinding) -> Bool {
