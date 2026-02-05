@@ -510,7 +510,7 @@ typedef struct {
             NSValue *contextValue = self.deviceCallbackContexts[[NSValue valueWithPointer:deviceRef]];
             MTDeviceCallbackContext *context = contextValue ? (MTDeviceCallbackContext *)contextValue.pointerValue : NULL;
             if (context && context->usesRefcon) {
-                MTUnregisterContactFrameCallback(deviceRef, contactEventHandlerWithRefcon);
+                MTUnregisterContactFrameCallback(deviceRef, (MTFrameCallbackFunction)contactEventHandlerWithRefcon);
             } else {
                 MTUnregisterContactFrameCallback(deviceRef, contactEventHandler); // work
             }
