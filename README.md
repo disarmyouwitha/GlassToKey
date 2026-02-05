@@ -91,8 +91,4 @@ Keyboard Mode’s global click blocking requires system permission:
 3. Restart GlassToKey after granting permissions.
 
 ## FUTURE
-- Add windows support based on https://github.com/vitoplantamura/MagicTrackpad2ForWindows (They should have USB drivers for USB-C support soon?)
-
-## RECOMMENDED
-- BetterTouchTool: https://folivora.ai
-Not affiliated but I personally use it for all of my trackpad gestures and def. think it is worth the $24 lifetime license!
+- Add windows support based on https://github.com/vitoplantamura/MagicTrackpad2ForWindows (They should have bluetooth drivers for USB-C support soon?)
