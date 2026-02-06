@@ -431,6 +431,8 @@ struct ContentView: View {
             leftContactCount: viewModel.contactFingerCountsBySide.left,
             rightContactCount: viewModel.contactFingerCountsBySide.right,
             intentDisplay: viewModel.intentDisplayBySide.left,
+            voiceGestureActive: viewModel.voiceGestureActive,
+            voiceDebugStatus: viewModel.voiceDebugStatus,
             tapTraceDumpInProgress: tapTraceDumpInProgress,
             tapTraceDumpStatus: tapTraceDumpStatus,
             onDumpTapTrace: dumpTapTrace
@@ -443,6 +445,8 @@ struct ContentView: View {
             leftContactCount: viewModel.contactFingerCountsBySide.left,
             rightContactCount: viewModel.contactFingerCountsBySide.right,
             intentDisplay: viewModel.intentDisplayBySide.left,
+            voiceGestureActive: viewModel.voiceGestureActive,
+            voiceDebugStatus: viewModel.voiceDebugStatus,
         )
 #endif
     }
@@ -535,6 +539,8 @@ struct ContentView: View {
         let leftContactCount: Int
         let rightContactCount: Int
         let intentDisplay: ContentViewModel.IntentDisplay
+        let voiceGestureActive: Bool
+        let voiceDebugStatus: String?
 #if DEBUG
         let tapTraceDumpInProgress: Bool
         let tapTraceDumpStatus: String?
@@ -551,6 +557,12 @@ struct ContentView: View {
                         HStack(spacing: 10) {
                             contactCountPills
                             intentBadge(intent: intentDisplay)
+                            if voiceGestureActive {
+                                voiceBadge(isActive: true)
+                            }
+                            if let voiceDebugStatus {
+                                voiceStatusBadge(voiceDebugStatus)
+                            }
                         }
                     }
                 }
@@ -645,6 +657,35 @@ struct ContentView: View {
             case .gesture:
                 return .purple
             }
+        }
+
+        private func voiceBadge(isActive: Bool) -> some View {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(isActive ? Color.red : Color.gray)
+                    .frame(width: 6, height: 6)
+                Text("voice")
+                    .font(.caption2)
+                    .foregroundStyle(.primary)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                Capsule()
+                    .fill(Color.primary.opacity(0.06))
+            )
+        }
+
+        private func voiceStatusBadge(_ text: String) -> some View {
+            Text(text)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    Capsule()
+                        .fill(Color.primary.opacity(0.04))
+                )
         }
     }
 

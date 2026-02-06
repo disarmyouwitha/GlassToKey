@@ -5,39 +5,26 @@ import Foundation
 final class AccessibilityTextReplacer: @unchecked Sendable {
     private let maxDurationNs: UInt64 = 20_000_000
 
+    func insertTextAtCaret(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
+        guard AXIsProcessTrusted() else { return false }
+        guard let element = focusedEditableElement() else { return false }
+        let setTextResult = AXUIElementSetAttributeValue(
+            element,
+            kAXSelectedTextAttribute as CFString,
+            text as CFString
+        )
+        return setTextResult == .success
+    }
+
     func replaceLastWord(
         wordLength: Int,
         boundaryLength: Int,
         replacement: String
     ) -> Bool {
         guard wordLength > 0 else { return false }
-        guard AXIsProcessTrusted() else { return false }
+        guard let element = focusedEditableElement() else { return false }
         let startTime = DispatchTime.now().uptimeNanoseconds
-
-        let system = AXUIElementCreateSystemWide()
-        var focusedValue: CFTypeRef?
-        let focusedResult = AXUIElementCopyAttributeValue(
-            system,
-            kAXFocusedUIElementAttribute as CFString,
-            &focusedValue
-        )
-        guard focusedResult == .success, let focused = focusedValue else { return false }
-        guard CFGetTypeID(focused) == AXUIElementGetTypeID() else { return false }
-        let element = unsafeDowncast(focused as AnyObject, to: AXUIElement.self)
-
-        var pid: pid_t = 0
-        let pidResult = AXUIElementGetPid(element, &pid)
-        if pidResult == .success, pid == getpid() {
-            return false
-        }
-
-        var isSettable = DarwinBoolean(false)
-        let settableResult = AXUIElementIsAttributeSettable(
-            element,
-            kAXSelectedTextRangeAttribute as CFString,
-            &isSettable
-        )
-        guard settableResult == .success, isSettable.boolValue else { return false }
 
         var rangeValue: CFTypeRef?
         let rangeResult = AXUIElementCopyAttributeValue(
@@ -201,5 +188,34 @@ final class AccessibilityTextReplacer: @unchecked Sendable {
                 value
             )
         }
+    }
+
+    private func focusedEditableElement() -> AXUIElement? {
+        guard AXIsProcessTrusted() else { return nil }
+        let system = AXUIElementCreateSystemWide()
+        var focusedValue: CFTypeRef?
+        let focusedResult = AXUIElementCopyAttributeValue(
+            system,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedValue
+        )
+        guard focusedResult == .success, let focused = focusedValue else { return nil }
+        guard CFGetTypeID(focused) == AXUIElementGetTypeID() else { return nil }
+        let element = unsafeDowncast(focused as AnyObject, to: AXUIElement.self)
+
+        var pid: pid_t = 0
+        let pidResult = AXUIElementGetPid(element, &pid)
+        if pidResult == .success, pid == getpid() {
+            return nil
+        }
+
+        var isSettable = DarwinBoolean(false)
+        let settableResult = AXUIElementIsAttributeSettable(
+            element,
+            kAXSelectedTextRangeAttribute as CFString,
+            &isSettable
+        )
+        guard settableResult == .success, isSettable.boolValue else { return nil }
+        return element
     }
 }
