@@ -7,14 +7,26 @@ final class AccessibilityTextReplacer: @unchecked Sendable {
 
     func insertTextAtCaret(_ text: String) -> Bool {
         guard !text.isEmpty else { return false }
-        guard AXIsProcessTrusted() else { return false }
         guard let element = focusedEditableElement() else { return false }
+        let startTime = DispatchTime.now().uptimeNanoseconds
+        guard let originalCaret = copySelectedRange(element: element),
+              originalCaret.length == 0 else {
+            return false
+        }
+        let targetStart = originalCaret.location
         let setTextResult = AXUIElementSetAttributeValue(
             element,
             kAXSelectedTextAttribute as CFString,
             text as CFString
         )
-        return setTextResult == .success
+        guard setTextResult == .success else { return false }
+        return verifyInsertion(
+            element: element,
+            targetStart: targetStart,
+            insertedText: text,
+            originalCaret: originalCaret,
+            startTime: startTime
+        )
     }
 
     func replaceLastWord(
@@ -138,6 +150,50 @@ final class AccessibilityTextReplacer: @unchecked Sendable {
                         return true
                     }
                 }
+            }
+        }
+
+        restoreCaret(element: element, caret: originalCaret)
+        return false
+    }
+
+    private func verifyInsertion(
+        element: AXUIElement,
+        targetStart: Int,
+        insertedText: String,
+        originalCaret: CFRange,
+        startTime: UInt64
+    ) -> Bool {
+        if elapsedNs(since: startTime) > maxDurationNs {
+            return false
+        }
+
+        let expectedCaret = targetStart + insertedText.utf16.count
+        if let selectedRange = copySelectedRange(element: element),
+           selectedRange.length == 0,
+           selectedRange.location == expectedCaret {
+            return true
+        }
+
+        var insertedRange = CFRange(location: targetStart, length: insertedText.utf16.count)
+        if let insertedRangeValue = AXValueCreate(.cfRange, &insertedRange) {
+            let setRangeResult = AXUIElementSetAttributeValue(
+                element,
+                kAXSelectedTextRangeAttribute as CFString,
+                insertedRangeValue
+            )
+            if setRangeResult == .success,
+               let selectedText = copySelectedText(element: element),
+               selectedText == insertedText {
+                var caret = CFRange(location: expectedCaret, length: 0)
+                if let caretValue = AXValueCreate(.cfRange, &caret) {
+                    _ = AXUIElementSetAttributeValue(
+                        element,
+                        kAXSelectedTextRangeAttribute as CFString,
+                        caretValue
+                    )
+                }
+                return true
             }
         }
 

@@ -1,8 +1,14 @@
+import AppKit
 import AVFoundation
+import Carbon
 import Foundation
 import Speech
 
 final class VoiceDictationManager: NSObject, @unchecked Sendable {
+    private final class BoolBox: @unchecked Sendable {
+        var value = false
+    }
+
     static let shared = VoiceDictationManager()
 
     private let queue = DispatchQueue(
@@ -52,9 +58,6 @@ final class VoiceDictationManager: NSObject, @unchecked Sendable {
     private func ensureAuthorization() -> Bool {
         final class SpeechStatusBox: @unchecked Sendable {
             var value: SFSpeechRecognizerAuthorizationStatus = .notDetermined
-        }
-        final class BoolBox: @unchecked Sendable {
-            var value = false
         }
 
         switch SFSpeechRecognizer.authorizationStatus() {
@@ -173,8 +176,16 @@ final class VoiceDictationManager: NSObject, @unchecked Sendable {
             emitStatus("voice: inserted")
             return
         }
-        if typeTextFallback(text) {
-            emitStatus("voice: typed fallback")
+        if pasteTextFallback(text) {
+            emitStatus("voice: pasted fallback")
+            return
+        }
+        if typeWithMappedKeyStrokesFallback(text) {
+            emitStatus("voice: typed mapped fallback")
+            return
+        }
+        if typeWithUnicodeEventsFallback(text) {
+            emitStatus("voice: typed unicode fallback")
             return
         }
         emitStatus("voice: insert failed")
@@ -210,10 +221,90 @@ final class VoiceDictationManager: NSObject, @unchecked Sendable {
         return nil
     }
 
-    private func typeTextFallback(_ text: String) -> Bool {
+    private func typeWithUnicodeEventsFallback(_ text: String) -> Bool {
         guard !text.isEmpty else { return false }
         KeyEventDispatcher.shared.postText(text)
         return true
+    }
+
+    private func typeWithMappedKeyStrokesFallback(_ text: String) -> Bool {
+        let normalized = normalizeForMappedKeyTyping(text)
+        guard !normalized.isEmpty,
+              let strokes = KeySemanticMapper.keyStrokes(for: normalized) else {
+            return false
+        }
+        for stroke in strokes {
+            KeyEventDispatcher.shared.postKeyStroke(code: stroke.code, flags: stroke.flags)
+        }
+        return true
+    }
+
+    private func pasteTextFallback(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
+        let semaphore = DispatchSemaphore(value: 0)
+        let resultBox = BoolBox()
+
+        DispatchQueue.main.async {
+            let pasteboard = NSPasteboard.general
+            let previous = pasteboard.string(forType: .string)
+
+            pasteboard.clearContents()
+            guard pasteboard.setString(text, forType: .string) else {
+                resultBox.value = false
+                semaphore.signal()
+                return
+            }
+
+            KeyEventDispatcher.shared.postKeyStroke(
+                code: CGKeyCode(kVK_ANSI_V),
+                flags: .maskCommand
+            )
+
+            if let previous {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    pasteboard.clearContents()
+                    _ = pasteboard.setString(previous, forType: .string)
+                }
+            }
+
+            resultBox.value = true
+            semaphore.signal()
+        }
+
+        semaphore.wait()
+        return resultBox.value
+    }
+
+    private func normalizeForMappedKeyTyping(_ text: String) -> String {
+        var normalized = text
+        normalized = normalized.replacingOccurrences(of: "\u{2018}", with: "'")
+        normalized = normalized.replacingOccurrences(of: "\u{2019}", with: "'")
+        normalized = normalized.replacingOccurrences(of: "\u{201C}", with: "\"")
+        normalized = normalized.replacingOccurrences(of: "\u{201D}", with: "\"")
+        normalized = normalized.replacingOccurrences(of: "\u{2013}", with: "-")
+        normalized = normalized.replacingOccurrences(of: "\u{2014}", with: "-")
+        normalized = normalized.replacingOccurrences(of: "\u{2026}", with: "...")
+        normalized = normalized.folding(
+            options: [.diacriticInsensitive, .widthInsensitive],
+            locale: .current
+        )
+
+        var output = ""
+        output.reserveCapacity(normalized.count)
+        for character in normalized {
+            if character == "\n" || character == "\t" {
+                output.append(character)
+                continue
+            }
+            guard let scalar = character.unicodeScalars.first, character.unicodeScalars.count == 1 else {
+                continue
+            }
+            if scalar.value < 128 {
+                output.append(character)
+                continue
+            }
+        }
+        return output
     }
 
     private func emitStatus(_ message: String?) {
