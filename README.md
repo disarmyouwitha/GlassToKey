@@ -91,4 +91,5 @@ Keyboard Mode’s global click blocking requires system permission:
 3. Restart GlassToKey after granting permissions.
 
 ## FUTURE
-- Add windows support based on https://github.com/vitoplantamura/MagicTrackpad2ForWindows (They should have bluetooth drivers for USB-C support soon?)
+- Adding windows support: https://github.com/disarmyouwitha/GlassToKeyForWindows
+- Based on https://github.com/vitoplantamura/MagicTrackpad2ForWindows (They should have bluetooth drivers for USB-C support soon?)$
