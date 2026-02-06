@@ -228,6 +228,8 @@ final class ContentViewModel: ObservableObject {
     @Published private(set) var activeLayer: Int = 0
     @Published private(set) var contactFingerCountsBySide = SidePair(left: 0, right: 0)
     @Published private(set) var intentDisplayBySide = SidePair(left: IntentDisplay.idle, right: .idle)
+    @Published private(set) var voiceGestureActive = false
+    @Published private(set) var voiceDebugStatus: String?
     private let isDragDetectionEnabled = true
     @Published var availableDevices = [OMSDeviceInfo]()
     @Published var leftDevice: OMSDeviceInfo?
@@ -283,6 +285,17 @@ final class ContentViewModel: ObservableObject {
                 weakSelf?.publishIntentDisplayIfNeeded(states)
             }
         }
+        let voiceGestureHandler: @Sendable (Bool) -> Void = { isActive in
+            Task { @MainActor in
+                weakSelf?.publishVoiceGestureIfNeeded(isActive)
+            }
+        }
+        let voiceStatusHandler: @Sendable (String?) -> Void = { status in
+            Task { @MainActor in
+                weakSelf?.publishVoiceDebugStatus(status)
+            }
+        }
+        VoiceDictationManager.shared.setStatusHandler(voiceStatusHandler)
         processor = TouchProcessor(
             keyDispatcher: KeyEventDispatcher.shared,
             onTypingEnabledChanged: { isEnabled in
@@ -297,7 +310,8 @@ final class ContentViewModel: ObservableObject {
             },
             onDebugBindingDetected: debugBindingHandler,
             onContactCountChanged: contactCountHandler,
-            onIntentStateChanged: intentStateHandler
+            onIntentStateChanged: intentStateHandler,
+            onVoiceGestureChanged: voiceGestureHandler
         )
         weakSelf = self
         loadDevices()
@@ -870,6 +884,7 @@ final class ContentViewModel: ObservableObject {
                 Task { @MainActor in
                     self.contactFingerCountsBySide = snapshot.contactCounts
                     self.intentDisplayBySide = snapshot.intentDisplays
+                    self.voiceGestureActive = snapshot.voiceGestureActive
                 }
             }
         }
@@ -889,6 +904,16 @@ final class ContentViewModel: ObservableObject {
         guard uiStatusVisualsEnabled else { return }
         guard display != intentDisplayBySide else { return }
         intentDisplayBySide = display
+    }
+
+    private func publishVoiceGestureIfNeeded(_ isActive: Bool) {
+        guard uiStatusVisualsEnabled else { return }
+        guard isActive != voiceGestureActive else { return }
+        voiceGestureActive = isActive
+    }
+
+    private func publishVoiceDebugStatus(_ status: String?) {
+        voiceDebugStatus = status
     }
 
     private actor TouchProcessor {
@@ -1375,6 +1400,7 @@ final class ContentViewModel: ObservableObject {
         private let onDebugBindingDetected: @Sendable (KeyBinding) -> Void
         private let onContactCountChanged: @Sendable (SidePair<Int>) -> Void
         private let onIntentStateChanged: @Sendable (SidePair<IntentDisplay>) -> Void
+        private let onVoiceGestureChanged: @Sendable (Bool) -> Void
         private let isDragDetectionEnabled = true
         private var isListening = false
         private var isTypingEnabled = true
@@ -1486,14 +1512,28 @@ final class ContentViewModel: ObservableObject {
         private struct ChordShiftState {
             var active: Bool = false
         }
+        private struct VoiceDictationGestureState {
+            var holdStart: TimeInterval = 0
+            var holdCandidateActive = false
+            var isDictating = false
+            var side: TrackpadSide?
+        }
         private var chordShiftEnabled = true
         private var chordShiftState = SidePair(left: ChordShiftState(), right: ChordShiftState())
         private var chordShiftLastContactTime = SidePair(left: TimeInterval(0), right: TimeInterval(0))
         private var chordShiftKeyDown = false
+        private var voiceDictationGestureState = VoiceDictationGestureState()
+        private var voiceGestureActive = false
+        private let voiceDictationHoldSeconds: TimeInterval = 0.35
+        private let voiceDictationLeftEdgeMaxX: CGFloat = 0.28
+        private let voiceDictationRightEdgeMinX: CGFloat = 0.72
+        private let voiceDictationTopMaxY: CGFloat = 0.28
+        private let voiceDictationBottomMinY: CGFloat = 0.72
 
         struct StatusSnapshot: Sendable {
             let contactCounts: SidePair<Int>
             let intentDisplays: SidePair<IntentDisplay>
+            let voiceGestureActive: Bool
         }
 
 #if DEBUG
@@ -1509,7 +1549,8 @@ final class ContentViewModel: ObservableObject {
             onActiveLayerChanged: @Sendable @escaping (Int) -> Void,
             onDebugBindingDetected: @Sendable @escaping (KeyBinding) -> Void,
             onContactCountChanged: @Sendable @escaping (SidePair<Int>) -> Void,
-            onIntentStateChanged: @Sendable @escaping (SidePair<IntentDisplay>) -> Void
+            onIntentStateChanged: @Sendable @escaping (SidePair<IntentDisplay>) -> Void,
+            onVoiceGestureChanged: @Sendable @escaping (Bool) -> Void
         ) {
             self.keyDispatcher = keyDispatcher
             self.onTypingEnabledChanged = onTypingEnabledChanged
@@ -1517,6 +1558,7 @@ final class ContentViewModel: ObservableObject {
             self.onDebugBindingDetected = onDebugBindingDetected
             self.onContactCountChanged = onContactCountChanged
             self.onIntentStateChanged = onIntentStateChanged
+            self.onVoiceGestureChanged = onVoiceGestureChanged
         }
 
         func setListening(_ isListening: Bool) {
@@ -1526,7 +1568,8 @@ final class ContentViewModel: ObservableObject {
         func statusSnapshot() -> StatusSnapshot {
             StatusSnapshot(
                 contactCounts: contactFingerCountsBySide,
-                intentDisplays: intentDisplayBySide
+                intentDisplays: intentDisplayBySide,
+                voiceGestureActive: voiceGestureActive
             )
         }
 
@@ -2866,6 +2909,15 @@ final class ContentViewModel: ObservableObject {
             }
         }
 
+        private static func isDictationContactState(_ state: OpenMTState) -> Bool {
+            switch state {
+            case .starting, .making, .touching, .lingering:
+                return true
+            default:
+                return false
+            }
+        }
+
         private func contactCount(in touches: [OMSRawTouch]) -> Int {
             var count = 0
             for touch in touches where Self.isChordShiftContactState(touch.state) {
@@ -3138,6 +3190,11 @@ final class ContentViewModel: ObservableObject {
                     state.touches.remove(key)
                 }
             }
+            let dictationHoldSide = voiceDictationHoldSide(leftTouches: leftTouches, rightTouches: rightTouches)
+            let dictationGestureEngaged = updateVoiceDictationGesture(
+                holdSide: dictationHoldSide,
+                now: now
+            )
 
             let centroid: CGPoint? = contactCount > 0
                 ? CGPoint(x: sumX / CGFloat(contactCount), y: sumY / CGFloat(contactCount))
@@ -3175,6 +3232,14 @@ final class ContentViewModel: ObservableObject {
                 isTypingCommitted = false
             }
             let suppressTapClicks = isTypingEnabled && (graceActive || isTypingCommitted)
+            if dictationGestureEngaged {
+                twoFingerTapCandidate = nil
+                threeFingerTapCandidate = nil
+                twoFingerTapDetected = false
+                threeFingerTapDetected = false
+                awaitingSecondTap = false
+                doubleTapDeadline = nil
+            }
             guard contactCount > 0 else {
                 state.touches.removeAll()
                 if gestureContactCount == 0, !momentaryLayerTouches.isEmpty {
@@ -3207,6 +3272,15 @@ final class ContentViewModel: ObservableObject {
                 intentState = state
                 updateIntentDisplayIfNeeded()
                 return true
+            }
+
+            if dictationGestureEngaged {
+                state.lastContactCount = contactCount
+                state.mode = .gestureCandidate(start: voiceDictationGestureState.holdStart > 0 ? voiceDictationGestureState.holdStart : now)
+                suppressKeyProcessing(for: intentCurrentKeys)
+                intentState = state
+                updateIntentDisplayIfNeeded()
+                return false
             }
 
             if keyboardOnly {
@@ -3432,6 +3506,111 @@ final class ContentViewModel: ObservableObject {
                 toggleTypingMode()
             } else {
                 fiveFingerSwipeState = state
+            }
+        }
+
+        private func voiceDictationHoldSide(
+            leftTouches: [OMSRawTouch],
+            rightTouches: [OMSRawTouch]
+        ) -> TrackpadSide? {
+            var leftContactCount = 0
+            var topNearLeftEdge = false
+            var bottomNearLeftEdge = false
+            for touch in leftTouches {
+                guard Self.isDictationContactState(touch.state) else { continue }
+                leftContactCount += 1
+                let x = CGFloat(touch.posX)
+                let y = CGFloat(1.0 - touch.posY)
+                if x <= voiceDictationLeftEdgeMaxX, y <= voiceDictationTopMaxY {
+                    topNearLeftEdge = true
+                }
+                if x <= voiceDictationLeftEdgeMaxX, y >= voiceDictationBottomMinY {
+                    bottomNearLeftEdge = true
+                }
+            }
+
+            var rightContactCount = 0
+            var topNearRightEdge = false
+            var bottomNearRightEdge = false
+            for touch in rightTouches {
+                guard Self.isDictationContactState(touch.state) else { continue }
+                rightContactCount += 1
+                let x = CGFloat(touch.posX)
+                let y = CGFloat(1.0 - touch.posY)
+                if x >= voiceDictationRightEdgeMinX, y <= voiceDictationTopMaxY {
+                    topNearRightEdge = true
+                }
+                if x >= voiceDictationRightEdgeMinX, y >= voiceDictationBottomMinY {
+                    bottomNearRightEdge = true
+                }
+            }
+
+            let leftHold = leftContactCount == 2
+                && rightContactCount == 0
+                && topNearLeftEdge
+                && bottomNearLeftEdge
+            if leftHold { return .left }
+
+            let rightHold = rightContactCount == 2
+                && leftContactCount == 0
+                && topNearRightEdge
+                && bottomNearRightEdge
+            if rightHold { return .right }
+
+            return nil
+        }
+
+        private func updateVoiceDictationGesture(
+            holdSide: TrackpadSide?,
+            now: TimeInterval
+        ) -> Bool {
+            var state = voiceDictationGestureState
+            if let holdSide {
+                if state.isDictating, state.side != holdSide {
+                    VoiceDictationManager.shared.endSession()
+                    if let previousSide = state.side {
+                        playHapticIfNeeded(on: previousSide)
+                    }
+                    state.isDictating = false
+                }
+                if !state.holdCandidateActive || state.side != holdSide {
+                    state.holdCandidateActive = true
+                    state.holdStart = now
+                    state.side = holdSide
+                } else if !state.isDictating, now - state.holdStart >= voiceDictationHoldSeconds {
+                    state.isDictating = true
+                    playHapticIfNeeded(on: holdSide)
+                    VoiceDictationManager.shared.beginSession()
+                }
+            } else {
+                state.holdCandidateActive = false
+                state.holdStart = 0
+                if state.isDictating {
+                    state.isDictating = false
+                    if let side = state.side {
+                        playHapticIfNeeded(on: side)
+                    }
+                    VoiceDictationManager.shared.endSession()
+                }
+                state.side = nil
+            }
+            voiceDictationGestureState = state
+            let isActive = state.holdCandidateActive || state.isDictating
+            if voiceGestureActive != isActive {
+                voiceGestureActive = isActive
+                onVoiceGestureChanged(isActive)
+            }
+            return isActive
+        }
+
+        private func stopVoiceDictationGesture() {
+            if voiceDictationGestureState.isDictating {
+                VoiceDictationManager.shared.endSession()
+            }
+            voiceDictationGestureState = VoiceDictationGestureState()
+            if voiceGestureActive {
+                voiceGestureActive = false
+                onVoiceGestureChanged(false)
             }
         }
 
@@ -3997,6 +4176,7 @@ final class ContentViewModel: ObservableObject {
                 postKey(binding: commandBinding, keyDown: false)
                 commandTouchCount = 0
             }
+            stopVoiceDictationGesture()
             var activeTouchKeys: [TouchKey] = []
             touchStates.forEach { key, state in
                 if case .active = state {

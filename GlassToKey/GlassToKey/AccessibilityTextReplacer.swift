@@ -5,39 +5,38 @@ import Foundation
 final class AccessibilityTextReplacer: @unchecked Sendable {
     private let maxDurationNs: UInt64 = 20_000_000
 
+    func insertTextAtCaret(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
+        guard let element = focusedEditableElement() else { return false }
+        let startTime = DispatchTime.now().uptimeNanoseconds
+        guard let originalCaret = copySelectedRange(element: element),
+              originalCaret.length == 0 else {
+            return false
+        }
+        let targetStart = originalCaret.location
+        let setTextResult = AXUIElementSetAttributeValue(
+            element,
+            kAXSelectedTextAttribute as CFString,
+            text as CFString
+        )
+        guard setTextResult == .success else { return false }
+        return verifyInsertion(
+            element: element,
+            targetStart: targetStart,
+            insertedText: text,
+            originalCaret: originalCaret,
+            startTime: startTime
+        )
+    }
+
     func replaceLastWord(
         wordLength: Int,
         boundaryLength: Int,
         replacement: String
     ) -> Bool {
         guard wordLength > 0 else { return false }
-        guard AXIsProcessTrusted() else { return false }
+        guard let element = focusedEditableElement() else { return false }
         let startTime = DispatchTime.now().uptimeNanoseconds
-
-        let system = AXUIElementCreateSystemWide()
-        var focusedValue: CFTypeRef?
-        let focusedResult = AXUIElementCopyAttributeValue(
-            system,
-            kAXFocusedUIElementAttribute as CFString,
-            &focusedValue
-        )
-        guard focusedResult == .success, let focused = focusedValue else { return false }
-        guard CFGetTypeID(focused) == AXUIElementGetTypeID() else { return false }
-        let element = unsafeDowncast(focused as AnyObject, to: AXUIElement.self)
-
-        var pid: pid_t = 0
-        let pidResult = AXUIElementGetPid(element, &pid)
-        if pidResult == .success, pid == getpid() {
-            return false
-        }
-
-        var isSettable = DarwinBoolean(false)
-        let settableResult = AXUIElementIsAttributeSettable(
-            element,
-            kAXSelectedTextRangeAttribute as CFString,
-            &isSettable
-        )
-        guard settableResult == .success, isSettable.boolValue else { return false }
 
         var rangeValue: CFTypeRef?
         let rangeResult = AXUIElementCopyAttributeValue(
@@ -158,6 +157,50 @@ final class AccessibilityTextReplacer: @unchecked Sendable {
         return false
     }
 
+    private func verifyInsertion(
+        element: AXUIElement,
+        targetStart: Int,
+        insertedText: String,
+        originalCaret: CFRange,
+        startTime: UInt64
+    ) -> Bool {
+        if elapsedNs(since: startTime) > maxDurationNs {
+            return false
+        }
+
+        let expectedCaret = targetStart + insertedText.utf16.count
+        if let selectedRange = copySelectedRange(element: element),
+           selectedRange.length == 0,
+           selectedRange.location == expectedCaret {
+            return true
+        }
+
+        var insertedRange = CFRange(location: targetStart, length: insertedText.utf16.count)
+        if let insertedRangeValue = AXValueCreate(.cfRange, &insertedRange) {
+            let setRangeResult = AXUIElementSetAttributeValue(
+                element,
+                kAXSelectedTextRangeAttribute as CFString,
+                insertedRangeValue
+            )
+            if setRangeResult == .success,
+               let selectedText = copySelectedText(element: element),
+               selectedText == insertedText {
+                var caret = CFRange(location: expectedCaret, length: 0)
+                if let caretValue = AXValueCreate(.cfRange, &caret) {
+                    _ = AXUIElementSetAttributeValue(
+                        element,
+                        kAXSelectedTextRangeAttribute as CFString,
+                        caretValue
+                    )
+                }
+                return true
+            }
+        }
+
+        restoreCaret(element: element, caret: originalCaret)
+        return false
+    }
+
     private func copySelectedText(element: AXUIElement) -> String? {
         var value: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(
@@ -201,5 +244,34 @@ final class AccessibilityTextReplacer: @unchecked Sendable {
                 value
             )
         }
+    }
+
+    private func focusedEditableElement() -> AXUIElement? {
+        guard AXIsProcessTrusted() else { return nil }
+        let system = AXUIElementCreateSystemWide()
+        var focusedValue: CFTypeRef?
+        let focusedResult = AXUIElementCopyAttributeValue(
+            system,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedValue
+        )
+        guard focusedResult == .success, let focused = focusedValue else { return nil }
+        guard CFGetTypeID(focused) == AXUIElementGetTypeID() else { return nil }
+        let element = unsafeDowncast(focused as AnyObject, to: AXUIElement.self)
+
+        var pid: pid_t = 0
+        let pidResult = AXUIElementGetPid(element, &pid)
+        if pidResult == .success, pid == getpid() {
+            return nil
+        }
+
+        var isSettable = DarwinBoolean(false)
+        let settableResult = AXUIElementIsAttributeSettable(
+            element,
+            kAXSelectedTextRangeAttribute as CFString,
+            &isSettable
+        )
+        guard settableResult == .success, isSettable.boolValue else { return nil }
+        return element
     }
 }
