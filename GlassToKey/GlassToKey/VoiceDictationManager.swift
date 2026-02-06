@@ -211,27 +211,9 @@ final class VoiceDictationManager: NSObject, @unchecked Sendable {
     }
 
     private func typeTextFallback(_ text: String) -> Bool {
-        let normalized = normalizeForASCIIKeyTyping(text)
-        guard KeySemanticMapper.canTypeASCII(normalized),
-              let strokes = KeySemanticMapper.keyStrokes(for: normalized) else {
-            return false
-        }
-        for stroke in strokes {
-            KeyEventDispatcher.shared.postKeyStroke(code: stroke.code, flags: stroke.flags)
-        }
+        guard !text.isEmpty else { return false }
+        KeyEventDispatcher.shared.postText(text)
         return true
-    }
-
-    private func normalizeForASCIIKeyTyping(_ text: String) -> String {
-        var normalized = text
-        normalized = normalized.replacingOccurrences(of: "\u{2018}", with: "'")
-        normalized = normalized.replacingOccurrences(of: "\u{2019}", with: "'")
-        normalized = normalized.replacingOccurrences(of: "\u{201C}", with: "\"")
-        normalized = normalized.replacingOccurrences(of: "\u{201D}", with: "\"")
-        normalized = normalized.replacingOccurrences(of: "\u{2013}", with: "-")
-        normalized = normalized.replacingOccurrences(of: "\u{2014}", with: "-")
-        normalized = normalized.replacingOccurrences(of: "\u{2026}", with: "...")
-        return normalized
     }
 
     private func emitStatus(_ message: String?) {
