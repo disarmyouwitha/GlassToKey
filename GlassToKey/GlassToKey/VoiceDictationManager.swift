@@ -2,9 +2,10 @@ import AppKit
 import AVFoundation
 import Carbon
 import Foundation
-import Speech
+import os
+@preconcurrency import Speech
 
-final class VoiceDictationManager: NSObject, @unchecked Sendable {
+final class VoiceDictationManager: NSObject, @unchecked Sendable, SFSpeechRecognizerDelegate {
     private final class BoolBox: @unchecked Sendable {
         var value = false
     }
@@ -16,11 +17,20 @@ final class VoiceDictationManager: NSObject, @unchecked Sendable {
         qos: .userInitiated
     )
     private let textReplacer = AccessibilityTextReplacer()
+    private let logger = Logger(
+        subsystem: "com.kyome.GlassToKey",
+        category: "VoiceDictation"
+    )
 
     private var recognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var audioEngine = AVAudioEngine()
+    private var chunkRestartWorkItem: DispatchWorkItem?
+    private var isChunkRestartInFlight = false
+    private var sessionID: UInt64 = 0
+    private var chunkIDCounter: UInt64 = 0
+    private var committedTranscript = ""
     private var latestTranscript = ""
     private var isSessionActive = false
     private var statusHandler: (@Sendable (String?) -> Void)?
@@ -45,6 +55,11 @@ final class VoiceDictationManager: NSObject, @unchecked Sendable {
 
     private func beginSessionLocked() {
         guard !isSessionActive else { return }
+        chunkRestartWorkItem?.cancel()
+        chunkRestartWorkItem = nil
+        sessionID &+= 1
+        chunkIDCounter = 0
+        isChunkRestartInFlight = false
         emitStatus("voice: requesting permission")
         guard ensureAuthorization() else { return }
         guard configureRecognitionLocked() else {
@@ -52,7 +67,7 @@ final class VoiceDictationManager: NSObject, @unchecked Sendable {
             return
         }
         isSessionActive = true
-        emitStatus("voice: listening")
+        emitStatus("voice: listening s#\(sessionID)")
     }
 
     private func ensureAuthorization() -> Bool {
@@ -110,60 +125,39 @@ final class VoiceDictationManager: NSObject, @unchecked Sendable {
     }
 
     private func configureRecognitionLocked() -> Bool {
+        teardownRecognitionLocked()
+        committedTranscript = ""
         latestTranscript = ""
         recognizer = makeAvailableRecognizer()
-        guard let recognizer, recognizer.isAvailable else { return false }
-
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        if #available(macOS 13.0, *) {
-            request.requiresOnDeviceRecognition = false
+        guard let recognizer, recognizer.isAvailable else {
+            emitStatus("voice: recognizer unavailable on start")
+            return false
         }
-        recognitionRequest = request
-
-        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            let transcript = result?.bestTranscription.formattedString
-            let isFinal = result?.isFinal ?? false
-            let hasError = error != nil
-            self?.queue.async { [weak self] in
-                guard let self else { return }
-                if let transcript, !transcript.isEmpty {
-                    self.latestTranscript = transcript
-                }
-                if hasError {
-                    self.endSessionLocked(commitTranscript: true)
-                    return
-                }
-                if isFinal, let transcript, !transcript.isEmpty {
-                    self.latestTranscript = transcript
-                }
-            }
-        }
+        recognizer.delegate = self
 
         let engine = AVAudioEngine()
-        let inputNode = engine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-            request.append(buffer)
-        }
+        _ = engine.inputNode
         engine.prepare()
 
         do {
             try engine.start()
         } catch {
-            inputNode.removeTap(onBus: 0)
-            emitStatus("voice: audio start failed")
+            emitStatus("voice: audio start failed (\(describeError(error)))")
             return false
         }
 
         audioEngine = engine
+        guard startRecognitionChunkLocked(recognizer: recognizer) else {
+            teardownRecognitionLocked()
+            return false
+        }
         return true
     }
 
     private func endSessionLocked(commitTranscript: Bool) {
         guard isSessionActive || recognitionTask != nil || recognitionRequest != nil else { return }
-        let transcript = latestTranscript
+        let transcript = mergedTranscript()
+        logger.info("voice: ending session s#\(self.sessionID, privacy: .public) commit=\(commitTranscript, privacy: .public) chars=\(transcript.count, privacy: .public)")
         teardownRecognitionLocked()
 
         guard commitTranscript else { return }
@@ -192,6 +186,10 @@ final class VoiceDictationManager: NSObject, @unchecked Sendable {
     }
 
     private func teardownRecognitionLocked() {
+        chunkRestartWorkItem?.cancel()
+        chunkRestartWorkItem = nil
+        isChunkRestartInFlight = false
+        isSessionActive = false
         if audioEngine.isRunning {
             audioEngine.stop()
         }
@@ -201,7 +199,116 @@ final class VoiceDictationManager: NSObject, @unchecked Sendable {
         recognitionTask = nil
         recognitionRequest = nil
         recognizer = nil
-        isSessionActive = false
+    }
+
+    private func startRecognitionChunkLocked(recognizer: SFSpeechRecognizer) -> Bool {
+        guard audioEngine.isRunning else {
+            emitStatus("voice: audio stopped")
+            return false
+        }
+        chunkIDCounter &+= 1
+        let chunkID = chunkIDCounter
+        isChunkRestartInFlight = false
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        request.taskHint = .dictation
+        if #available(macOS 13.0, *) {
+            request.requiresOnDeviceRecognition = false
+        }
+        recognitionRequest = request
+
+        let inputNode = audioEngine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        inputNode.removeTap(onBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak request] buffer, _ in
+            request?.append(buffer)
+        }
+
+        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            let transcript = result?.bestTranscription.formattedString
+            let isFinal = result?.isFinal ?? false
+            self?.queue.async { [weak self] in
+                guard let self else { return }
+                if let transcript, !transcript.isEmpty {
+                    self.latestTranscript = transcript
+                }
+                guard self.isSessionActive else { return }
+                if isFinal || error != nil {
+                    if let error {
+                        self.emitStatus("voice: chunk c#\(chunkID) error (\(self.describeError(error)))")
+                    } else {
+                        self.emitStatus("voice: chunk c#\(chunkID) final (len=\(transcript?.count ?? 0)); restarting")
+                    }
+                    self.commitLatestChunkLocked()
+                    self.restartRecognitionChunkLocked(reason: "result-final-or-error")
+                }
+            }
+        }
+        logger.info("voice: started chunk s#\(self.sessionID, privacy: .public) c#\(chunkID, privacy: .public)")
+        return true
+    }
+
+    private func restartRecognitionChunkLocked(reason: String) {
+        guard !isChunkRestartInFlight else {
+            logger.debug("voice: restart already in flight; reason=\(reason, privacy: .public)")
+            return
+        }
+        isChunkRestartInFlight = true
+        recognitionRequest?.endAudio()
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest = nil
+        logger.info("voice: schedule chunk restart s#\(self.sessionID, privacy: .public) reason=\(reason, privacy: .public)")
+        scheduleChunkRestartLocked(after: 0.05, attempt: 1, reason: reason)
+    }
+
+    private func scheduleChunkRestartLocked(after delay: TimeInterval, attempt: Int, reason: String) {
+        chunkRestartWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard self.isSessionActive else { return }
+            let recognizer = self.recognizer ?? self.makeAvailableRecognizer()
+            guard let recognizer else {
+                self.emitStatus("voice: restart wait (no recognizer) a#\(attempt)")
+                self.scheduleChunkRestartLocked(after: 0.25, attempt: attempt + 1, reason: reason)
+                return
+            }
+            self.recognizer = recognizer
+            recognizer.delegate = self
+            guard recognizer.isAvailable else {
+                self.emitStatus("voice: restart wait (recognizer unavailable) a#\(attempt)")
+                self.scheduleChunkRestartLocked(after: 0.25, attempt: attempt + 1, reason: reason)
+                return
+            }
+            if !self.startRecognitionChunkLocked(recognizer: recognizer) {
+                self.emitStatus("voice: restart failed a#\(attempt); retrying")
+                self.scheduleChunkRestartLocked(after: 0.25, attempt: attempt + 1, reason: reason)
+            }
+        }
+        chunkRestartWorkItem = workItem
+        queue.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func commitLatestChunkLocked() {
+        let chunk = latestTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !chunk.isEmpty else { return }
+        if committedTranscript.isEmpty {
+            committedTranscript = chunk
+        } else {
+            committedTranscript += " " + chunk
+        }
+        latestTranscript = ""
+    }
+
+    private func mergedTranscript() -> String {
+        let latest = latestTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        if committedTranscript.isEmpty {
+            return latest
+        }
+        if latest.isEmpty {
+            return committedTranscript
+        }
+        return committedTranscript + " " + latest
     }
 
     private func makeAvailableRecognizer() -> SFSpeechRecognizer? {
@@ -211,14 +318,45 @@ final class VoiceDictationManager: NSObject, @unchecked Sendable {
         ]
         for locale in preferredLocales {
             if let recognizer = SFSpeechRecognizer(locale: locale), recognizer.isAvailable {
+                recognizer.delegate = self
                 return recognizer
             }
         }
         if let recognizer = SFSpeechRecognizer(), recognizer.isAvailable {
+            recognizer.delegate = self
             return recognizer
         }
         emitStatus("voice: recognizer unavailable")
         return nil
+    }
+
+    func speechRecognizer(
+        _ speechRecognizer: SFSpeechRecognizer,
+        availabilityDidChange available: Bool
+    ) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.logger.info("voice: recognizer availability changed available=\(available, privacy: .public)")
+            guard self.isSessionActive, !available else { return }
+            self.emitStatus("voice: recognizer became unavailable; retrying")
+            self.restartRecognitionChunkLocked(reason: "recognizer-unavailable")
+        }
+    }
+
+    private func describeError(_ error: Error) -> String {
+        let nsError = error as NSError
+        var parts: [String] = [
+            "domain=\(nsError.domain)",
+            "code=\(nsError.code)"
+        ]
+        if !nsError.localizedDescription.isEmpty {
+            parts.append("desc=\(nsError.localizedDescription)")
+        }
+        if let reason = nsError.userInfo[NSLocalizedFailureReasonErrorKey] as? String,
+           !reason.isEmpty {
+            parts.append("reason=\(reason)")
+        }
+        return parts.joined(separator: ", ")
     }
 
     private func typeWithUnicodeEventsFallback(_ text: String) -> Bool {
@@ -308,6 +446,9 @@ final class VoiceDictationManager: NSObject, @unchecked Sendable {
     }
 
     private func emitStatus(_ message: String?) {
+        if let message {
+            logger.log("\(message, privacy: .public)")
+        }
         statusHandler?(message)
     }
 }

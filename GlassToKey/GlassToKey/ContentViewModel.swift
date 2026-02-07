@@ -424,7 +424,7 @@ final class ContentViewModel: ObservableObject {
             isListening = false
             Task { [processor] in
                 await processor.setListening(false)
-                await processor.resetState()
+                await processor.resetState(stopVoiceDictation: true)
             }
         }
     }
@@ -751,7 +751,7 @@ final class ContentViewModel: ObservableObject {
         guard !devices.isEmpty else { return }
         if manager.setActiveDevices(devices) {
             Task { [processor] in
-                await processor.resetState()
+                await processor.resetState(stopVoiceDictation: false)
             }
         }
         let leftIndex = leftDevice.flatMap { manager.deviceIndex(for: $0.deviceID) }
@@ -858,7 +858,7 @@ final class ContentViewModel: ObservableObject {
 
     func clearTouchState() {
         Task { [processor] in
-            await processor.resetState()
+            await processor.resetState(stopVoiceDictation: false)
         }
     }
 
@@ -1515,9 +1515,9 @@ final class ContentViewModel: ObservableObject {
         private struct VoiceDictationGestureState {
             var holdStart: TimeInterval = 0
             var holdCandidateActive = false
+            var holdDidToggle = false
             var isDictating = false
             var side: TrackpadSide?
-            var releaseGraceDeadline: TimeInterval = 0
         }
         private var chordShiftEnabled = true
         private var chordShiftState = SidePair(left: ChordShiftState(), right: ChordShiftState())
@@ -1526,7 +1526,6 @@ final class ContentViewModel: ObservableObject {
         private var voiceDictationGestureState = VoiceDictationGestureState()
         private var voiceGestureActive = false
         private let voiceDictationHoldSeconds: TimeInterval = 0.35
-        private let voiceDictationReleaseGraceSeconds: TimeInterval = 1.0
         private let voiceDictationLeftEdgeMaxX: CGFloat = 0.28
         private let voiceDictationRightEdgeMinX: CGFloat = 0.72
         private let voiceDictationTopMaxY: CGFloat = 0.28
@@ -1778,8 +1777,8 @@ final class ContentViewModel: ObservableObject {
             notifyContactCounts()
         }
 
-        func resetState() {
-            releaseHeldKeys()
+        func resetState(stopVoiceDictation: Bool = false) {
+            releaseHeldKeys(stopVoiceDictation: stopVoiceDictation)
             contactFingerCountsBySide[.left] = 0
             contactFingerCountsBySide[.right] = 0
             notifyContactCounts()
@@ -3568,46 +3567,30 @@ final class ContentViewModel: ObservableObject {
         ) -> Bool {
             var state = voiceDictationGestureState
             if let holdSide {
-                state.releaseGraceDeadline = 0
-                if state.isDictating, state.side != holdSide {
-                    VoiceDictationManager.shared.endSession()
-                    if let previousSide = state.side {
-                        playHapticIfNeeded(on: previousSide)
-                    }
-                    state.isDictating = false
-                }
                 if !state.holdCandidateActive || state.side != holdSide {
                     state.holdCandidateActive = true
+                    state.holdDidToggle = false
                     state.holdStart = now
                     state.side = holdSide
-                } else if !state.isDictating, now - state.holdStart >= voiceDictationHoldSeconds {
-                    state.isDictating = true
+                } else if !state.holdDidToggle, now - state.holdStart >= voiceDictationHoldSeconds {
+                    state.holdDidToggle = true
+                    if state.isDictating {
+                        state.isDictating = false
+                        VoiceDictationManager.shared.endSession()
+                    } else {
+                        state.isDictating = true
+                        VoiceDictationManager.shared.beginSession()
+                    }
                     playHapticIfNeeded(on: holdSide)
-                    VoiceDictationManager.shared.beginSession()
                 }
             } else {
                 state.holdCandidateActive = false
+                state.holdDidToggle = false
                 state.holdStart = 0
-                if state.isDictating {
-                    if state.releaseGraceDeadline <= 0 {
-                        state.releaseGraceDeadline = now + voiceDictationReleaseGraceSeconds
-                    }
-                    if now >= state.releaseGraceDeadline {
-                        state.isDictating = false
-                        if let side = state.side {
-                            playHapticIfNeeded(on: side)
-                        }
-                        VoiceDictationManager.shared.endSession()
-                        state.side = nil
-                        state.releaseGraceDeadline = 0
-                    }
-                } else {
-                    state.side = nil
-                    state.releaseGraceDeadline = 0
-                }
+                state.side = nil
             }
             voiceDictationGestureState = state
-            let isActive = state.holdCandidateActive || state.isDictating
+            let isActive = state.isDictating || state.holdCandidateActive
             if voiceGestureActive != isActive {
                 voiceGestureActive = isActive
                 onVoiceGestureChanged(isActive)
@@ -3756,7 +3739,7 @@ final class ContentViewModel: ObservableObject {
                 onTypingEnabledChanged(updated)
             }
             if !isTypingEnabled {
-                releaseHeldKeys()
+                releaseHeldKeys(stopVoiceDictation: false)
             }
         }
 
@@ -4120,7 +4103,7 @@ final class ContentViewModel: ObservableObject {
             keyDispatcher.postKey(code: code, flags: flags, keyDown: keyDown)
         }
 
-        private func releaseHeldKeys() {
+        private func releaseHeldKeys(stopVoiceDictation: Bool = false) {
             chordShiftState[.left] = ChordShiftState()
             chordShiftState[.right] = ChordShiftState()
             if chordShiftKeyDown {
@@ -4188,7 +4171,9 @@ final class ContentViewModel: ObservableObject {
                 postKey(binding: commandBinding, keyDown: false)
                 commandTouchCount = 0
             }
-            stopVoiceDictationGesture()
+            if stopVoiceDictation {
+                stopVoiceDictationGesture()
+            }
             var activeTouchKeys: [TouchKey] = []
             touchStates.forEach { key, state in
                 if case .active = state {
