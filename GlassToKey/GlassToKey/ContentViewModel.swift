@@ -1517,6 +1517,7 @@ final class ContentViewModel: ObservableObject {
             var holdCandidateActive = false
             var isDictating = false
             var side: TrackpadSide?
+            var releaseGraceDeadline: TimeInterval = 0
         }
         private var chordShiftEnabled = true
         private var chordShiftState = SidePair(left: ChordShiftState(), right: ChordShiftState())
@@ -1525,6 +1526,7 @@ final class ContentViewModel: ObservableObject {
         private var voiceDictationGestureState = VoiceDictationGestureState()
         private var voiceGestureActive = false
         private let voiceDictationHoldSeconds: TimeInterval = 0.35
+        private let voiceDictationReleaseGraceSeconds: TimeInterval = 1.0
         private let voiceDictationLeftEdgeMaxX: CGFloat = 0.28
         private let voiceDictationRightEdgeMinX: CGFloat = 0.72
         private let voiceDictationTopMaxY: CGFloat = 0.28
@@ -3566,6 +3568,7 @@ final class ContentViewModel: ObservableObject {
         ) -> Bool {
             var state = voiceDictationGestureState
             if let holdSide {
+                state.releaseGraceDeadline = 0
                 if state.isDictating, state.side != holdSide {
                     VoiceDictationManager.shared.endSession()
                     if let previousSide = state.side {
@@ -3586,13 +3589,22 @@ final class ContentViewModel: ObservableObject {
                 state.holdCandidateActive = false
                 state.holdStart = 0
                 if state.isDictating {
-                    state.isDictating = false
-                    if let side = state.side {
-                        playHapticIfNeeded(on: side)
+                    if state.releaseGraceDeadline <= 0 {
+                        state.releaseGraceDeadline = now + voiceDictationReleaseGraceSeconds
                     }
-                    VoiceDictationManager.shared.endSession()
+                    if now >= state.releaseGraceDeadline {
+                        state.isDictating = false
+                        if let side = state.side {
+                            playHapticIfNeeded(on: side)
+                        }
+                        VoiceDictationManager.shared.endSession()
+                        state.side = nil
+                        state.releaseGraceDeadline = 0
+                    }
+                } else {
+                    state.side = nil
+                    state.releaseGraceDeadline = 0
                 }
-                state.side = nil
             }
             voiceDictationGestureState = state
             let isActive = state.holdCandidateActive || state.isDictating
