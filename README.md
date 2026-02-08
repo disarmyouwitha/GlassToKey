@@ -92,4 +92,4 @@ Keyboard Mode’s global click blocking requires system permission:
 
 ## FUTURE
 - Adding windows support: https://github.com/disarmyouwitha/GlassToKeyForWindows
-- Based on https://github.com/vitoplantamura/MagicTrackpad2ForWindows (They should have bluetooth drivers for USB-C support soon?)$
+- Based on https://github.com/vitoplantamura/MagicTrackpad2ForWindows (They should have bluetooth drivers for USB-C support soon?)

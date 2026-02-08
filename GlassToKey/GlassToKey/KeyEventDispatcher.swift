@@ -37,6 +37,10 @@ final class KeyEventDispatcher: @unchecked Sendable {
     func postRightClick() {
         dispatcher.postRightClick()
     }
+
+    func postText(_ text: String) {
+        dispatcher.postText(text)
+    }
 }
 
 private protocol KeyDispatching: Sendable {
@@ -44,6 +48,7 @@ private protocol KeyDispatching: Sendable {
     func postKey(code: CGKeyCode, flags: CGEventFlags, keyDown: Bool, altAscii: UInt8, token: RepeatToken?)
     func postLeftClick(clickCount: Int)
     func postRightClick()
+    func postText(_ text: String)
 }
 
 private final class CGEventKeyDispatcher: @unchecked Sendable, KeyDispatching {
@@ -196,6 +201,45 @@ private final class CGEventKeyDispatcher: @unchecked Sendable, KeyDispatching {
                 }
                 mouseDown.post(tap: .cghidEventTap)
                 mouseUp.post(tap: .cghidEventTap)
+            }
+        }
+    }
+
+    func postText(_ text: String) {
+        guard !text.isEmpty else { return }
+        queue.async { [self] in
+            autoreleasepool {
+                guard let source = self.eventSource
+                    ?? CGEventSource(stateID: .hidSystemState) else {
+                    return
+                }
+                self.eventSource = source
+                guard let keyDown = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: 0,
+                    keyDown: true
+                ),
+                let keyUp = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: 0,
+                    keyDown: false
+                ) else {
+                    return
+                }
+                let utf16 = Array(text.utf16)
+                utf16.withUnsafeBufferPointer { buffer in
+                    guard let baseAddress = buffer.baseAddress else { return }
+                    keyDown.keyboardSetUnicodeString(
+                        stringLength: buffer.count,
+                        unicodeString: baseAddress
+                    )
+                    keyUp.keyboardSetUnicodeString(
+                        stringLength: buffer.count,
+                        unicodeString: baseAddress
+                    )
+                }
+                keyDown.post(tap: .cghidEventTap)
+                keyUp.post(tap: .cghidEventTap)
             }
         }
     }
