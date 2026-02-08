@@ -1,7 +1,7 @@
 ## TODO
-- start windows port
-- not sure it should be able to go into gesture mode during typing intent/typing granil
-- sometimes click types letters 
+- Short drag sometimes fires click
+- not sure it should be able to go into gesture mode during typing intent/typing grace
+- sometimes click types letters (Lifting fingers after tap)
 ###
 - normalize % to px??
 - Have Codex refactor the GUI for effiency
