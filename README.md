@@ -90,6 +90,6 @@ Keyboard Mode’s global click blocking requires system permission:
 2. Also enable **System Settings → Privacy & Security → Accessibility** for GlassToKey.
 3. Restart GlassToKey after granting permissions.
 
-## FUTURE
+## CURRENTLY:
 - Adding windows support: https://github.com/disarmyouwitha/GlassToKeyForWindows
 - Based on https://github.com/vitoplantamura/MagicTrackpad2ForWindows (They should have bluetooth drivers for USB-C support soon?)
