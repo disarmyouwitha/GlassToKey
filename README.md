@@ -3,7 +3,7 @@
 ## NOT ABANDONED, JUST MOVED:
 - https://github.com/disarmyouwitha/AppleMagicTouchstreamLP
 
-Consolidating both OSX and WIN repositories under a cooler name!
+Consolidating both OSX and WIN repositories under a more descriptive name!
 
 Windows beta available!
 
