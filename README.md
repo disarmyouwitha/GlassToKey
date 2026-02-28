@@ -3,4 +3,4 @@
 ## NOT ABANDONED, JUST MOVED:
 - https://github.com/disarmyouwitha/AppleMagicTouchstreamLP
 
-Consolidating both OSX and WIN repositories under a more descriptive name!
+Consolidating both OSX, WIN, and LINUX builds under a more descriptive name!
